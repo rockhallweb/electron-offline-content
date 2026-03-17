@@ -381,12 +381,13 @@ export class MediaCache implements MediaCacheMain {
           const currentVersion = getResolvedVersionFromPath(activeRow.relativePath);
           const nextVersion = manifestAsset.asset.resolvedVersion;
           if (currentVersion === nextVersion) {
-            this.db!.setAssetRelativePath(
+            this.db!.setAssetDownloadState(
               stagedGenerationId,
               row.namespace,
               row.itemId,
               row.assetId,
               activeRow.relativePath,
+              activeRow.mimeType,
             );
             stats.skippedAssets += 1;
             continue;
@@ -417,6 +418,7 @@ export class MediaCache implements MediaCacheMain {
         skipped_assets: stats.skippedAssets,
       });
 
+      this.cleanupObsoletePartialDownloads(downloads);
       await this.pruneExpiredDeletions();
       await this.enforceStorageLimits(downloads);
 
@@ -572,21 +574,25 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {
-    const estimatedDownloadBytes = downloads.reduce(
+    const estimatedBlobBytes = downloads.reduce(
       (sum, download) => sum + (download.byteLength ?? 0),
+      0,
+    );
+    const estimatedRemainingDownloadBytes = downloads.reduce(
+      (sum, download) => sum + this.remainingDownloadBytes(download),
       0,
     );
 
     if (this.options.maxCacheBytes !== undefined) {
-      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, "blobs"));
-      if (currentBytes + estimatedDownloadBytes > this.options.maxCacheBytes) {
-        this.emitLog("warn", "storage_limit_exceeded", {
+      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, 'blobs'));
+      if (currentBytes + estimatedBlobBytes > this.options.maxCacheBytes) {
+        this.emitLog('warn', 'storage_limit_exceeded', {
           current_bytes: currentBytes,
-          estimated_download_bytes: estimatedDownloadBytes,
+          estimated_download_bytes: estimatedBlobBytes,
           max_cache_bytes: this.options.maxCacheBytes,
         });
         throw new StorageLimitError(
-          `Estimated cache size ${currentBytes + estimatedDownloadBytes} exceeds maxCacheBytes ${this.options.maxCacheBytes}.`,
+          `Estimated cache size ${currentBytes + estimatedBlobBytes} exceeds maxCacheBytes ${this.options.maxCacheBytes}.`,
         );
       }
     }
@@ -594,14 +600,14 @@ export class MediaCache implements MediaCacheMain {
     const stats = await statfs(this.storageRoot!);
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
     const reserve = this.options.reserveFreeBytes ?? 0;
-    if (availableBytes - estimatedDownloadBytes < reserve) {
-      this.emitLog("warn", "storage_reserve_violation", {
+    if (availableBytes - estimatedRemainingDownloadBytes < reserve) {
+      this.emitLog('warn', 'storage_reserve_violation', {
         available_bytes: availableBytes,
-        estimated_download_bytes: estimatedDownloadBytes,
+        estimated_download_bytes: estimatedRemainingDownloadBytes,
         reserve_free_bytes: reserve,
       });
       throw new StorageLimitError(
-        `Estimated download size ${estimatedDownloadBytes} leaves less than reserveFreeBytes ${reserve}.`,
+        `Estimated download size ${estimatedRemainingDownloadBytes} leaves less than reserveFreeBytes ${reserve}.`,
       );
     }
   }
@@ -678,6 +684,17 @@ export class MediaCache implements MediaCacheMain {
     throw lastError;
   }
 
+  private remainingDownloadBytes(download: DownloadTarget): number {
+    const expectedBytes = download.byteLength ?? 0;
+    const partialBytes = this.partialDownloadBytes(download);
+    return Math.max(expectedBytes - partialBytes, 0);
+  }
+
+  private partialDownloadBytes(download: DownloadTarget): number {
+    const tempPath = this.partialDownloadPath(download);
+    return existsSync(tempPath) ? statSync(tempPath).size : 0;
+  }
+
   private async downloadAssetAttempt(
     download: DownloadTarget,
     destinationPath: string,
@@ -699,10 +716,10 @@ export class MediaCache implements MediaCacheMain {
         headers,
       });
 
-      if (resumeSize > 0 && response.status === 200) {
+      if (resumeSize > 0 && response.status === 416) {
         if (restartedWithoutRange) {
           throw createDownloadError(
-            `Server ignored range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            `Server rejected range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
             false,
             response.status,
           );
@@ -715,6 +732,8 @@ export class MediaCache implements MediaCacheMain {
           item_id: download.itemId,
           asset_id: download.assetId,
           resumed_bytes: resumeSize,
+          response_status: response.status,
+          content_range: response.headers.get('content-range'),
         });
         continue;
       }
@@ -733,6 +752,31 @@ export class MediaCache implements MediaCacheMain {
           isRetryableStatus(response.status),
           response.status,
         );
+      }
+
+      if (
+        resumeSize > 0 &&
+        (response.status !== 206 || parseContentRangeStart(response.headers.get('content-range')) !== resumeSize)
+      ) {
+        if (restartedWithoutRange) {
+          throw createDownloadError(
+            `Server did not honor range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            false,
+            response.status,
+          );
+        }
+
+        restartedWithoutRange = true;
+        await unlink(tempPath).catch(() => undefined);
+        this.emitLog('debug', 'asset_download_range_restart', {
+          namespace: download.namespace,
+          item_id: download.itemId,
+          asset_id: download.assetId,
+          resumed_bytes: resumeSize,
+          response_status: response.status,
+          content_range: response.headers.get('content-range'),
+        });
+        continue;
       }
 
       const nodeStream = Readable.fromWeb(
@@ -765,9 +809,10 @@ export class MediaCache implements MediaCacheMain {
     const stats = await statfs(this.storageRoot!);
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
     const reserve = this.options.reserveFreeBytes ?? 0;
-    const tempSize = statSync(tempPath).size;
-    if (availableBytes - tempSize < reserve) {
-      throw new StorageLimitError(`Committing download would violate reserveFreeBytes ${reserve}.`);
+    if (availableBytes < reserve) {
+      throw new StorageLimitError(
+        `Committing download would violate reserveFreeBytes ${reserve}.`,
+      );
     }
   }
 
@@ -781,6 +826,23 @@ export class MediaCache implements MediaCacheMain {
       sanitizeSegment(download.resolvedVersion),
       `${sanitizeSegment(download.fileName)}.part`,
     );
+  }
+
+  private cleanupObsoletePartialDownloads(downloads: DownloadTarget[]): void {
+    const tempRoot = join(this.storageRoot!, 'temp');
+    if (!existsSync(tempRoot)) {
+      return;
+    }
+
+    const resumablePaths = new Set(downloads.map((download) => this.partialDownloadPath(download)));
+    for (const filePath of listFilesRecursively(tempRoot)) {
+      if (!filePath.endsWith('.part') || resumablePaths.has(filePath)) {
+        continue;
+      }
+
+      rmSync(filePath, { force: true });
+      pruneEmptyParents(filePath, this.storageRoot!);
+    }
   }
 
   private cleanupStagedGenerationFiles(
@@ -951,6 +1013,19 @@ function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
   }
 }
 
+function listFilesRecursively(directory: string): string[] {
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  const stats = statSync(directory);
+  if (stats.isFile()) {
+    return [directory];
+  }
+
+  return readdirSync(directory).flatMap((entry) => listFilesRecursively(join(directory, entry)));
+}
+
 function findManifestAsset(
   manifest: NormalizedManifest,
   namespaceKey: string,
@@ -1096,6 +1171,15 @@ function collectErrorChain(error: Error): Error[] {
 function normalizeResponseMimeType(contentType: string | null): string | null {
   const value = contentType?.trim();
   return value && value.length > 0 ? value : null;
+}
+
+function parseContentRangeStart(contentRange: string | null): number | null {
+  if (!contentRange) {
+    return null;
+  }
+
+  const match = contentRange.match(/^bytes (\d+)-\d+\/(?:\d+|\*)$/i);
+  return match?.[1] ? Number.parseInt(match[1], 10) : null;
 }
 
 function createFileResponse(filePath: string, request: Request): Response {
