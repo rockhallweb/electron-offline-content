@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
 import { normalizeManifest } from '../../src/shared/normalize.js';
 import { ManifestValidationError } from '../../src/shared/errors.js';
-import type { ManifestInput, MediaCacheLogEvent } from '../../src/shared/types.js';
+import type { ManifestInput, MediaAssetDefinition, MediaCacheLogEvent } from '../../src/shared/types.js';
 
 describe('manifest normalization', () => {
   it('normalizes flat arrays into the default namespace', () => {
@@ -836,6 +836,25 @@ function mimeManifest(baseUrl: string): ManifestInput {
     ['json', 'sample.json', `${baseUrl}/sub.vtt`],
     ['pdf', 'sample.pdf', `${baseUrl}/main.mp4`],
   ] as const;
+  type MimeAssetId = (typeof assetDefinitions)[number][0];
+  const kindByAssetId: Record<MimeAssetId, MediaAssetDefinition['kind']> = {
+    main: 'video',
+    webm: 'video',
+    mov: 'video',
+    jpg: 'image',
+    jpeg: 'image',
+    png: 'image',
+    gif: 'image',
+    webp: 'image',
+    vtt: 'subtitle',
+    srt: 'subtitle',
+    mp3: 'audio',
+    wav: 'audio',
+    html: 'html',
+    txt: 'text',
+    json: 'document',
+    pdf: 'document',
+  };
 
   return {
     snapshotId: 'mime-types',
@@ -850,7 +869,7 @@ function mimeManifest(baseUrl: string): ManifestInput {
             assets: assetDefinitions.map(([id, fileName, url], index) => ({
               id,
               role: index === 0 ? 'primary' : id,
-              kind: id === 'vtt' ? 'subtitle' : id === 'jpg' ? 'poster' : 'document',
+              kind: kindByAssetId[id],
               fileName,
               source: {
                 url,
