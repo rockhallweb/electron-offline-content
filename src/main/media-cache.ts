@@ -18,8 +18,10 @@ import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
+import { decodeCursor } from "../shared/pagination.js";
 import { normalizeStem } from "../shared/stem.js";
 import {
+  DataValidationError,
   ManifestValidationError,
   StorageLimitError,
   SyncFailureError,
@@ -38,6 +40,12 @@ import type {
   ResolvedMediaContentItem,
   SyncProgress,
 } from "../shared/types.js";
+import {
+  findByFileStemOptionsSchema,
+  paginationInputSchema,
+  parseWithSchema,
+  stringInputSchema,
+} from "../shared/validation.js";
 import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
@@ -171,23 +179,56 @@ export class MediaCache implements MediaCacheMain {
   }
 
   async getItem(namespace: string, id: string): Promise<ResolvedMediaContentItem | null> {
+    const validatedNamespace = parseWithSchema(stringInputSchema, namespace, "item namespace");
+    const validatedId = parseWithSchema(stringInputSchema, id, "item id");
     await this.ensureInitialized();
-    return this.db!.getItem(namespace, id);
+    return this.db!.getItem(validatedNamespace, validatedId);
   }
 
   async listNamespace(namespace: string, pagination?: PaginationInput) {
+    const validatedNamespace = parseWithSchema(stringInputSchema, namespace, "namespace");
+    const validatedPagination = parseWithSchema(
+      paginationInputSchema.optional(),
+      pagination,
+      "namespace pagination input",
+    );
+    if (validatedPagination?.cursor) {
+      decodeCursor(validatedPagination.cursor);
+    }
     await this.ensureInitialized();
-    return this.db!.listNamespace(namespace, pagination);
+    return this.db!.listNamespace(validatedNamespace, validatedPagination);
   }
 
   async listNamespaceTree(prefix: string, pagination?: PaginationInput) {
+    const validatedPrefix = parseWithSchema(stringInputSchema, prefix, "namespace tree prefix");
+    const validatedPagination = parseWithSchema(
+      paginationInputSchema.optional(),
+      pagination,
+      "namespace tree pagination input",
+    );
+    if (validatedPagination?.cursor) {
+      decodeCursor(validatedPagination.cursor);
+    }
     await this.ensureInitialized();
-    return this.db!.listNamespaceTree(prefix, pagination);
+    return this.db!.listNamespaceTree(validatedPrefix, validatedPagination);
   }
 
   async findByFileStem(stem: string, options?: PaginationInput & { namespace?: string }) {
+    const validatedStem = parseWithSchema(stringInputSchema, stem, "file stem");
+    const validatedOptions = parseWithSchema(
+      findByFileStemOptionsSchema.optional(),
+      options,
+      "file stem search options",
+    );
+    if (validatedOptions?.cursor) {
+      decodeCursor(validatedOptions.cursor);
+    }
     await this.ensureInitialized();
-    return this.db!.findByFileStem(normalizeStem(stem), options?.namespace, options);
+    return this.db!.findByFileStem(
+      normalizeStem(validatedStem),
+      validatedOptions?.namespace,
+      validatedOptions,
+    );
   }
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
@@ -293,7 +334,19 @@ export class MediaCache implements MediaCacheMain {
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 
     this.db = new MediaCacheDatabase(this.storageRoot);
-    const storedStatus = this.db.loadStatus();
+    let storedStatus: MediaCacheStatus | null = null;
+    try {
+      storedStatus = this.db.loadStatus();
+    } catch (error) {
+      if (!(error instanceof DataValidationError)) {
+        throw error;
+      }
+
+      this.emitLog("warn", "status_snapshot_invalid", {
+        error_code: error.code,
+        error_message: error.message,
+      });
+    }
     if (storedStatus) {
       this.status = storedStatus;
     }

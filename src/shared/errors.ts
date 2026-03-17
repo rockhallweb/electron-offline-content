@@ -25,6 +25,13 @@ export class StorageLimitError extends MediaCacheError {
   }
 }
 
+export class DataValidationError extends MediaCacheError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, "DATA_VALIDATION_ERROR", options);
+    this.name = "DataValidationError";
+  }
+}
+
 export class SyncFailureError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "SYNC_FAILURE", options);

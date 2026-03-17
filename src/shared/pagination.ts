@@ -1,4 +1,5 @@
 import type { PaginationInput, PaginationResult } from "./types.js";
+import { cursorPayloadSchema, parseJsonWithSchema } from "./validation.js";
 
 interface DecodedCursor {
   index: number;
@@ -9,7 +10,11 @@ export function decodeCursor(cursor?: string): number {
     return 0;
   }
 
-  const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as DecodedCursor;
+  const parsed = parseJsonWithSchema(
+    Buffer.from(cursor, "base64url").toString("utf8"),
+    cursorPayloadSchema,
+    "pagination cursor",
+  ) as DecodedCursor;
   return parsed.index;
 }
 

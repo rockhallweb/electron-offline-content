@@ -16,11 +16,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MediaCache, createMediaCache } from "../../src/main/media-cache.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
-import { ManifestValidationError, StorageLimitError } from "../../src/shared/errors.js";
+import {
+  DataValidationError,
+  ManifestValidationError,
+  StorageLimitError,
+} from "../../src/shared/errors.js";
+import { MEDIA_CACHE_IPC } from "../../src/shared/ipc.js";
 import type {
   ManifestInput,
   MediaAssetDefinition,
   MediaCacheLogEvent,
+  JsonValue,
 } from "../../src/shared/types.js";
 
 describe("manifest normalization", () => {
@@ -504,6 +510,64 @@ describe("media cache sync and queries", () => {
     expect(matches.items[0]?.item.namespace).toBe("nature|archive");
     expect(matches.items[0]?.item.id).toBe("forest|loop");
     expect(matches.items[0]?.matchedAssetIds).toEqual(["main|primary"]);
+  });
+
+  it("preserves JSON.stringify semantics for undefined manifest metadata and blobs", async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "undefined-json-fields",
+      namespaces: [
+        {
+          key: "nature",
+          metadata: {
+            keep: "value",
+            drop: undefined,
+          } as unknown as Record<string, JsonValue>,
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              blobs: {
+                hero: "main",
+                drop: undefined,
+              } as unknown as Record<string, string>,
+              metadata: {
+                keep: true,
+                drop: undefined,
+              } as unknown as Record<string, JsonValue>,
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  byteLength: 9,
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                  metadata: {
+                    keep: "asset",
+                    drop: undefined,
+                  } as unknown as Record<string, JsonValue>,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await expect(cache.start()).resolves.toBeUndefined();
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.blobs).toEqual({ hero: "main" });
+    expect(item?.metadata).toEqual({ keep: true });
+    expect(item?.assets[0]?.metadata).toEqual({ keep: "asset" });
   });
 
   it("marks removed assets for deletion instead of deleting them immediately", async () => {
@@ -1687,6 +1751,202 @@ describe("media cache sync and queries", () => {
       rmSync(homeRoot, { recursive: true, force: true });
     }
   });
+
+  it("ignores invalid stored status snapshots and logs a warning", async () => {
+    const storageRoot = createStorageRoot();
+    const initialCache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await (initialCache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    const initialDb = (
+      initialCache as unknown as {
+        db: {
+          saveStatus(status: unknown, now: number): void;
+          close(): void;
+          db: { prepare(sql: string): { run(...args: unknown[]): void } };
+        };
+      }
+    ).db;
+    initialDb.saveStatus(
+      {
+        phase: "ready",
+        activeGenerationId: 1,
+        progress: null,
+        lastRun: null,
+        error: null,
+        updatedAt: 1,
+      },
+      1,
+    );
+    initialDb.db
+      .prepare(
+        `UPDATE status_snapshot
+         SET status_json = ?
+         WHERE scope_type = 'global' AND scope_key = '*'`,
+      )
+      .run('{"phase":42}');
+    initialDb.close();
+
+    const logs: MediaCacheLogEvent[] = [];
+    const cache = new MediaCache({
+      storageRoot,
+      logLevel: "warn",
+      onLog: (entry) => {
+        logs.push(entry);
+      },
+      resolveManifest: () => manifests,
+    });
+
+    const status = await cache.getStatus();
+    expect(status).toMatchObject({
+      phase: "idle",
+      activeGenerationId: null,
+      progress: null,
+      lastRun: null,
+      error: null,
+    });
+    expect(logs.some((entry) => entry.event === "status_snapshot_invalid")).toBe(true);
+  });
+
+  it("throws DataValidationError for malformed sync run stats JSON", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    const db = (
+      cache as unknown as {
+        db: {
+          createSyncRun(now: number): number;
+          getSyncRun(id: number): unknown;
+          db: { prepare(sql: string): { run(...args: unknown[]): void } };
+        };
+      }
+    ).db;
+    const runId = db.createSyncRun(1);
+    db.db
+      .prepare("UPDATE sync_runs SET stats_json = ? WHERE id = ?")
+      .run('{"totalAssets":"bad"}', runId);
+
+    expect(() => db.getSyncRun(runId)).toThrow(DataValidationError);
+  });
+
+  it.each([
+    {
+      name: "item blobs",
+      table: "items",
+      column: "blobs_json",
+      value: '{"hero":1}',
+      assetId: null,
+    },
+    {
+      name: "item metadata",
+      table: "items",
+      column: "metadata_json",
+      value: "{",
+      assetId: null,
+    },
+    {
+      name: "asset metadata",
+      table: "assets",
+      column: "metadata_json",
+      value: "{",
+      assetId: "main",
+    },
+  ])("throws DataValidationError for malformed committed $name JSON", async (testCase) => {
+    const storageRoot = createStorageRoot();
+    const cache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const db = (
+      cache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          db: { prepare(sql: string): { run(...args: unknown[]): void } };
+        };
+      }
+    ).db;
+    const activeGenerationId = db.getActiveGenerationId();
+    expect(activeGenerationId).not.toBeNull();
+
+    if (testCase.table === "items") {
+      db.db
+        .prepare(
+          `UPDATE items
+           SET ${testCase.column} = ?
+           WHERE generation_id = ? AND namespace_key = ? AND item_id = ?`,
+        )
+        .run(testCase.value, activeGenerationId, "nature", "forest");
+    } else {
+      db.db
+        .prepare(
+          `UPDATE assets
+           SET ${testCase.column} = ?
+           WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
+        )
+        .run(testCase.value, activeGenerationId, "nature", "forest", testCase.assetId);
+    }
+
+    await expect(cache.getItem("nature", "forest")).rejects.toThrow(DataValidationError);
+  });
+
+  it("rejects invalid cursor payloads before querying the database", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const invalidBase64Cursor = "!not-base64!";
+    const invalidDecodedCursor = Buffer.from(JSON.stringify({ index: -1 }), "utf8").toString(
+      "base64url",
+    );
+
+    await expect(
+      cache.listNamespace("nature", {
+        cursor: invalidBase64Cursor,
+      }),
+    ).rejects.toThrow(DataValidationError);
+    await expect(
+      cache.listNamespace("nature", {
+        cursor: invalidDecodedCursor,
+      }),
+    ).rejects.toThrow(DataValidationError);
+
+    const handlers = await createIpcHandlers(cache);
+    const db = (
+      cache as unknown as {
+        db: {
+          listNamespace(namespace: string, pagination?: unknown): unknown;
+        };
+      }
+    ).db;
+    const originalListNamespace = db.listNamespace.bind(db);
+    let dbCalled = false;
+    db.listNamespace = (namespace: string, pagination?: unknown) => {
+      dbCalled = true;
+      return originalListNamespace(namespace, pagination);
+    };
+
+    await expect(
+      handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", { limit: "10" } as unknown as {
+        limit: number;
+      }),
+    ).rejects.toThrow(DataValidationError);
+    expect(dbCalled).toBe(false);
+  });
 });
 
 function collectFiles(root: string): string[] {
@@ -1809,6 +2069,7 @@ function readFileSafe(path: string): { type: "file" | "directory" } | null {
 }
 
 type RegisterProtocolOptions = NonNullable<Parameters<MediaCache["registerProtocol"]>[0]>;
+type AttachIpcOptions = NonNullable<Parameters<MediaCache["attachIpc"]>[0]>;
 
 async function createProtocolHandler(
   cache: MediaCache,
@@ -1833,6 +2094,26 @@ async function createProtocolHandler(
   }
 
   return handler;
+}
+
+async function createIpcHandlers(
+  cache: MediaCache,
+): Promise<Map<string, (...args: unknown[]) => Promise<unknown>>> {
+  const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+  const fakeIpcMain = {
+    handle: (
+      channel: string,
+      listener: (_event: unknown, ...args: unknown[]) => Promise<unknown>,
+    ) => {
+      handlers.set(channel, (...args) => listener({}, ...args));
+    },
+  } as unknown as AttachIpcOptions["ipcMain"];
+
+  await cache.attachIpc({
+    ipcMain: fakeIpcMain,
+  });
+
+  return handlers;
 }
 
 function mimeManifest(baseUrl: string): ManifestInput {

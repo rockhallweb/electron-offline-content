@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { paginateArray } from "../shared/pagination.js";
 import type {
   FileStemMatch,
-  JsonValue,
   MediaCacheStatus,
   PaginationInput,
   PaginationResult,
@@ -12,8 +11,26 @@ import type {
   SyncRunSummary,
 } from "../shared/types.js";
 import type { NormalizedManifest } from "../shared/normalize.js";
+import {
+  activeAssetRowSchema,
+  activeGenerationRowSchema,
+  assetPathRowSchema,
+  fileStemRowSchema,
+  generationAssetKeyRowSchema,
+  jsonObjectSchema,
+  mediaCacheStatusSchema,
+  paginationInputSchema,
+  parseJsonWithSchema,
+  parseWithSchema,
+  pendingDeletionSchema,
+  statusSnapshotRowSchema,
+  stringRecordSchema,
+  stringifyWithSchema,
+  syncRunIdRowSchema,
+  syncRunRowSchema,
+  syncRunStatsSchema,
+} from "../shared/validation.js";
 
-type JsonObject = Record<string, JsonValue>;
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
@@ -23,7 +40,7 @@ export interface ActiveAssetRow {
   namespaceOrder: number;
   itemId: string;
   itemVersion: string;
-  itemKind: string;
+  itemKind: ResolvedMediaContentItem["kind"];
   itemTitle: string | null;
   itemDescription: string | null;
   itemSummary: string | null;
@@ -75,11 +92,21 @@ export class MediaCacheDatabase {
          FROM status_snapshot
          WHERE scope_type = 'global' AND scope_key = '*'`,
       )
-      .get() as { status_json: string } | undefined;
-    return row ? (JSON.parse(row.status_json) as MediaCacheStatus) : null;
+      .get();
+    if (!row) {
+      return null;
+    }
+
+    const validatedRow = parseWithSchema(statusSnapshotRowSchema, row, "status snapshot row");
+    return parseJsonWithSchema(
+      validatedRow.status_json,
+      mediaCacheStatusSchema,
+      "persisted media cache status",
+    );
   }
 
   saveStatus(status: MediaCacheStatus, now: number): void {
+    const validatedStatus = parseWithSchema(mediaCacheStatusSchema, status, "media cache status");
     this.db.exec("BEGIN");
     try {
       this.db
@@ -93,7 +120,7 @@ export class MediaCacheDatabase {
           `INSERT INTO status_snapshot (scope_type, scope_key, status_json, updated_at_ms)
            VALUES ('global', '*', ?, ?)`,
         )
-        .run(JSON.stringify(status), now);
+        .run(JSON.stringify(validatedStatus), now);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -102,12 +129,13 @@ export class MediaCacheDatabase {
   }
 
   createSyncRun(now: number): number {
+    const stats = parseWithSchema(syncRunStatsSchema, emptyStats(), "sync run stats");
     const result = this.db
       .prepare(
         `INSERT INTO sync_runs (started_at_ms, status, stats_json)
          VALUES (?, 'running', ?)`,
       )
-      .run(now, JSON.stringify(emptyStats()));
+      .run(now, JSON.stringify(stats));
     return Number(result.lastInsertRowid);
   }
 
@@ -119,13 +147,14 @@ export class MediaCacheDatabase {
     errorCode: string | null = null,
     errorMessage: string | null = null,
   ): SyncRunSummary {
+    const validatedStats = parseWithSchema(syncRunStatsSchema, stats, "sync run stats");
     this.db
       .prepare(
         `UPDATE sync_runs
          SET finished_at_ms = ?, status = ?, error_code = ?, error_message = ?, stats_json = ?
          WHERE id = ?`,
       )
-      .run(now, status, errorCode, errorMessage, JSON.stringify(stats), id);
+      .run(now, status, errorCode, errorMessage, JSON.stringify(validatedStats), id);
 
     return this.getSyncRun(id)!;
   }
@@ -137,42 +166,41 @@ export class MediaCacheDatabase {
          FROM sync_runs
          WHERE id = ?`,
       )
-      .get(id) as
-      | {
-          id: number;
-          started_at_ms: number;
-          finished_at_ms: number | null;
-          status: "running" | "success" | "error";
-          error_code: string | null;
-          error_message: string | null;
-          stats_json: string;
-        }
-      | undefined;
+      .get(id);
 
     if (!row) {
       return null;
     }
 
+    const validatedRow = parseWithSchema(syncRunRowSchema, row, "sync run row");
     return {
-      id: row.id,
-      status: row.status,
-      startedAt: row.started_at_ms,
-      finishedAt: row.finished_at_ms,
-      errorCode: row.error_code,
-      errorMessage: row.error_message,
-      stats: JSON.parse(row.stats_json) as SyncRunStats,
+      id: validatedRow.id,
+      status: validatedRow.status,
+      startedAt: validatedRow.started_at_ms,
+      finishedAt: validatedRow.finished_at_ms,
+      errorCode: validatedRow.error_code,
+      errorMessage: validatedRow.error_message,
+      stats: parseJsonWithSchema(
+        validatedRow.stats_json,
+        syncRunStatsSchema,
+        `sync run ${validatedRow.id} stats`,
+      ),
     };
   }
 
   pruneSyncHistory(limit: number): void {
-    const rows = this.db
-      .prepare(
-        `SELECT id
-         FROM sync_runs
-         ORDER BY started_at_ms DESC
-         LIMIT -1 OFFSET ?`,
-      )
-      .all(limit) as Array<{ id: number }>;
+    const rows = parseWithSchema(
+      syncRunIdRowSchema.array(),
+      this.db
+        .prepare(
+          `SELECT id
+           FROM sync_runs
+           ORDER BY started_at_ms DESC
+           LIMIT -1 OFFSET ?`,
+        )
+        .all(limit),
+      "sync run history rows",
+    );
     if (rows.length === 0) {
       return;
     }
@@ -189,8 +217,10 @@ export class MediaCacheDatabase {
          FROM active_generation
          WHERE scope_type = 'global' AND scope_key = '*'`,
       )
-      .get() as { generation_id: number } | undefined;
-    return row?.generation_id ?? null;
+      .get();
+    return row
+      ? parseWithSchema(activeGenerationRowSchema, row, "active generation row").generation_id
+      : null;
   }
 
   createStagedGeneration(manifest: NormalizedManifest, now: number): number {
@@ -242,7 +272,11 @@ export class MediaCacheDatabase {
           generationId,
           namespace.key,
           namespace.label ?? null,
-          JSON.stringify(namespace.metadata),
+          stringifyWithSchema(
+            namespace.metadata,
+            jsonObjectSchema,
+            `metadata for namespace "${namespace.key}"`,
+          ),
           namespaceOrder,
         );
 
@@ -256,8 +290,16 @@ export class MediaCacheDatabase {
             item.title ?? null,
             item.description ?? null,
             item.summary ?? null,
-            JSON.stringify(item.blobs),
-            JSON.stringify(item.metadata),
+            stringifyWithSchema(
+              item.blobs,
+              stringRecordSchema,
+              `blobs for item "${namespace.key}/${item.id}"`,
+            ),
+            stringifyWithSchema(
+              item.metadata,
+              jsonObjectSchema,
+              `metadata for item "${namespace.key}/${item.id}"`,
+            ),
             itemOrder,
           );
 
@@ -276,7 +318,11 @@ export class MediaCacheDatabase {
               asset.normalizedFileStem,
               asset.byteLength ?? null,
               JSON.stringify(asset.source),
-              JSON.stringify(asset.metadata ?? {}),
+              stringifyWithSchema(
+                asset.metadata ?? {},
+                jsonObjectSchema,
+                `metadata for asset "${namespace.key}/${item.id}/${asset.id}"`,
+              ),
               assetOrder,
             );
           });
@@ -343,41 +389,45 @@ export class MediaCacheDatabase {
   }
 
   getGenerationAssets(generationId: number): ActiveAssetRow[] {
-    return this.db
-      .prepare(
-        `SELECT
-           assets.generation_id AS generationId,
-           assets.namespace_key AS namespace,
-           generation_namespaces.order_index AS namespaceOrder,
-           items.item_id AS itemId,
-           items.version AS itemVersion,
-           items.kind AS itemKind,
-           items.title AS itemTitle,
-           items.description AS itemDescription,
-           items.summary AS itemSummary,
-           items.blobs_json AS itemBlobsJson,
-           items.metadata_json AS itemMetadataJson,
-           items.order_index AS itemOrder,
-           assets.asset_id AS assetId,
-           assets.role AS assetRole,
-           assets.kind AS assetKind,
-           assets.mime_type AS mimeType,
-           assets.byte_length AS byteLength,
-           assets.metadata_json AS assetMetadataJson,
-           assets.relative_path AS relativePath,
-           assets.file_stem AS fileStem
-         FROM assets
-         INNER JOIN items
-           ON items.generation_id = assets.generation_id
-          AND items.namespace_key = assets.namespace_key
-          AND items.item_id = assets.item_id
-         INNER JOIN generation_namespaces
-           ON generation_namespaces.generation_id = assets.generation_id
-          AND generation_namespaces.namespace_key = assets.namespace_key
-         WHERE assets.generation_id = ?
-         ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-      )
-      .all(generationId) as unknown as ActiveAssetRow[];
+    return parseWithSchema(
+      activeAssetRowSchema.array(),
+      this.db
+        .prepare(
+          `SELECT
+             assets.generation_id AS generationId,
+             assets.namespace_key AS namespace,
+             generation_namespaces.order_index AS namespaceOrder,
+             items.item_id AS itemId,
+             items.version AS itemVersion,
+             items.kind AS itemKind,
+             items.title AS itemTitle,
+             items.description AS itemDescription,
+             items.summary AS itemSummary,
+             items.blobs_json AS itemBlobsJson,
+             items.metadata_json AS itemMetadataJson,
+             items.order_index AS itemOrder,
+             assets.asset_id AS assetId,
+             assets.role AS assetRole,
+             assets.kind AS assetKind,
+             assets.mime_type AS mimeType,
+             assets.byte_length AS byteLength,
+             assets.metadata_json AS assetMetadataJson,
+             assets.relative_path AS relativePath,
+             assets.file_stem AS fileStem
+           FROM assets
+           INNER JOIN items
+             ON items.generation_id = assets.generation_id
+            AND items.namespace_key = assets.namespace_key
+            AND items.item_id = assets.item_id
+           INNER JOIN generation_namespaces
+             ON generation_namespaces.generation_id = assets.generation_id
+            AND generation_namespaces.namespace_key = assets.namespace_key
+           WHERE assets.generation_id = ?
+           ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+        )
+        .all(generationId),
+      `generation ${generationId} asset rows`,
+    );
   }
 
   activateGeneration(generationId: number, now: number): number | null {
@@ -410,18 +460,16 @@ export class MediaCacheDatabase {
   }
 
   clearPendingDeletionsForGeneration(generationId: number): void {
-    const logicalKeys = (
+    const logicalKeys = parseWithSchema(
+      generationAssetKeyRowSchema.array(),
       this.db
         .prepare(
           `SELECT namespace_key AS namespaceKey, item_id AS itemId, asset_id AS assetId
            FROM assets
            WHERE generation_id = ?`,
         )
-        .all(generationId) as Array<{
-        namespaceKey: string;
-        itemId: string;
-        assetId: string;
-      }>
+        .all(generationId),
+      `generation ${generationId} deletion rows`,
     ).map((row) => createLogicalKey(row.namespaceKey, row.itemId, row.assetId));
 
     this.deletePendingDeletions(logicalKeys);
@@ -451,13 +499,17 @@ export class MediaCacheDatabase {
   }
 
   getExpiredPendingDeletions(now: number): PendingDeletion[] {
-    return this.db
-      .prepare(
-        `SELECT logical_key AS logicalKey, relative_path AS relativePath
-         FROM pending_deletions
-         WHERE delete_after_ms <= ?`,
-      )
-      .all(now) as unknown as PendingDeletion[];
+    return parseWithSchema(
+      pendingDeletionSchema.array(),
+      this.db
+        .prepare(
+          `SELECT logical_key AS logicalKey, relative_path AS relativePath
+           FROM pending_deletions
+           WHERE delete_after_ms <= ?`,
+        )
+        .all(now),
+      "expired pending deletions",
+    );
   }
 
   deletePendingDeletions(logicalKeys: string[]): void {
@@ -483,31 +535,44 @@ export class MediaCacheDatabase {
          FROM assets
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
-      .get(activeGeneration, namespace, itemId, assetId) as
-      | { relative_path: string | null }
-      | undefined;
+      .get(activeGeneration, namespace, itemId, assetId);
 
-    if (!row?.relative_path) {
+    if (!row) {
       return null;
     }
 
-    return join(this.root, row.relative_path);
+    const validatedRow = parseWithSchema(assetPathRowSchema, row, "asset path row");
+    if (!validatedRow.relative_path) {
+      return null;
+    }
+
+    return join(this.root, validatedRow.relative_path);
   }
 
   listNamespace(
     namespace: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    const validatedPagination = parseWithSchema(
+      paginationInputSchema.optional(),
+      pagination,
+      "namespace pagination input",
+    );
     const rows = this.getResolvedRows("exact", namespace);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(buildResolvedItems(rows), validatedPagination);
   }
 
   listNamespaceTree(
     prefix: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    const validatedPagination = parseWithSchema(
+      paginationInputSchema.optional(),
+      pagination,
+      "namespace tree pagination input",
+    );
     const rows = this.getResolvedRows("tree", prefix);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(buildResolvedItems(rows), validatedPagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
@@ -545,17 +610,13 @@ export class MediaCacheDatabase {
       ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index
     `;
 
-    const matchRows = namespace
-      ? (this.db.prepare(sql).all(activeGeneration, stem, namespace) as unknown as Array<{
-          namespace: string;
-          itemId: string;
-          assetId: string;
-        }>)
-      : (this.db.prepare(sql).all(activeGeneration, stem) as unknown as Array<{
-          namespace: string;
-          itemId: string;
-          assetId: string;
-        }>);
+    const matchRows = parseWithSchema(
+      fileStemRowSchema.array(),
+      namespace
+        ? this.db.prepare(sql).all(activeGeneration, stem, namespace)
+        : this.db.prepare(sql).all(activeGeneration, stem),
+      "file stem match rows",
+    );
 
     const uniqueItemKeys = new Map<string, string[]>();
     for (const row of matchRows) {
@@ -580,7 +641,10 @@ export class MediaCacheDatabase {
       }
     }
 
-    return paginateArray(matches, pagination);
+    return paginateArray(
+      matches,
+      parseWithSchema(paginationInputSchema.optional(), pagination, "file stem pagination input"),
+    );
   }
 
   private getResolvedRows(
@@ -627,35 +691,47 @@ export class MediaCacheDatabase {
     `;
 
     if (mode === "exact") {
-      return this.db
-        .prepare(
-          `${baseSql} AND assets.namespace_key = ? ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-        )
-        .all(activeGeneration, namespace) as unknown as ActiveAssetRow[];
+      return parseWithSchema(
+        activeAssetRowSchema.array(),
+        this.db
+          .prepare(
+            `${baseSql} AND assets.namespace_key = ? ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+          )
+          .all(activeGeneration, namespace),
+        `resolved asset rows for namespace "${namespace}"`,
+      );
     }
 
     if (mode === "tree") {
-      return this.db
-        .prepare(
-          `${baseSql}
-           AND (assets.namespace_key = ? OR assets.namespace_key LIKE ?)
-           ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-        )
-        .all(activeGeneration, namespace, `${namespace}.%`) as unknown as ActiveAssetRow[];
+      return parseWithSchema(
+        activeAssetRowSchema.array(),
+        this.db
+          .prepare(
+            `${baseSql}
+             AND (assets.namespace_key = ? OR assets.namespace_key LIKE ?)
+             ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+          )
+          .all(activeGeneration, namespace, `${namespace}.%`),
+        `resolved asset rows for namespace tree "${namespace}"`,
+      );
     }
 
     if (!itemId) {
       return [];
     }
 
-    return this.db
-      .prepare(
-        `${baseSql}
-         AND assets.namespace_key = ?
-         AND items.item_id = ?
-         ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-      )
-      .all(activeGeneration, namespace, itemId) as unknown as ActiveAssetRow[];
+    return parseWithSchema(
+      activeAssetRowSchema.array(),
+      this.db
+        .prepare(
+          `${baseSql}
+           AND assets.namespace_key = ?
+           AND items.item_id = ?
+           ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+        )
+        .all(activeGeneration, namespace, itemId),
+      `resolved asset rows for item "${namespace}/${itemId}"`,
+    );
   }
 
   private migrate(): void {
@@ -767,12 +843,20 @@ function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] 
         namespace: row.namespace,
         id: row.itemId,
         version: row.itemVersion,
-        kind: row.itemKind as ResolvedMediaContentItem["kind"],
+        kind: row.itemKind,
         title: row.itemTitle ?? undefined,
         description: row.itemDescription ?? undefined,
         summary: row.itemSummary ?? undefined,
-        blobs: JSON.parse(row.itemBlobsJson) as Record<string, string>,
-        metadata: JSON.parse(row.itemMetadataJson) as JsonObject,
+        blobs: parseJsonWithSchema(
+          row.itemBlobsJson,
+          stringRecordSchema,
+          `item blobs for "${row.namespace}/${row.itemId}"`,
+        ),
+        metadata: parseJsonWithSchema(
+          row.itemMetadataJson,
+          jsonObjectSchema,
+          `item metadata for "${row.namespace}/${row.itemId}"`,
+        ),
         assets: [],
       };
       items.set(key, item);
@@ -785,7 +869,11 @@ function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] 
       mimeType: row.mimeType ?? undefined,
       byteLength: row.byteLength ?? undefined,
       url: buildMediaUrl(row.namespace, row.itemId, row.assetId),
-      metadata: JSON.parse(row.assetMetadataJson) as JsonObject,
+      metadata: parseJsonWithSchema(
+        row.assetMetadataJson,
+        jsonObjectSchema,
+        `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+      ),
     });
   }
 

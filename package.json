@@ -42,6 +42,9 @@
     "pack:smoke": "pnpm build && node scripts/pack-smoke.mjs",
     "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
   },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.5.2",
