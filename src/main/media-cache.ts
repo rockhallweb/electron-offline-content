@@ -8,17 +8,17 @@ import {
   renameSync,
   rmSync,
   statSync,
-} from "node:fs";
-import { statfs, unlink } from "node:fs/promises";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
-import type { IpcMain, Session } from "electron";
-import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
-import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
-import { normalizeStem } from "../shared/stem.js";
+} from 'node:fs';
+import { statfs, unlink } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { dirname, join } from 'node:path';
+import type { IpcMain, Session } from 'electron';
+import { MEDIA_CACHE_IPC } from '../shared/ipc.js';
+import { normalizeManifest, type NormalizedManifest } from '../shared/normalize.js';
+import { normalizeStem } from '../shared/stem.js';
 import {
   ManifestValidationError,
   StorageLimitError,
@@ -58,13 +58,12 @@ interface DownloadTarget {
   fileName: string;
   resolvedVersion: string;
   byteLength?: number;
-  logicalKey: string;
 }
 
 interface RuntimeDependencies {
   fetchImpl: typeof globalThis.fetch;
   now: () => number;
-  randomUUID: () => string;
+  sleep: (delayMs: number) => Promise<void>;
 }
 
 interface RegisterProtocolOptions {
@@ -133,7 +132,7 @@ export class MediaCache implements MediaCacheMain {
     this.deps = {
       fetchImpl: deps?.fetchImpl ?? globalThis.fetch.bind(globalThis),
       now: deps?.now ?? Date.now,
-      randomUUID: deps?.randomUUID ?? randomUUID,
+      sleep: deps?.sleep ?? sleep,
     };
     this.status = {
       phase: "idle",
@@ -408,7 +407,6 @@ export class MediaCache implements MediaCacheMain {
           fileName: manifestAsset.asset.normalizedFileName,
           resolvedVersion: manifestAsset.asset.resolvedVersion,
           byteLength: manifestAsset.asset.byteLength,
-          logicalKey: logicalKey(row.namespace, row.itemId, row.assetId),
         });
       }
 
@@ -419,6 +417,7 @@ export class MediaCache implements MediaCacheMain {
         skipped_assets: stats.skippedAssets,
       });
 
+      await this.pruneExpiredDeletions();
       await this.enforceStorageLimits(downloads);
 
       this.updateProgress((progress) => ({
@@ -438,19 +437,20 @@ export class MediaCache implements MediaCacheMain {
           resolved_version: download.resolvedVersion,
           url: download.request.url,
         });
-        const relativePath = await this.downloadAsset(download, (chunkBytes) => {
+        const { relativePath, fallbackMimeType } = await this.downloadAsset(download, (chunkBytes) => {
           stats.bytesDownloaded += chunkBytes;
           this.updateProgress((progress) => ({
             ...progress,
             bytesDownloaded: stats.bytesDownloaded,
           }));
         });
-        this.db!.setAssetRelativePath(
+        this.db!.setAssetDownloadState(
           stagedGenerationId,
           download.namespace,
           download.itemId,
           download.assetId,
           relativePath,
+          fallbackMimeType,
         );
         stats.downloadedAssets += 1;
         this.emitLog("debug", "asset_download_completed", {
@@ -510,6 +510,7 @@ export class MediaCache implements MediaCacheMain {
       });
     } catch (error) {
       if (stagedGenerationId !== null) {
+        this.cleanupStagedGenerationFiles(stagedGenerationId, this.db!.getActiveGenerationId());
         this.db!.deleteGeneration(stagedGenerationId);
       }
 
@@ -608,7 +609,7 @@ export class MediaCache implements MediaCacheMain {
   private async downloadAsset(
     download: DownloadTarget,
     onChunk: (chunkBytes: number) => void,
-  ): Promise<string> {
+  ): Promise<{ relativePath: string; fallbackMimeType: string | null }> {
     const destinationRelativePath = join(
       "blobs",
       sanitizeSegment(download.namespace),
@@ -620,15 +621,103 @@ export class MediaCache implements MediaCacheMain {
     const destinationPath = join(this.storageRoot!, destinationRelativePath);
 
     mkdirSync(dirname(destinationPath), { recursive: true });
-    mkdirSync(join(this.storageRoot!, "temp"), { recursive: true });
+    const tempPath = this.partialDownloadPath(download);
+    mkdirSync(dirname(tempPath), { recursive: true });
 
-    const tempPath = join(this.storageRoot!, "temp", `${this.deps.randomUUID()}.part`);
+    let lastError: unknown = null;
 
-    try {
+    for (let attempt = 0; attempt < TOTAL_DOWNLOAD_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.downloadAssetAttempt(download, destinationPath, destinationRelativePath, tempPath, onChunk);
+      } catch (error) {
+        lastError = error;
+
+        if (isNoSpaceError(error)) {
+          await unlink(tempPath).catch(() => undefined);
+          this.emitLog('error', 'asset_download_storage_failed', {
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            url: download.request.url,
+          });
+          throw new StorageLimitError(
+            `Disk is full while downloading ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            { cause: error },
+          );
+        }
+
+        const retryable = isRetryableDownloadError(error);
+        if (!retryable) {
+          await unlink(tempPath).catch(() => undefined);
+          throw error;
+        }
+
+        if (attempt === TOTAL_DOWNLOAD_ATTEMPTS - 1) {
+          this.emitLog('warn', 'asset_download_retry_exhausted', {
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            attempt: attempt + 1,
+            partial_path: tempPath,
+          });
+          break;
+        }
+
+        const delayMs = calculateRetryDelay(attempt);
+        this.emitLog('warn', 'asset_download_retry_scheduled', {
+          namespace: download.namespace,
+          item_id: download.itemId,
+          asset_id: download.assetId,
+          attempt: attempt + 1,
+          retry_delay_ms: delayMs,
+        });
+        await this.deps.sleep(delayMs);
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async downloadAssetAttempt(
+    download: DownloadTarget,
+    destinationPath: string,
+    destinationRelativePath: string,
+    tempPath: string,
+    onChunk: (chunkBytes: number) => void,
+  ): Promise<{ relativePath: string; fallbackMimeType: string | null }> {
+    let restartedWithoutRange = false;
+
+    for (;;) {
+      const resumeSize = existsSync(tempPath) ? statSync(tempPath).size : 0;
+      const headers = new Headers(download.request.headers);
+      if (resumeSize > 0) {
+        headers.set('range', `bytes=${resumeSize}-`);
+      }
+
       const response = await this.deps.fetchImpl(download.request.url, {
-        method: download.request.method ?? "GET",
-        headers: download.request.headers,
+        method: download.request.method ?? 'GET',
+        headers,
       });
+
+      if (resumeSize > 0 && response.status === 200) {
+        if (restartedWithoutRange) {
+          throw createDownloadError(
+            `Server ignored range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            false,
+            response.status,
+          );
+        }
+
+        restartedWithoutRange = true;
+        await unlink(tempPath).catch(() => undefined);
+        this.emitLog('debug', 'asset_download_range_restart', {
+          namespace: download.namespace,
+          item_id: download.itemId,
+          asset_id: download.assetId,
+          resumed_bytes: resumeSize,
+        });
+        continue;
+      }
 
       if (!response.ok || !response.body) {
         this.emitLog("warn", "asset_download_rejected", {
@@ -639,43 +728,36 @@ export class MediaCache implements MediaCacheMain {
           status_text: response.statusText,
           url: download.request.url,
         });
-        throw new SyncFailureError(
+        throw createDownloadError(
           `Download failed for ${download.namespace}/${download.itemId}/${download.assetId}: ${response.status} ${response.statusText}`,
+          isRetryableStatus(response.status),
+          response.status,
         );
       }
 
       const nodeStream = Readable.fromWeb(
         response.body as unknown as NodeReadableStream<Uint8Array>,
       );
-      const writeStream = createWriteStream(tempPath, { flags: "wx" });
+      const writeStream = createWriteStream(tempPath, { flags: resumeSize > 0 ? 'a' : 'w' });
 
       nodeStream.on("data", (chunk) => {
         onChunk((chunk as Buffer).byteLength);
       });
 
-      await pipeline(nodeStream, writeStream);
+      try {
+        await pipeline(nodeStream, writeStream);
+      } catch (error) {
+        throw wrapRetryableDownloadError(error);
+      }
+
       await this.ensureFileSpaceCommit(tempPath);
       mkdirSync(dirname(destinationPath), { recursive: true });
       rmSync(destinationPath, { force: true });
       renameSyncSafe(tempPath, destinationPath);
-      return destinationRelativePath;
-    } catch (error) {
-      if (existsSync(tempPath)) {
-        await unlink(tempPath).catch(() => undefined);
-      }
-      if (isNoSpaceError(error)) {
-        this.emitLog("error", "asset_download_storage_failed", {
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
-          url: download.request.url,
-        });
-        throw new StorageLimitError(
-          `Disk is full while downloading ${download.namespace}/${download.itemId}/${download.assetId}.`,
-          { cause: error },
-        );
-      }
-      throw error;
+      return {
+        relativePath: destinationRelativePath,
+        fallbackMimeType: normalizeResponseMimeType(response.headers.get('content-type')),
+      };
     }
   }
 
@@ -689,10 +771,42 @@ export class MediaCache implements MediaCacheMain {
     }
   }
 
-  private markRemovedAssetsForDeletion(
-    previousGenerationId: number,
+  private partialDownloadPath(download: DownloadTarget): string {
+    return join(
+      this.storageRoot!,
+      'temp',
+      sanitizeSegment(download.namespace),
+      sanitizeSegment(download.itemId),
+      sanitizeSegment(download.assetId),
+      sanitizeSegment(download.resolvedVersion),
+      `${sanitizeSegment(download.fileName)}.part`,
+    );
+  }
+
+  private cleanupStagedGenerationFiles(
     stagedGenerationId: number,
+    activeGenerationId: number | null,
   ): void {
+    const activePaths = new Set(
+      activeGenerationId
+        ? this.db!
+            .getGenerationAssets(activeGenerationId)
+            .flatMap((row) => (row.relativePath ? [row.relativePath] : []))
+        : [],
+    );
+
+    for (const row of this.db!.getGenerationAssets(stagedGenerationId)) {
+      if (!row.relativePath || activePaths.has(row.relativePath)) {
+        continue;
+      }
+
+      const absolutePath = join(this.storageRoot!, row.relativePath);
+      rmSync(absolutePath, { force: true });
+      pruneEmptyParents(absolutePath, this.storageRoot!);
+    }
+  }
+
+  private markRemovedAssetsForDeletion(previousGenerationId: number, stagedGenerationId: number): void {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
     const nextAssets = new Set(
       this.db!.getGenerationAssets(stagedGenerationId).map((row) =>
@@ -829,7 +943,7 @@ function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
   let current = dirname(pathToFile);
   while (current.startsWith(storageRoot) && current !== storageRoot) {
     if (existsSync(current) && readdirSync(current).length === 0) {
-      rmSync(current, { recursive: false, force: true });
+      rmSync(current, { recursive: true, force: true });
       current = dirname(current);
       continue;
     }
@@ -870,6 +984,118 @@ function getResolvedVersionFromPath(relativePath: string): string | null {
 
 function renameSyncSafe(from: string, to: string): void {
   renameSync(from, to);
+}
+
+const TOTAL_DOWNLOAD_ATTEMPTS = 4;
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+type RetryableDownloadError = Error & {
+  retryable?: boolean;
+  status?: number;
+};
+
+function calculateRetryDelay(attempt: number): number {
+  const baseDelay = 1000 * Math.pow(2, attempt);
+  const jitter = Math.floor(baseDelay * 0.25 * Math.random());
+  return baseDelay + jitter;
+}
+
+function createDownloadError(
+  message: string,
+  retryable: boolean,
+  status?: number,
+  cause?: unknown,
+): RetryableDownloadError {
+  const error = new SyncFailureError(message, cause ? { cause } : undefined) as RetryableDownloadError;
+  error.retryable = retryable;
+  error.status = status;
+  return error;
+}
+
+function wrapRetryableDownloadError(error: unknown): RetryableDownloadError {
+  if (error instanceof SyncFailureError) {
+    return error as RetryableDownloadError;
+  }
+
+  if (error instanceof Error) {
+    const wrapped = new SyncFailureError(error.message, { cause: error }) as RetryableDownloadError;
+    wrapped.retryable = hasRetryableDownloadSignal(error);
+    return wrapped;
+  }
+
+  const wrapped = new SyncFailureError(String(error)) as RetryableDownloadError;
+  wrapped.retryable = false;
+  return wrapped;
+}
+
+function isRetryableDownloadError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const candidate = error as RetryableDownloadError;
+  if (candidate.retryable !== undefined) {
+    return candidate.retryable;
+  }
+
+  return hasRetryableDownloadSignal(error);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_STATUS_CODES.has(status);
+}
+
+function isRetryableErrorCode(code: string | undefined): boolean {
+  return code !== undefined && RETRYABLE_ERROR_CODES.has(code);
+}
+
+function isRetryableMessage(message: string): boolean {
+  const value = message.toLowerCase();
+  return (
+    value.includes('aborted') ||
+    value.includes('connection') ||
+    value.includes('network') ||
+    value.includes('reset') ||
+    value.includes('socket') ||
+    value.includes('terminated') ||
+    value.includes('timeout')
+  );
+}
+
+function hasRetryableDownloadSignal(error: Error): boolean {
+  return collectErrorChain(error).some(
+    (entry) =>
+      isRetryableErrorCode((entry as NodeJS.ErrnoException).code) ||
+      isRetryableMessage(entry.message),
+  );
+}
+
+function collectErrorChain(error: Error): Error[] {
+  const chain: Error[] = [];
+  let current: unknown = error;
+
+  while (current instanceof Error && !chain.includes(current)) {
+    chain.push(current);
+    current = current.cause;
+  }
+
+  return chain;
+}
+
+function normalizeResponseMimeType(contentType: string | null): string | null {
+  const value = contentType?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
 function createFileResponse(filePath: string, request: Request): Response {

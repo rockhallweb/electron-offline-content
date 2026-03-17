@@ -1,24 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import {
-  copyFileSync,
-  mkdtempSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { MediaCache, createMediaCache } from "../../src/main/media-cache.js";
-import { normalizeManifest } from "../../src/shared/normalize.js";
-import { ManifestValidationError } from "../../src/shared/errors.js";
-import type {
-  ManifestInput,
-  MediaAssetDefinition,
-  MediaCacheLogEvent,
-} from "../../src/shared/types.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { copyFileSync, mkdtempSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
+import { normalizeManifest } from '../../src/shared/normalize.js';
+import { ManifestValidationError } from '../../src/shared/errors.js';
+import type { ManifestInput, MediaAssetDefinition, MediaCacheLogEvent } from '../../src/shared/types.js';
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -122,17 +110,62 @@ describe("media cache sync and queries", () => {
   let server: ReturnType<typeof createServer>;
   let baseUrl = "";
   let requestCounts: Record<string, number>;
+  let requestRanges: Record<string, string[]>;
   let manifests: ManifestInput;
 
   beforeAll(async () => {
     requestCounts = {};
+    requestRanges = {};
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
+      requestRanges[path] ??= [];
+      requestRanges[path].push(req.headers.range ?? '');
 
       if (path === "/broken.mp4") {
         res.writeHead(500);
         res.end("broken");
+        return;
+      }
+
+      if (path === '/retry-once.mp4') {
+        if (requestCounts[path] === 1) {
+          res.writeHead(503);
+          res.end('retry');
+          return;
+        }
+        sendStaticBody(req, res, 'retry-success', 'video/mp4');
+        return;
+      }
+
+      if (path === '/nonretryable.mp4') {
+        res.writeHead(404);
+        res.end('missing');
+        return;
+      }
+
+      if (path === '/range-ignored.mp4') {
+        sendStaticBody(req, res, 'range-ignore', 'video/mp4', { ignoreRange: true });
+        return;
+      }
+
+      if (path === '/resumable.mp4') {
+        sendStaticBody(req, res, 'resume-data', 'video/mp4');
+        return;
+      }
+
+      if (path === '/drop-after-two.mp4') {
+        sendInterruptedBody(req, res, 'retry-bytes', 'video/mp4', 2);
+        return;
+      }
+
+      if (path === '/mime-fallback.bin') {
+        sendStaticBody(req, res, 'mime-fallback', 'video/quicktime');
+        return;
+      }
+
+      if (path === '/mime-manifest.bin') {
+        sendStaticBody(req, res, 'mime-manifest', 'application/octet-stream');
         return;
       }
 
@@ -178,6 +211,7 @@ describe("media cache sync and queries", () => {
 
   beforeEach(() => {
     requestCounts = {};
+    requestRanges = {};
     manifests = {
       snapshotId: "initial",
       namespaces: [
@@ -254,7 +288,13 @@ describe("media cache sync and queries", () => {
     return mkdtempSync(join(tmpdir(), "media-cache-test-"));
   }
 
-  it("syncs a manifest, preserves manifest order, supports tree queries, and finds file stems", async () => {
+  function createNoSleepCache(options: ConstructorParameters<typeof MediaCache>[0]) {
+    return new MediaCache(options, {
+      sleep: async () => undefined,
+    });
+  }
+
+  it('syncs a manifest, preserves manifest order, supports tree queries, and finds file stems', async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -450,7 +490,7 @@ describe("media cache sync and queries", () => {
 
   it("serves the last committed snapshot on sync failure by default", async () => {
     const storageRoot = createStorageRoot();
-    const cache = createMediaCache({
+    const cache = createNoSleepCache({
       storageRoot,
       resolveManifest: () => manifests,
     });
@@ -494,7 +534,7 @@ describe("media cache sync and queries", () => {
 
   it("throws on sync failure when configured", async () => {
     const storageRoot = createStorageRoot();
-    const cache = createMediaCache({
+    const cache = createNoSleepCache({
       storageRoot,
       onSyncFailure: "throw",
       resolveManifest: () => manifests,
@@ -535,7 +575,428 @@ describe("media cache sync and queries", () => {
     expect(item?.version).toBe("v1");
   });
 
-  it("registers a protocol handler that resolves committed files only", async () => {
+  it('resumes an existing partial download across cache instances', async () => {
+    const storageRoot = createStorageRoot();
+    const partialPath = join(
+      storageRoot,
+      partialPathFor('nature', 'forest', 'main', 'v1', 'resumable.mp4'),
+    );
+    mkdirSync(join(storageRoot, 'temp'), { recursive: true });
+    mkdirSync(join(partialPath, '..'), { recursive: true });
+    writeFileSync(partialPath, 'resume');
+
+    manifests = {
+      snapshotId: 'resume',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'resumable.mp4',
+                  byteLength: 'resume-data'.length,
+                  source: {
+                    url: `${baseUrl}/resumable.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(requestRanges['/resumable.mp4']).toContain('bytes=6-');
+    expect(existsSync(partialPath)).toBe(false);
+
+    const finalPath = join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'resumable.mp4'));
+    expect(readFileSync(finalPath, 'utf8')).toBe('resume-data');
+  });
+
+  it('restarts from byte zero when a server ignores a range request', async () => {
+    const storageRoot = createStorageRoot();
+    const partialPath = join(
+      storageRoot,
+      partialPathFor('nature', 'forest', 'main', 'v1', 'range-ignored.mp4'),
+    );
+    mkdirSync(join(partialPath, '..'), { recursive: true });
+    writeFileSync(partialPath, 'range');
+
+    manifests = {
+      snapshotId: 'range-ignored',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'range-ignored.mp4',
+                  byteLength: 'range-ignore'.length,
+                  source: {
+                    url: `${baseUrl}/range-ignored.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(requestCounts['/range-ignored.mp4']).toBe(2);
+    expect(requestRanges['/range-ignored.mp4']).toEqual(['bytes=5-', '']);
+    expect(existsSync(partialPath)).toBe(false);
+  });
+
+  it('retries retryable HTTP failures and does not retry non-retryable 4xx failures', async () => {
+    const retryableRoot = createStorageRoot();
+    const retryableCache = createNoSleepCache({
+      storageRoot: retryableRoot,
+      resolveManifest: () => ({
+        snapshotId: 'retry-once',
+        namespaces: [
+          {
+            key: 'nature',
+            items: [
+              {
+                id: 'forest',
+                version: 'v1',
+                kind: 'video',
+                assets: [
+                  {
+                    id: 'main',
+                    role: 'primary',
+                    kind: 'video',
+                    fileName: 'retry-once.mp4',
+                    byteLength: 'retry-success'.length,
+                    source: {
+                      url: `${baseUrl}/retry-once.mp4`,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await retryableCache.start();
+    expect(requestCounts['/retry-once.mp4']).toBe(2);
+
+    const nonRetryableRoot = createStorageRoot();
+    const nonRetryableCache = createNoSleepCache({
+      storageRoot: nonRetryableRoot,
+      onSyncFailure: 'throw',
+      resolveManifest: () => ({
+        snapshotId: 'nonretryable',
+        namespaces: [
+          {
+            key: 'nature',
+            items: [
+              {
+                id: 'forest',
+                version: 'v1',
+                kind: 'video',
+                assets: [
+                  {
+                    id: 'main',
+                    role: 'primary',
+                    kind: 'video',
+                    fileName: 'nonretryable.mp4',
+                    byteLength: 1,
+                    source: {
+                      url: `${baseUrl}/nonretryable.mp4`,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await expect(nonRetryableCache.start()).rejects.toThrow();
+    expect(requestCounts['/nonretryable.mp4']).toBe(1);
+  });
+
+  it('preserves partial files after exhausting retryable download failures', async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: 'drop-after-two',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'drop-after-two.mp4',
+                  byteLength: 'retry-bytes'.length,
+                  source: {
+                    url: `${baseUrl}/drop-after-two.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createNoSleepCache({
+      storageRoot,
+      onSyncFailure: 'throw',
+      resolveManifest: () => manifests,
+    });
+
+    await expect(cache.start()).rejects.toThrow();
+    const partialPath = join(
+      storageRoot,
+      partialPathFor('nature', 'forest', 'main', 'v1', 'drop-after-two.mp4'),
+    );
+    expect(existsSync(partialPath)).toBe(true);
+    expect(statSync(partialPath).size).toBeGreaterThan(0);
+    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'drop-after-two.mp4')))).toBe(false);
+  });
+
+  it('cleans up newly staged blob files after a failed sync while keeping the last committed snapshot', async () => {
+    const storageRoot = createStorageRoot();
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    manifests = {
+      snapshotId: 'cleanup-failed-stage',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v2',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'retry-once.mp4',
+                  byteLength: 'retry-success'.length,
+                  source: {
+                    url: `${baseUrl}/retry-once.mp4`,
+                  },
+                },
+                {
+                  id: 'poster',
+                  role: 'poster',
+                  kind: 'poster',
+                  fileName: 'broken.mp4',
+                  byteLength: 6,
+                  source: {
+                    url: `${baseUrl}/broken.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await cache.syncNow();
+
+    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v2', 'retry-once.mp4')))).toBe(false);
+    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'main.mp4')))).toBe(true);
+    expect((await cache.getItem('nature', 'forest'))?.version).toBe('v1');
+  });
+
+  it('prunes expired deletions before enforcing storage limits', async () => {
+    let currentNow = 1_000;
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: 'small-initial',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'main.mp4',
+                  byteLength: 9,
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        maxCacheBytes: 15,
+        staleDeleteAfterMs: 10,
+        resolveManifest: () => manifests,
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await cache.start();
+
+    manifests = {
+      snapshotId: 'pending-delete',
+      namespaces: [],
+    };
+    await cache.syncNow();
+
+    currentNow = 2_000;
+    manifests = {
+      snapshotId: 'after-prune',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'forest',
+              version: 'v2',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'flower.mp4',
+                  byteLength: 12,
+                  source: {
+                    url: `${baseUrl}/flower.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await expect(cache.syncNow()).resolves.toBeUndefined();
+    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'main.mp4')))).toBe(false);
+    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v2', 'flower.mp4')))).toBe(true);
+  });
+
+  it('uses response content type only as a mimeType fallback', async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: 'mime-fallback',
+      namespaces: [
+        {
+          key: 'nature',
+          items: [
+            {
+              id: 'fallback',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'mime-fallback.bin',
+                  byteLength: 'mime-fallback'.length,
+                  source: {
+                    url: `${baseUrl}/mime-fallback.bin`,
+                  },
+                },
+              ],
+            },
+            {
+              id: 'manifest',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main',
+                  role: 'primary',
+                  kind: 'video',
+                  mimeType: 'video/mp4',
+                  fileName: 'mime-manifest.bin',
+                  byteLength: 'mime-manifest'.length,
+                  source: {
+                    url: `${baseUrl}/mime-manifest.bin`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const fallbackItem = await cache.getItem('nature', 'fallback');
+    expect(fallbackItem?.assets[0]?.mimeType).toBe('video/quicktime');
+
+    const manifestItem = await cache.getItem('nature', 'manifest');
+    expect(manifestItem?.assets[0]?.mimeType).toBe('video/mp4');
+  });
+
+  it('registers a protocol handler that resolves committed files only', async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -795,6 +1256,96 @@ function collectFiles(root: string): string[] {
   }
 
   return walk(root).sort();
+}
+
+function blobPathFor(
+  namespace: string,
+  itemId: string,
+  assetId: string,
+  resolvedVersion: string,
+  fileName: string,
+): string {
+  return join(
+    'blobs',
+    encodeURIComponent(namespace),
+    encodeURIComponent(itemId),
+    encodeURIComponent(assetId),
+    encodeURIComponent(resolvedVersion),
+    encodeURIComponent(fileName),
+  );
+}
+
+function partialPathFor(
+  namespace: string,
+  itemId: string,
+  assetId: string,
+  resolvedVersion: string,
+  fileName: string,
+): string {
+  return join(
+    'temp',
+    encodeURIComponent(namespace),
+    encodeURIComponent(itemId),
+    encodeURIComponent(assetId),
+    encodeURIComponent(resolvedVersion),
+    `${encodeURIComponent(fileName)}.part`,
+  );
+}
+
+function sendStaticBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  body: string,
+  contentType: string,
+  options?: { ignoreRange?: boolean },
+): void {
+  const rangeHeader = options?.ignoreRange ? null : req.headers.range;
+  if (!rangeHeader) {
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': Buffer.byteLength(body),
+    });
+    res.end(body);
+    return;
+  }
+
+  const start = parseRangeStart(rangeHeader);
+  const partial = body.slice(start);
+  res.writeHead(206, {
+    'Content-Type': contentType,
+    'Content-Length': Buffer.byteLength(partial),
+    'Content-Range': `bytes ${start}-${body.length - 1}/${body.length}`,
+  });
+  res.end(partial);
+}
+
+function sendInterruptedBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  body: string,
+  contentType: string,
+  chunkSize: number,
+): void {
+  const start = req.headers.range ? parseRangeStart(req.headers.range) : 0;
+  const chunk = body.slice(start, Math.min(start + chunkSize, body.length));
+  res.writeHead(start > 0 ? 206 : 200, {
+    'Content-Type': contentType,
+    'Content-Length': Buffer.byteLength(body.slice(start)),
+    ...(start > 0 ? { 'Content-Range': `bytes ${start}-${body.length - 1}/${body.length}` } : {}),
+  });
+  res.flushHeaders();
+  res.write(chunk);
+  setTimeout(() => {
+    res.destroy();
+  }, 5);
+}
+
+function parseRangeStart(rangeHeader: string): number {
+  const match = rangeHeader.match(/^bytes=(\d+)-$/);
+  if (!match?.[1]) {
+    throw new Error(`Unexpected range header: ${rangeHeader}`);
+  }
+  return Number.parseInt(match[1], 10);
 }
 
 function walk(path: string): string[] {
