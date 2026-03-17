@@ -523,12 +523,12 @@ describe('media cache sync and queries', () => {
       fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, 'utf8')),
     });
 
-    const response = await handler!(
+    const response = await handler(
       new Request('media://asset/nature/forest/main'),
     );
     expect(await response.text()).toBe('video-one');
 
-    const missing = await handler!(
+    const missing = await handler(
       new Request('media://asset/nature/forest/missing'),
     );
     expect(missing.status).toBe(404);
@@ -544,7 +544,7 @@ describe('media cache sync and queries', () => {
     await cache.start();
     const handler = await createProtocolHandler(cache);
 
-    const response = await handler!(
+    const response = await handler(
       new Request('media://asset/nature/forest/main', {
         headers: {
           range: 'bytes=0-4',
@@ -790,9 +790,11 @@ function readFileSafe(path: string): { type: 'file' | 'directory' } | null {
   }
 }
 
+type RegisterProtocolOptions = NonNullable<Parameters<MediaCache['registerProtocol']>[0]>;
+
 async function createProtocolHandler(
   cache: MediaCache,
-  options?: NonNullable<Parameters<MediaCache['registerProtocol']>[0]>,
+  options?: Omit<RegisterProtocolOptions, 'session'>,
 ): Promise<(request: Request) => Promise<Response>> {
   let handler: ((request: Request) => Promise<Response>) | null = null;
   const fakeSession = {
@@ -801,15 +803,18 @@ async function createProtocolHandler(
         handler = nextHandler;
       },
     },
-  } as unknown as NonNullable<Parameters<MediaCache['registerProtocol']>[0]>['session'];
+  } as unknown as RegisterProtocolOptions['session'];
 
   await cache.registerProtocol({
     ...options,
     session: fakeSession,
   });
 
-  expect(handler).not.toBeNull();
-  return handler!;
+  if (!handler) {
+    throw new Error('Protocol handler was not registered');
+  }
+
+  return handler;
 }
 
 function mimeManifest(baseUrl: string): ManifestInput {
