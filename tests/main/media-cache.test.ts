@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
 import { normalizeManifest } from '../../src/shared/normalize.js';
 import { ManifestValidationError } from '../../src/shared/errors.js';
-import type { ManifestInput, MediaCacheLogEvent } from '../../src/shared/types.js';
+import type { ManifestInput, MediaAssetDefinition, MediaCacheLogEvent } from '../../src/shared/types.js';
 
 describe('manifest normalization', () => {
   it('normalizes flat arrays into the default namespace', () => {
@@ -519,27 +519,16 @@ describe('media cache sync and queries', () => {
 
     await cache.start();
 
-    let handler: ((request: { url: string }) => Promise<Response>) | null = null;
-    const fakeSession = {
-      protocol: {
-        handle: (_scheme: string, nextHandler: (request: { url: string }) => Promise<Response>) => {
-          handler = nextHandler;
-        },
-      },
-    } as unknown as NonNullable<Parameters<MediaCache['registerProtocol']>[0]>['session'];
-
-    await cache.registerProtocol({
-      session: fakeSession,
+    const handler = await createProtocolHandler(cache, {
       fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, 'utf8')),
     });
 
-    expect(handler).not.toBeNull();
-    const response = await handler!(
+    const response = await handler(
       new Request('media://asset/nature/forest/main'),
     );
     expect(await response.text()).toBe('video-one');
 
-    const missing = await handler!(
+    const missing = await handler(
       new Request('media://asset/nature/forest/missing'),
     );
     expect(missing.status).toBe(404);
@@ -553,22 +542,9 @@ describe('media cache sync and queries', () => {
     });
 
     await cache.start();
+    const handler = await createProtocolHandler(cache);
 
-    let handler: ((request: Request) => Promise<Response>) | null = null;
-    const fakeSession = {
-      protocol: {
-        handle: (_scheme: string, nextHandler: (request: Request) => Promise<Response>) => {
-          handler = nextHandler;
-        },
-      },
-    } as unknown as NonNullable<Parameters<MediaCache['registerProtocol']>[0]>['session'];
-
-    await cache.registerProtocol({
-      session: fakeSession,
-    });
-
-    expect(handler).not.toBeNull();
-    const response = await handler!(
+    const response = await handler(
       new Request('media://asset/nature/forest/main', {
         headers: {
           range: 'bytes=0-4',
@@ -580,6 +556,141 @@ describe('media cache sync and queries', () => {
     expect(response.headers.get('accept-ranges')).toBe('bytes');
     expect(response.headers.get('content-range')).toBe('bytes 0-4/9');
     expect(await response.text()).toBe('video');
+  });
+
+  it('serves HEAD responses for committed assets', async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    const handler = await createProtocolHandler(cache);
+
+    const response = await handler(
+      new Request('media://asset/nature/forest/main', {
+        method: 'HEAD',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(response.headers.get('content-type')).toBe('video/mp4');
+    expect(response.headers.get('content-length')).toBe('9');
+    expect(await response.text()).toBe('');
+  });
+
+  it('maps the current MIME type set for committed assets', async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => mimeManifest(baseUrl),
+    });
+
+    await cache.start();
+    const handler = await createProtocolHandler(cache);
+
+    const cases = [
+      ['main', 'video/mp4'],
+      ['webm', 'video/webm'],
+      ['mov', 'video/quicktime'],
+      ['jpg', 'image/jpeg'],
+      ['jpeg', 'image/jpeg'],
+      ['png', 'image/png'],
+      ['gif', 'image/gif'],
+      ['webp', 'image/webp'],
+      ['vtt', 'text/vtt'],
+      ['srt', 'application/x-subrip'],
+      ['mp3', 'audio/mpeg'],
+      ['wav', 'audio/wav'],
+      ['html', 'text/html; charset=utf-8'],
+      ['txt', 'text/plain; charset=utf-8'],
+      ['json', 'application/json; charset=utf-8'],
+      ['pdf', 'application/pdf'],
+    ] as const;
+
+    for (const [assetId, expectedMime] of cases) {
+      const response = await handler(new Request(`media://asset/mime/types/${assetId}`));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toBe(expectedMime);
+    }
+  });
+
+  it('handles range edge cases for committed assets', async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    const handler = await createProtocolHandler(cache);
+
+    const cases = [
+      {
+        name: 'full response without range',
+        request: new Request('media://asset/nature/forest/main'),
+        expectedStatus: 200,
+        expectedBody: 'video-one',
+        expectedContentRange: null,
+      },
+      {
+        name: 'bounded range',
+        request: new Request('media://asset/nature/forest/main', {
+          headers: { range: 'bytes=0-4' },
+        }),
+        expectedStatus: 206,
+        expectedBody: 'video',
+        expectedContentRange: 'bytes 0-4/9',
+      },
+      {
+        name: 'open ended range',
+        request: new Request('media://asset/nature/forest/main', {
+          headers: { range: 'bytes=5-' },
+        }),
+        expectedStatus: 206,
+        expectedBody: '-one',
+        expectedContentRange: 'bytes 5-8/9',
+      },
+      {
+        name: 'suffix range',
+        request: new Request('media://asset/nature/forest/main', {
+          headers: { range: 'bytes=-5' },
+        }),
+        expectedStatus: 206,
+        expectedBody: 'o-one',
+        expectedContentRange: 'bytes 4-8/9',
+      },
+      {
+        name: 'invalid range',
+        request: new Request('media://asset/nature/forest/main', {
+          headers: { range: 'bytes=99-100' },
+        }),
+        expectedStatus: 416,
+        expectedBody: '',
+        expectedContentRange: 'bytes */9',
+      },
+      {
+        name: 'unsupported multi-range',
+        request: new Request('media://asset/nature/forest/main', {
+          headers: { range: 'bytes=0-1,3-4' },
+        }),
+        expectedStatus: 416,
+        expectedBody: '',
+        expectedContentRange: 'bytes */9',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const response = await handler(testCase.request);
+      expect(response.status, testCase.name).toBe(testCase.expectedStatus);
+      expect(response.headers.get('accept-ranges'), testCase.name).toBe('bytes');
+      expect(response.headers.get('content-range'), testCase.name).toBe(
+        testCase.expectedContentRange,
+      );
+      expect(await response.text(), testCase.name).toBe(testCase.expectedBody);
+    }
   });
 
   it('emits structured log events through the consumer callback', async () => {
@@ -677,4 +788,96 @@ function readFileSafe(path: string): { type: 'file' | 'directory' } | null {
   } catch {
     return null;
   }
+}
+
+type RegisterProtocolOptions = NonNullable<Parameters<MediaCache['registerProtocol']>[0]>;
+
+async function createProtocolHandler(
+  cache: MediaCache,
+  options?: Omit<RegisterProtocolOptions, 'session'>,
+): Promise<(request: Request) => Promise<Response>> {
+  let handler: ((request: Request) => Promise<Response>) | null = null;
+  const fakeSession = {
+    protocol: {
+      handle: (_scheme: string, nextHandler: (request: Request) => Promise<Response>) => {
+        handler = nextHandler;
+      },
+    },
+  } as unknown as RegisterProtocolOptions['session'];
+
+  await cache.registerProtocol({
+    ...options,
+    session: fakeSession,
+  });
+
+  if (!handler) {
+    throw new Error('Protocol handler was not registered');
+  }
+
+  return handler;
+}
+
+function mimeManifest(baseUrl: string): ManifestInput {
+  const assetDefinitions = [
+    ['main', 'sample.mp4', `${baseUrl}/main.mp4`],
+    ['webm', 'sample.webm', `${baseUrl}/main.mp4`],
+    ['mov', 'sample.mov', `${baseUrl}/main.mp4`],
+    ['jpg', 'sample.jpg', `${baseUrl}/poster.jpg`],
+    ['jpeg', 'sample.jpeg', `${baseUrl}/poster.jpg`],
+    ['png', 'sample.png', `${baseUrl}/poster.jpg`],
+    ['gif', 'sample.gif', `${baseUrl}/poster.jpg`],
+    ['webp', 'sample.webp', `${baseUrl}/poster.jpg`],
+    ['vtt', 'sample.vtt', `${baseUrl}/sub.vtt`],
+    ['srt', 'sample.srt', `${baseUrl}/sub.vtt`],
+    ['mp3', 'sample.mp3', `${baseUrl}/main.mp4`],
+    ['wav', 'sample.wav', `${baseUrl}/main.mp4`],
+    ['html', 'sample.html', `${baseUrl}/sub.vtt`],
+    ['txt', 'sample.txt', `${baseUrl}/sub.vtt`],
+    ['json', 'sample.json', `${baseUrl}/sub.vtt`],
+    ['pdf', 'sample.pdf', `${baseUrl}/main.mp4`],
+  ] as const;
+  type MimeAssetId = (typeof assetDefinitions)[number][0];
+  const kindByAssetId: Record<MimeAssetId, MediaAssetDefinition['kind']> = {
+    main: 'video',
+    webm: 'video',
+    mov: 'video',
+    jpg: 'image',
+    jpeg: 'image',
+    png: 'image',
+    gif: 'image',
+    webp: 'image',
+    vtt: 'subtitle',
+    srt: 'subtitle',
+    mp3: 'audio',
+    wav: 'audio',
+    html: 'html',
+    txt: 'text',
+    json: 'document',
+    pdf: 'document',
+  };
+
+  return {
+    snapshotId: 'mime-types',
+    namespaces: [
+      {
+        key: 'mime',
+        items: [
+          {
+            id: 'types',
+            version: 'v1',
+            kind: 'document',
+            assets: assetDefinitions.map(([id, fileName, url], index) => ({
+              id,
+              role: index === 0 ? 'primary' : id,
+              kind: kindByAssetId[id],
+              fileName,
+              source: {
+                url,
+              },
+            })),
+          },
+        ],
+      },
+    ],
+  };
 }
