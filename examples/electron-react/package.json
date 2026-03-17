@@ -1,9 +1,8 @@
 {
   "name": "@rockhallweb/electron-offline-content-example",
-  "productName": "Rock Hall Electron Offline Content Example",
   "version": "0.1.0",
-  "description": "Electron Forge + React example for @rockhallweb/electron-offline-content",
   "private": true,
+  "description": "Electron Forge + React example for @rockhallweb/electron-offline-content",
   "main": ".vite/build/main.js",
   "scripts": {
     "dev": "electron-forge start",
@@ -24,5 +23,6 @@
     "esbuild": "^0.25.9",
     "typescript": "^5.9.2",
     "vite": "^7.1.11"
-  }
+  },
+  "productName": "Rock Hall Electron Offline Content Example"
 }

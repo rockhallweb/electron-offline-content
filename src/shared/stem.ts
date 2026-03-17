@@ -1,4 +1,4 @@
-import { basename, extname } from 'node:path';
+import { basename, extname } from "node:path";
 
 export function normalizeStem(stem: string): string {
   return stem.trim().toLowerCase();

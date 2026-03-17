@@ -108,37 +108,37 @@ Call the scheme registration helper before app readiness, then create the cache,
 the protocol and IPC, and start the initial sync.
 
 ```ts
-import { app } from 'electron';
+import { app } from "electron";
 import {
   createMediaCache,
   registerMediaCacheProtocolSchemes,
-} from '@rockhallweb/electron-offline-content/main';
+} from "@rockhallweb/electron-offline-content/main";
 
 await registerMediaCacheProtocolSchemes();
 
 const mediaCache = createMediaCache({
-  logLevel: 'info',
+  logLevel: "info",
   onLog: (entry) => {
     console.log(entry);
   },
   resolveManifest: async () => ({
     namespaces: [
       {
-        key: 'nature',
+        key: "nature",
         items: [
           {
-            id: 'forest',
-            version: 'v1',
-            kind: 'video',
-            title: 'Forest',
+            id: "forest",
+            version: "v1",
+            kind: "video",
+            title: "Forest",
             assets: [
               {
-                id: 'main',
-                role: 'primary',
-                kind: 'video',
-                fileName: 'forest.mp4',
+                id: "main",
+                role: "primary",
+                kind: "video",
+                fileName: "forest.mp4",
                 source: {
-                  url: 'https://cdn.example.com/forest.v1.mp4',
+                  url: "https://cdn.example.com/forest.v1.mp4",
                 },
               },
             ],
@@ -160,7 +160,7 @@ await mediaCache.start();
 ## Preload
 
 ```ts
-import { exposeMediaCacheBridge } from '@rockhallweb/electron-offline-content/preload';
+import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
 
 exposeMediaCacheBridge();
 ```
@@ -172,11 +172,11 @@ import {
   MediaCacheProvider,
   useMediaCacheStatus,
   useMediaNamespaceTree,
-} from '@rockhallweb/electron-offline-content/react';
+} from "@rockhallweb/electron-offline-content/react";
 
 function App() {
   const status = useMediaCacheStatus();
-  const items = useMediaNamespaceTree('nature', { limit: 20 });
+  const items = useMediaNamespaceTree("nature", { limit: 20 });
 
   if (status.loading || items.loading) {
     return <div>Loading…</div>;

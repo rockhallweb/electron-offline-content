@@ -2,7 +2,7 @@ export {
   createMediaCache,
   registerMediaCacheProtocolSchemes,
   type MediaCacheMain,
-} from './media-cache.js';
+} from "./media-cache.js";
 export type {
   DownloadRequest,
   FileStemMatch,
@@ -23,10 +23,10 @@ export type {
   PaginationResult,
   ResolvedMediaContentItem,
   SyncRunSummary,
-} from '../shared/types.js';
+} from "../shared/types.js";
 export {
   ManifestValidationError,
   MediaCacheError,
   StorageLimitError,
   SyncFailureError,
-} from '../shared/errors.js';
+} from "../shared/errors.js";

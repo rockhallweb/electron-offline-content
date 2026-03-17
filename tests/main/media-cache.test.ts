@@ -1,27 +1,39 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, mkdtempSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
-import { normalizeManifest } from '../../src/shared/normalize.js';
-import { ManifestValidationError } from '../../src/shared/errors.js';
-import type { ManifestInput, MediaAssetDefinition, MediaCacheLogEvent } from '../../src/shared/types.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  copyFileSync,
+  mkdtempSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MediaCache, createMediaCache } from "../../src/main/media-cache.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
+import { ManifestValidationError } from "../../src/shared/errors.js";
+import type {
+  ManifestInput,
+  MediaAssetDefinition,
+  MediaCacheLogEvent,
+} from "../../src/shared/types.js";
 
-describe('manifest normalization', () => {
-  it('normalizes flat arrays into the default namespace', () => {
+describe("manifest normalization", () => {
+  it("normalizes flat arrays into the default namespace", () => {
     const manifest = normalizeManifest([
       {
-        id: 'item-1',
-        version: 'v1',
-        kind: 'video',
+        id: "item-1",
+        version: "v1",
+        kind: "video",
         assets: [
           {
-            id: 'main',
-            role: 'primary',
-            kind: 'video',
+            id: "main",
+            role: "primary",
+            kind: "video",
             source: {
-              url: 'https://example.com/file.mp4',
+              url: "https://example.com/file.mp4",
             },
           },
         ],
@@ -29,20 +41,20 @@ describe('manifest normalization', () => {
     ]);
 
     expect(manifest.namespaces).toHaveLength(1);
-    expect(manifest.namespaces[0]?.key).toBe('default');
-    expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe('file.mp4');
+    expect(manifest.namespaces[0]?.key).toBe("default");
+    expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe("file.mp4");
   });
 
-  it('rejects duplicate namespace keys, item ids, and asset ids', () => {
+  it("rejects duplicate namespace keys, item ids, and asset ids", () => {
     expect(() =>
       normalizeManifest({
         namespaces: [
           {
-            key: 'dup',
+            key: "dup",
             items: [],
           },
           {
-            key: 'dup',
+            key: "dup",
             items: [],
           },
         ],
@@ -53,18 +65,18 @@ describe('manifest normalization', () => {
       normalizeManifest({
         namespaces: [
           {
-            key: 'gallery',
+            key: "gallery",
             items: [
               {
-                id: 'same',
-                version: 'v1',
-                kind: 'image',
+                id: "same",
+                version: "v1",
+                kind: "image",
                 assets: [],
               },
               {
-                id: 'same',
-                version: 'v1',
-                kind: 'image',
+                id: "same",
+                version: "v1",
+                kind: "image",
                 assets: [],
               },
             ],
@@ -77,24 +89,24 @@ describe('manifest normalization', () => {
       normalizeManifest({
         namespaces: [
           {
-            key: 'gallery',
+            key: "gallery",
             items: [
               {
-                id: 'item',
-                version: 'v1',
-                kind: 'image',
+                id: "item",
+                version: "v1",
+                kind: "image",
                 assets: [
                   {
-                    id: 'dup',
-                    role: 'primary',
-                    kind: 'image',
-                    source: { url: 'https://example.com/a.jpg' },
+                    id: "dup",
+                    role: "primary",
+                    kind: "image",
+                    source: { url: "https://example.com/a.jpg" },
                   },
                   {
-                    id: 'dup',
-                    role: 'thumbnail',
-                    kind: 'thumbnail',
-                    source: { url: 'https://example.com/b.jpg' },
+                    id: "dup",
+                    role: "thumbnail",
+                    kind: "thumbnail",
+                    source: { url: "https://example.com/b.jpg" },
                   },
                 ],
               },
@@ -106,54 +118,54 @@ describe('manifest normalization', () => {
   });
 });
 
-describe('media cache sync and queries', () => {
+describe("media cache sync and queries", () => {
   let server: ReturnType<typeof createServer>;
-  let baseUrl = '';
+  let baseUrl = "";
   let requestCounts: Record<string, number>;
   let manifests: ManifestInput;
 
   beforeAll(async () => {
     requestCounts = {};
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      const path = req.url ?? '/';
+      const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
 
-      if (path === '/broken.mp4') {
+      if (path === "/broken.mp4") {
         res.writeHead(500);
-        res.end('broken');
+        res.end("broken");
         return;
       }
 
       const payloads: Record<string, string> = {
-        '/main.mp4': 'video-one',
-        '/poster.jpg': 'poster',
-        '/flower.mp4': 'flower-video',
-        '/sub.vtt': 'WEBVTT',
+        "/main.mp4": "video-one",
+        "/poster.jpg": "poster",
+        "/flower.mp4": "flower-video",
+        "/sub.vtt": "WEBVTT",
       };
       const body = payloads[path];
       if (!body) {
         res.writeHead(404);
-        res.end('missing');
+        res.end("missing");
         return;
       }
 
       res.writeHead(200, {
-        'Content-Type': path.endsWith('.jpg')
-          ? 'image/jpeg'
-          : path.endsWith('.vtt')
-            ? 'text/vtt'
-            : 'video/mp4',
-        'Content-Length': Buffer.byteLength(body),
+        "Content-Type": path.endsWith(".jpg")
+          ? "image/jpeg"
+          : path.endsWith(".vtt")
+            ? "text/vtt"
+            : "video/mp4",
+        "Content-Length": Buffer.byteLength(body),
       });
       res.end(body);
     });
 
     await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', () => resolve());
+      server.listen(0, "127.0.0.1", () => resolve());
     });
     const address = server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Expected TCP server address.');
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP server address.");
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
@@ -167,32 +179,32 @@ describe('media cache sync and queries', () => {
   beforeEach(() => {
     requestCounts = {};
     manifests = {
-      snapshotId: 'initial',
+      snapshotId: "initial",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
-              title: 'Forest',
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              title: "Forest",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'main.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
                   byteLength: 9,
                   source: {
                     url: `${baseUrl}/main.mp4`,
                   },
                 },
                 {
-                  id: 'poster',
-                  role: 'poster',
-                  kind: 'poster',
-                  fileName: 'poster.jpg',
+                  id: "poster",
+                  role: "poster",
+                  kind: "poster",
+                  fileName: "poster.jpg",
                   byteLength: 6,
                   source: {
                     url: `${baseUrl}/poster.jpg`,
@@ -203,28 +215,28 @@ describe('media cache sync and queries', () => {
           ],
         },
         {
-          key: 'nature.flowerVideos',
+          key: "nature.flowerVideos",
           items: [
             {
-              id: 'rose',
-              version: 'v1',
-              kind: 'video',
+              id: "rose",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'flower.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "flower.mp4",
                   byteLength: 12,
                   source: {
                     url: `${baseUrl}/flower.mp4`,
                   },
                 },
                 {
-                  id: 'captions',
-                  role: 'subtitle',
-                  kind: 'subtitle',
-                  fileName: 'sub.vtt',
+                  id: "captions",
+                  role: "subtitle",
+                  kind: "subtitle",
+                  fileName: "sub.vtt",
                   byteLength: 6,
                   source: {
                     url: `${baseUrl}/sub.vtt`,
@@ -239,10 +251,10 @@ describe('media cache sync and queries', () => {
   });
 
   function createStorageRoot(): string {
-    return mkdtempSync(join(tmpdir(), 'media-cache-test-'));
+    return mkdtempSync(join(tmpdir(), "media-cache-test-"));
   }
 
-  it('syncs a manifest, preserves manifest order, supports tree queries, and finds file stems', async () => {
+  it("syncs a manifest, preserves manifest order, supports tree queries, and finds file stems", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -251,26 +263,26 @@ describe('media cache sync and queries', () => {
 
     await cache.start();
 
-    const item = await cache.getItem('nature', 'forest');
-    expect(item?.title).toBe('Forest');
-    expect(item?.assets[0]?.url).toBe('media://asset/nature/forest/main');
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.title).toBe("Forest");
+    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
 
-    const namespaceList = await cache.listNamespace('nature', { limit: 10 });
-    expect(namespaceList.items.map((entry) => entry.id)).toEqual(['forest']);
+    const namespaceList = await cache.listNamespace("nature", { limit: 10 });
+    expect(namespaceList.items.map((entry) => entry.id)).toEqual(["forest"]);
 
-    const treeList = await cache.listNamespaceTree('nature', { limit: 10 });
+    const treeList = await cache.listNamespaceTree("nature", { limit: 10 });
     expect(treeList.items.map((entry) => `${entry.namespace}/${entry.id}`)).toEqual([
-      'nature/forest',
-      'nature.flowerVideos/rose',
+      "nature/forest",
+      "nature.flowerVideos/rose",
     ]);
 
-    const fileStem = await cache.findByFileStem('flower', { limit: 10 });
+    const fileStem = await cache.findByFileStem("flower", { limit: 10 });
     expect(fileStem.items).toHaveLength(1);
-    expect(fileStem.items[0]?.item.id).toBe('rose');
-    expect(fileStem.items[0]?.matchedAssetIds).toEqual(['main']);
+    expect(fileStem.items[0]?.item.id).toBe("rose");
+    expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
   });
 
-  it('skips unchanged downloads and redownloads when the version changes', async () => {
+  it("skips unchanged downloads and redownloads when the version changes", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -278,27 +290,27 @@ describe('media cache sync and queries', () => {
     });
 
     await cache.start();
-    expect(requestCounts['/main.mp4']).toBe(1);
+    expect(requestCounts["/main.mp4"]).toBe(1);
 
     await cache.syncNow();
-    expect(requestCounts['/main.mp4']).toBe(1);
+    expect(requestCounts["/main.mp4"]).toBe(1);
 
     manifests = {
-      snapshotId: 'v2',
+      snapshotId: "v2",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v2',
-              kind: 'video',
+              id: "forest",
+              version: "v2",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'main.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
                   byteLength: 9,
                   source: {
                     url: `${baseUrl}/main.mp4`,
@@ -312,10 +324,10 @@ describe('media cache sync and queries', () => {
     };
 
     await cache.syncNow();
-    expect(requestCounts['/main.mp4']).toBe(2);
+    expect(requestCounts["/main.mp4"]).toBe(2);
   });
 
-  it('reuses cached assets when stored relative paths use windows separators', async () => {
+  it("reuses cached assets when stored relative paths use windows separators", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -323,54 +335,65 @@ describe('media cache sync and queries', () => {
     });
 
     await cache.start();
-    expect(requestCounts['/main.mp4']).toBe(1);
+    expect(requestCounts["/main.mp4"]).toBe(1);
 
-    const db = (cache as unknown as { db: {
-      getActiveGenerationId(): number | null;
-      getGenerationAssets(generationId: number): Array<{ namespace: string; itemId: string; assetId: string; relativePath: string | null }>;
-      setAssetRelativePath(
-        generationId: number,
-        namespace: string,
-        itemId: string,
-        assetId: string,
-        relativePath: string,
-      ): void;
-    } }).db;
+    const db = (
+      cache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            relativePath: string | null;
+          }>;
+          setAssetRelativePath(
+            generationId: number,
+            namespace: string,
+            itemId: string,
+            assetId: string,
+            relativePath: string,
+          ): void;
+        };
+      }
+    ).db;
     const activeGenerationId = db.getActiveGenerationId();
     expect(activeGenerationId).not.toBeNull();
 
     const mainAsset = db
       .getGenerationAssets(activeGenerationId!)
-      .find((row) => row.namespace === 'nature' && row.itemId === 'forest' && row.assetId === 'main');
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      );
     expect(mainAsset?.relativePath).toBeTruthy();
 
     const originalPath = join(storageRoot, mainAsset!.relativePath!);
-    const windowsRelativePath = 'blobs\\nature\\forest\\main\\v1\\main.mp4';
+    const windowsRelativePath = "blobs\\nature\\forest\\main\\v1\\main.mp4";
     copyFileSync(originalPath, join(storageRoot, windowsRelativePath));
-    db.setAssetRelativePath(activeGenerationId!, 'nature', 'forest', 'main', windowsRelativePath);
+    db.setAssetRelativePath(activeGenerationId!, "nature", "forest", "main", windowsRelativePath);
 
     await cache.syncNow();
-    expect(requestCounts['/main.mp4']).toBe(1);
+    expect(requestCounts["/main.mp4"]).toBe(1);
   });
 
-  it('supports pipe characters in namespace, item, and asset ids', async () => {
+  it("supports pipe characters in namespace, item, and asset ids", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
-      snapshotId: 'pipe-ids',
+      snapshotId: "pipe-ids",
       namespaces: [
         {
-          key: 'nature|archive',
+          key: "nature|archive",
           items: [
             {
-              id: 'forest|loop',
-              version: 'v1',
-              kind: 'video',
+              id: "forest|loop",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main|primary',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'main.mp4',
+                  id: "main|primary",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
                   byteLength: 9,
                   source: {
                     url: `${baseUrl}/main.mp4`,
@@ -389,17 +412,19 @@ describe('media cache sync and queries', () => {
     });
 
     await cache.start();
-    const item = await cache.getItem('nature|archive', 'forest|loop');
-    expect(item?.assets[0]?.url).toBe('media://asset/nature%7Carchive/forest%7Cloop/main%7Cprimary');
+    const item = await cache.getItem("nature|archive", "forest|loop");
+    expect(item?.assets[0]?.url).toBe(
+      "media://asset/nature%7Carchive/forest%7Cloop/main%7Cprimary",
+    );
 
-    const matches = await cache.findByFileStem('main', { limit: 10 });
+    const matches = await cache.findByFileStem("main", { limit: 10 });
     expect(matches.items).toHaveLength(1);
-    expect(matches.items[0]?.item.namespace).toBe('nature|archive');
-    expect(matches.items[0]?.item.id).toBe('forest|loop');
-    expect(matches.items[0]?.matchedAssetIds).toEqual(['main|primary']);
+    expect(matches.items[0]?.item.namespace).toBe("nature|archive");
+    expect(matches.items[0]?.item.id).toBe("forest|loop");
+    expect(matches.items[0]?.matchedAssetIds).toEqual(["main|primary"]);
   });
 
-  it('marks removed assets for deletion instead of deleting them immediately', async () => {
+  it("marks removed assets for deletion instead of deleting them immediately", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -407,23 +432,23 @@ describe('media cache sync and queries', () => {
     });
 
     await cache.start();
-    const initialBlobRoot = join(storageRoot, 'blobs');
+    const initialBlobRoot = join(storageRoot, "blobs");
     const filesBefore = collectFiles(initialBlobRoot);
     expect(filesBefore.length).toBeGreaterThan(0);
 
     manifests = {
-      snapshotId: 'empty',
+      snapshotId: "empty",
       namespaces: [],
     };
 
     await cache.syncNow();
     const filesAfter = collectFiles(initialBlobRoot);
     expect(filesAfter).toEqual(filesBefore);
-    const item = await cache.getItem('nature', 'forest');
+    const item = await cache.getItem("nature", "forest");
     expect(item).toBeNull();
   });
 
-  it('serves the last committed snapshot on sync failure by default', async () => {
+  it("serves the last committed snapshot on sync failure by default", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -433,21 +458,21 @@ describe('media cache sync and queries', () => {
     await cache.start();
 
     manifests = {
-      snapshotId: 'broken',
+      snapshotId: "broken",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v2',
-              kind: 'video',
+              id: "forest",
+              version: "v2",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'broken.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "broken.mp4",
                   byteLength: 6,
                   source: {
                     url: `${baseUrl}/broken.mp4`,
@@ -461,38 +486,38 @@ describe('media cache sync and queries', () => {
     };
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
-    const item = await cache.getItem('nature', 'forest');
-    expect(item?.version).toBe('v1');
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.version).toBe("v1");
     const status = await cache.getStatus();
-    expect(status.error?.code).toBe('SYNC_FAILURE');
+    expect(status.error?.code).toBe("SYNC_FAILURE");
   });
 
-  it('throws on sync failure when configured', async () => {
+  it("throws on sync failure when configured", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
-      onSyncFailure: 'throw',
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
     await cache.start();
 
     manifests = {
-      snapshotId: 'broken',
+      snapshotId: "broken",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v2',
-              kind: 'video',
+              id: "forest",
+              version: "v2",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'broken.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "broken.mp4",
                   byteLength: 6,
                   source: {
                     url: `${baseUrl}/broken.mp4`,
@@ -505,12 +530,12 @@ describe('media cache sync and queries', () => {
       ],
     };
 
-    await expect(cache.syncNow()).rejects.toThrow();
-    const item = await cache.getItem('nature', 'forest');
-    expect(item?.version).toBe('v1');
+    await expect(cache.syncNow()).rejects.toThrow("Download failed");
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.version).toBe("v1");
   });
 
-  it('registers a protocol handler that resolves committed files only', async () => {
+  it("registers a protocol handler that resolves committed files only", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -520,21 +545,17 @@ describe('media cache sync and queries', () => {
     await cache.start();
 
     const handler = await createProtocolHandler(cache, {
-      fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, 'utf8')),
+      fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, "utf8")),
     });
 
-    const response = await handler(
-      new Request('media://asset/nature/forest/main'),
-    );
-    expect(await response.text()).toBe('video-one');
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+    expect(await response.text()).toBe("video-one");
 
-    const missing = await handler(
-      new Request('media://asset/nature/forest/missing'),
-    );
+    const missing = await handler(new Request("media://asset/nature/forest/missing"));
     expect(missing.status).toBe(404);
   });
 
-  it('serves byte ranges for committed video assets', async () => {
+  it("serves byte ranges for committed video assets", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -545,20 +566,20 @@ describe('media cache sync and queries', () => {
     const handler = await createProtocolHandler(cache);
 
     const response = await handler(
-      new Request('media://asset/nature/forest/main', {
+      new Request("media://asset/nature/forest/main", {
         headers: {
-          range: 'bytes=0-4',
+          range: "bytes=0-4",
         },
       }),
     );
 
     expect(response.status).toBe(206);
-    expect(response.headers.get('accept-ranges')).toBe('bytes');
-    expect(response.headers.get('content-range')).toBe('bytes 0-4/9');
-    expect(await response.text()).toBe('video');
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.get("content-range")).toBe("bytes 0-4/9");
+    expect(await response.text()).toBe("video");
   });
 
-  it('serves HEAD responses for committed assets', async () => {
+  it("serves HEAD responses for committed assets", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -569,19 +590,19 @@ describe('media cache sync and queries', () => {
     const handler = await createProtocolHandler(cache);
 
     const response = await handler(
-      new Request('media://asset/nature/forest/main', {
-        method: 'HEAD',
+      new Request("media://asset/nature/forest/main", {
+        method: "HEAD",
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('accept-ranges')).toBe('bytes');
-    expect(response.headers.get('content-type')).toBe('video/mp4');
-    expect(response.headers.get('content-length')).toBe('9');
-    expect(await response.text()).toBe('');
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.get("content-type")).toBe("video/mp4");
+    expect(response.headers.get("content-length")).toBe("9");
+    expect(await response.text()).toBe("");
   });
 
-  it('maps the current MIME type set for committed assets', async () => {
+  it("maps the current MIME type set for committed assets", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -592,32 +613,32 @@ describe('media cache sync and queries', () => {
     const handler = await createProtocolHandler(cache);
 
     const cases = [
-      ['main', 'video/mp4'],
-      ['webm', 'video/webm'],
-      ['mov', 'video/quicktime'],
-      ['jpg', 'image/jpeg'],
-      ['jpeg', 'image/jpeg'],
-      ['png', 'image/png'],
-      ['gif', 'image/gif'],
-      ['webp', 'image/webp'],
-      ['vtt', 'text/vtt'],
-      ['srt', 'application/x-subrip'],
-      ['mp3', 'audio/mpeg'],
-      ['wav', 'audio/wav'],
-      ['html', 'text/html; charset=utf-8'],
-      ['txt', 'text/plain; charset=utf-8'],
-      ['json', 'application/json; charset=utf-8'],
-      ['pdf', 'application/pdf'],
+      ["main", "video/mp4"],
+      ["webm", "video/webm"],
+      ["mov", "video/quicktime"],
+      ["jpg", "image/jpeg"],
+      ["jpeg", "image/jpeg"],
+      ["png", "image/png"],
+      ["gif", "image/gif"],
+      ["webp", "image/webp"],
+      ["vtt", "text/vtt"],
+      ["srt", "application/x-subrip"],
+      ["mp3", "audio/mpeg"],
+      ["wav", "audio/wav"],
+      ["html", "text/html; charset=utf-8"],
+      ["txt", "text/plain; charset=utf-8"],
+      ["json", "application/json; charset=utf-8"],
+      ["pdf", "application/pdf"],
     ] as const;
 
     for (const [assetId, expectedMime] of cases) {
       const response = await handler(new Request(`media://asset/mime/types/${assetId}`));
       expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')).toBe(expectedMime);
+      expect(response.headers.get("content-type")).toBe(expectedMime);
     }
   });
 
-  it('handles range edge cases for committed assets', async () => {
+  it("handles range edge cases for committed assets", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -629,76 +650,83 @@ describe('media cache sync and queries', () => {
 
     const cases = [
       {
-        name: 'full response without range',
-        request: new Request('media://asset/nature/forest/main'),
+        name: "full response without range",
+        request: new Request("media://asset/nature/forest/main"),
         expectedStatus: 200,
-        expectedBody: 'video-one',
+        expectedBody: "video-one",
         expectedContentRange: null,
       },
       {
-        name: 'bounded range',
-        request: new Request('media://asset/nature/forest/main', {
-          headers: { range: 'bytes=0-4' },
+        name: "bounded range",
+        request: new Request("media://asset/nature/forest/main", {
+          headers: { range: "bytes=0-4" },
         }),
         expectedStatus: 206,
-        expectedBody: 'video',
-        expectedContentRange: 'bytes 0-4/9',
+        expectedBody: "video",
+        expectedContentRange: "bytes 0-4/9",
       },
       {
-        name: 'open ended range',
-        request: new Request('media://asset/nature/forest/main', {
-          headers: { range: 'bytes=5-' },
+        name: "open ended range",
+        request: new Request("media://asset/nature/forest/main", {
+          headers: { range: "bytes=5-" },
         }),
         expectedStatus: 206,
-        expectedBody: '-one',
-        expectedContentRange: 'bytes 5-8/9',
+        expectedBody: "-one",
+        expectedContentRange: "bytes 5-8/9",
       },
       {
-        name: 'suffix range',
-        request: new Request('media://asset/nature/forest/main', {
-          headers: { range: 'bytes=-5' },
+        name: "suffix range",
+        request: new Request("media://asset/nature/forest/main", {
+          headers: { range: "bytes=-5" },
         }),
         expectedStatus: 206,
-        expectedBody: 'o-one',
-        expectedContentRange: 'bytes 4-8/9',
+        expectedBody: "o-one",
+        expectedContentRange: "bytes 4-8/9",
       },
       {
-        name: 'invalid range',
-        request: new Request('media://asset/nature/forest/main', {
-          headers: { range: 'bytes=99-100' },
+        name: "invalid range",
+        request: new Request("media://asset/nature/forest/main", {
+          headers: { range: "bytes=99-100" },
         }),
         expectedStatus: 416,
-        expectedBody: '',
-        expectedContentRange: 'bytes */9',
+        expectedBody: "",
+        expectedContentRange: "bytes */9",
       },
       {
-        name: 'unsupported multi-range',
-        request: new Request('media://asset/nature/forest/main', {
-          headers: { range: 'bytes=0-1,3-4' },
+        name: "unsupported multi-range",
+        request: new Request("media://asset/nature/forest/main", {
+          headers: { range: "bytes=0-1,3-4" },
         }),
         expectedStatus: 416,
-        expectedBody: '',
-        expectedContentRange: 'bytes */9',
+        expectedBody: "",
+        expectedContentRange: "bytes */9",
       },
     ] as const;
 
     for (const testCase of cases) {
       const response = await handler(testCase.request);
-      expect(response.status, testCase.name).toBe(testCase.expectedStatus);
-      expect(response.headers.get('accept-ranges'), testCase.name).toBe('bytes');
-      expect(response.headers.get('content-range'), testCase.name).toBe(
-        testCase.expectedContentRange,
-      );
-      expect(await response.text(), testCase.name).toBe(testCase.expectedBody);
+      expect({
+        name: testCase.name,
+        status: response.status,
+        acceptRanges: response.headers.get("accept-ranges"),
+        contentRange: response.headers.get("content-range"),
+        body: await response.text(),
+      }).toEqual({
+        name: testCase.name,
+        status: testCase.expectedStatus,
+        acceptRanges: "bytes",
+        contentRange: testCase.expectedContentRange,
+        body: testCase.expectedBody,
+      });
     }
   });
 
-  it('emits structured log events through the consumer callback', async () => {
+  it("emits structured log events through the consumer callback", async () => {
     const storageRoot = createStorageRoot();
     const logs: MediaCacheLogEvent[] = [];
     const cache = createMediaCache({
       storageRoot,
-      logLevel: 'debug',
+      logLevel: "debug",
       onLog: (entry) => {
         logs.push(entry);
       },
@@ -707,29 +735,29 @@ describe('media cache sync and queries', () => {
 
     await cache.start();
 
-    expect(logs.some((entry) => entry.event === 'cache_initialized')).toBe(true);
-    expect(logs.some((entry) => entry.event === 'sync_started')).toBe(true);
-    expect(logs.some((entry) => entry.event === 'sync_completed')).toBe(true);
-    expect(logs.some((entry) => entry.event === 'asset_download_started')).toBe(true);
-    expect(logs.every((entry) => entry.service === 'rockhallweb-electron-offline-content')).toBe(
+    expect(logs.some((entry) => entry.event === "cache_initialized")).toBe(true);
+    expect(logs.some((entry) => entry.event === "sync_started")).toBe(true);
+    expect(logs.some((entry) => entry.event === "sync_completed")).toBe(true);
+    expect(logs.some((entry) => entry.event === "asset_download_started")).toBe(true);
+    expect(logs.every((entry) => entry.service === "rockhallweb-electron-offline-content")).toBe(
       true,
     );
-    expect(logs.every((entry) => entry.component === 'media-cache')).toBe(true);
+    expect(logs.every((entry) => entry.component === "media-cache")).toBe(true);
   });
 
-  it('falls back to the default storage root when storageRoot is blank', async () => {
+  it("falls back to the default storage root when storageRoot is blank", async () => {
     const homeRoot = createStorageRoot();
     const originalHome = process.env.HOME;
     const originalLocalAppData = process.env.LOCALAPPDATA;
 
     process.env.HOME = homeRoot;
-    process.env.LOCALAPPDATA = join(homeRoot, 'AppData', 'Local');
+    process.env.LOCALAPPDATA = join(homeRoot, "AppData", "Local");
 
     try {
       const cache = new MediaCache({
-        storageRoot: '   ',
+        storageRoot: "   ",
         resolveManifest: () => ({
-          snapshotId: 'blank-storage-root',
+          snapshotId: "blank-storage-root",
           namespaces: [],
         }),
       });
@@ -738,11 +766,11 @@ describe('media cache sync and queries', () => {
 
       const activeStorageRoot = (cache as unknown as { storageRoot: string | null }).storageRoot;
       const expectedStorageRoot =
-        process.platform === 'darwin'
-          ? join(homeRoot, 'Library', 'Caches', 'electron-offline-content', 'media-cache')
-          : process.platform === 'win32'
-            ? join(homeRoot, 'AppData', 'Local', 'electron-offline-content', 'media-cache')
-            : join(homeRoot, '.cache', 'electron-offline-content', 'media-cache');
+        process.platform === "darwin"
+          ? join(homeRoot, "Library", "Caches", "electron-offline-content", "media-cache")
+          : process.platform === "win32"
+            ? join(homeRoot, "AppData", "Local", "electron-offline-content", "media-cache")
+            : join(homeRoot, ".cache", "electron-offline-content", "media-cache");
       expect(activeStorageRoot).toBe(expectedStorageRoot);
       expect(existsSync(activeStorageRoot!)).toBe(true);
     } finally {
@@ -774,27 +802,27 @@ function walk(path: string): string[] {
   if (stats === null) {
     return [];
   }
-  if (stats.type === 'file') {
+  if (stats.type === "file") {
     return [path];
   }
 
   return readdirSync(path).flatMap((entry) => walk(join(path, entry)));
 }
 
-function readFileSafe(path: string): { type: 'file' | 'directory' } | null {
+function readFileSafe(path: string): { type: "file" | "directory" } | null {
   try {
     const stats = statSync(path);
-    return { type: stats.isDirectory() ? 'directory' : 'file' };
+    return { type: stats.isDirectory() ? "directory" : "file" };
   } catch {
     return null;
   }
 }
 
-type RegisterProtocolOptions = NonNullable<Parameters<MediaCache['registerProtocol']>[0]>;
+type RegisterProtocolOptions = NonNullable<Parameters<MediaCache["registerProtocol"]>[0]>;
 
 async function createProtocolHandler(
   cache: MediaCache,
-  options?: Omit<RegisterProtocolOptions, 'session'>,
+  options?: Omit<RegisterProtocolOptions, "session">,
 ): Promise<(request: Request) => Promise<Response>> {
   let handler: ((request: Request) => Promise<Response>) | null = null;
   const fakeSession = {
@@ -803,7 +831,7 @@ async function createProtocolHandler(
         handler = nextHandler;
       },
     },
-  } as unknown as RegisterProtocolOptions['session'];
+  } as unknown as RegisterProtocolOptions["session"];
 
   await cache.registerProtocol({
     ...options,
@@ -811,7 +839,7 @@ async function createProtocolHandler(
   });
 
   if (!handler) {
-    throw new Error('Protocol handler was not registered');
+    throw new Error("Protocol handler was not registered");
   }
 
   return handler;
@@ -819,56 +847,56 @@ async function createProtocolHandler(
 
 function mimeManifest(baseUrl: string): ManifestInput {
   const assetDefinitions = [
-    ['main', 'sample.mp4', `${baseUrl}/main.mp4`],
-    ['webm', 'sample.webm', `${baseUrl}/main.mp4`],
-    ['mov', 'sample.mov', `${baseUrl}/main.mp4`],
-    ['jpg', 'sample.jpg', `${baseUrl}/poster.jpg`],
-    ['jpeg', 'sample.jpeg', `${baseUrl}/poster.jpg`],
-    ['png', 'sample.png', `${baseUrl}/poster.jpg`],
-    ['gif', 'sample.gif', `${baseUrl}/poster.jpg`],
-    ['webp', 'sample.webp', `${baseUrl}/poster.jpg`],
-    ['vtt', 'sample.vtt', `${baseUrl}/sub.vtt`],
-    ['srt', 'sample.srt', `${baseUrl}/sub.vtt`],
-    ['mp3', 'sample.mp3', `${baseUrl}/main.mp4`],
-    ['wav', 'sample.wav', `${baseUrl}/main.mp4`],
-    ['html', 'sample.html', `${baseUrl}/sub.vtt`],
-    ['txt', 'sample.txt', `${baseUrl}/sub.vtt`],
-    ['json', 'sample.json', `${baseUrl}/sub.vtt`],
-    ['pdf', 'sample.pdf', `${baseUrl}/main.mp4`],
+    ["main", "sample.mp4", `${baseUrl}/main.mp4`],
+    ["webm", "sample.webm", `${baseUrl}/main.mp4`],
+    ["mov", "sample.mov", `${baseUrl}/main.mp4`],
+    ["jpg", "sample.jpg", `${baseUrl}/poster.jpg`],
+    ["jpeg", "sample.jpeg", `${baseUrl}/poster.jpg`],
+    ["png", "sample.png", `${baseUrl}/poster.jpg`],
+    ["gif", "sample.gif", `${baseUrl}/poster.jpg`],
+    ["webp", "sample.webp", `${baseUrl}/poster.jpg`],
+    ["vtt", "sample.vtt", `${baseUrl}/sub.vtt`],
+    ["srt", "sample.srt", `${baseUrl}/sub.vtt`],
+    ["mp3", "sample.mp3", `${baseUrl}/main.mp4`],
+    ["wav", "sample.wav", `${baseUrl}/main.mp4`],
+    ["html", "sample.html", `${baseUrl}/sub.vtt`],
+    ["txt", "sample.txt", `${baseUrl}/sub.vtt`],
+    ["json", "sample.json", `${baseUrl}/sub.vtt`],
+    ["pdf", "sample.pdf", `${baseUrl}/main.mp4`],
   ] as const;
   type MimeAssetId = (typeof assetDefinitions)[number][0];
-  const kindByAssetId: Record<MimeAssetId, MediaAssetDefinition['kind']> = {
-    main: 'video',
-    webm: 'video',
-    mov: 'video',
-    jpg: 'image',
-    jpeg: 'image',
-    png: 'image',
-    gif: 'image',
-    webp: 'image',
-    vtt: 'subtitle',
-    srt: 'subtitle',
-    mp3: 'audio',
-    wav: 'audio',
-    html: 'html',
-    txt: 'text',
-    json: 'document',
-    pdf: 'document',
+  const kindByAssetId: Record<MimeAssetId, MediaAssetDefinition["kind"]> = {
+    main: "video",
+    webm: "video",
+    mov: "video",
+    jpg: "image",
+    jpeg: "image",
+    png: "image",
+    gif: "image",
+    webp: "image",
+    vtt: "subtitle",
+    srt: "subtitle",
+    mp3: "audio",
+    wav: "audio",
+    html: "html",
+    txt: "text",
+    json: "document",
+    pdf: "document",
   };
 
   return {
-    snapshotId: 'mime-types',
+    snapshotId: "mime-types",
     namespaces: [
       {
-        key: 'mime',
+        key: "mime",
         items: [
           {
-            id: 'types',
-            version: 'v1',
-            kind: 'document',
+            id: "types",
+            version: "v1",
+            kind: "document",
             assets: assetDefinitions.map(([id, fileName, url], index) => ({
               id,
-              role: index === 0 ? 'primary' : id,
+              role: index === 0 ? "primary" : id,
               kind: kindByAssetId[id],
               fileName,
               source: {

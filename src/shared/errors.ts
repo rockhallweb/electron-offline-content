@@ -1,4 +1,4 @@
-import type { SerializedMediaCacheError } from './types.js';
+import type { SerializedMediaCacheError } from "./types.js";
 
 export class MediaCacheError extends Error {
   constructor(
@@ -7,28 +7,28 @@ export class MediaCacheError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = 'MediaCacheError';
+    this.name = "MediaCacheError";
   }
 }
 
 export class ManifestValidationError extends MediaCacheError {
   constructor(message: string) {
-    super(message, 'MANIFEST_VALIDATION_ERROR');
-    this.name = 'ManifestValidationError';
+    super(message, "MANIFEST_VALIDATION_ERROR");
+    this.name = "ManifestValidationError";
   }
 }
 
 export class StorageLimitError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
-    super(message, 'STORAGE_LIMIT_ERROR', options);
-    this.name = 'StorageLimitError';
+    super(message, "STORAGE_LIMIT_ERROR", options);
+    this.name = "StorageLimitError";
   }
 }
 
 export class SyncFailureError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
-    super(message, 'SYNC_FAILURE', options);
-    this.name = 'SyncFailureError';
+    super(message, "SYNC_FAILURE", options);
+    this.name = "SyncFailureError";
   }
 }
 
@@ -44,22 +44,20 @@ export function toSerializedError(error: unknown): SerializedMediaCacheError {
   if (error instanceof Error) {
     return {
       name: error.name,
-      code: 'UNKNOWN_ERROR',
+      code: "UNKNOWN_ERROR",
       message: error.message,
     };
   }
 
   return {
-    name: 'UnknownError',
-    code: 'UNKNOWN_ERROR',
+    name: "UnknownError",
+    code: "UNKNOWN_ERROR",
     message: String(error),
   };
 }
 
 export function isNoSpaceError(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'ENOSPC'
+    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOSPC"
   );
 }

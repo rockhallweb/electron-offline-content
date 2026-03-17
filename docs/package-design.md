@@ -150,58 +150,51 @@ export type JsonValue =
   | boolean
   | null
   | JsonValue[]
-  | { [key: string]: JsonValue }
+  | { [key: string]: JsonValue };
 
-export type MediaKind =
-  | 'video'
-  | 'image'
-  | 'audio'
-  | 'document'
-  | 'html'
-  | 'text'
-  | 'binary'
+export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "text" | "binary";
 
 export interface MediaCacheManifest {
-  snapshotId?: string
-  generatedAt?: string
-  namespaces: MediaNamespaceDefinition[]
+  snapshotId?: string;
+  generatedAt?: string;
+  namespaces: MediaNamespaceDefinition[];
 }
 
 export interface MediaNamespaceDefinition {
-  key: string
-  label?: string
-  metadata?: Record<string, JsonValue>
-  items: MediaContentDefinition[]
+  key: string;
+  label?: string;
+  metadata?: Record<string, JsonValue>;
+  items: MediaContentDefinition[];
 }
 
 export interface MediaContentDefinition {
-  id: string
-  version: string
-  kind: MediaKind
-  title?: string
-  description?: string
-  summary?: string
-  blobs?: Record<string, string>
-  metadata?: Record<string, JsonValue>
-  assets: MediaAssetDefinition[]
+  id: string;
+  version: string;
+  kind: MediaKind;
+  title?: string;
+  description?: string;
+  summary?: string;
+  blobs?: Record<string, string>;
+  metadata?: Record<string, JsonValue>;
+  assets: MediaAssetDefinition[];
 }
 
 export interface MediaAssetDefinition {
-  id: string
-  role: string
-  kind: MediaKind | 'subtitle' | 'caption' | 'poster' | 'thumbnail'
-  version?: string
-  mimeType?: string
-  fileName?: string
-  byteLength?: number
-  source: MediaRemoteSource
-  metadata?: Record<string, JsonValue>
+  id: string;
+  role: string;
+  kind: MediaKind | "subtitle" | "caption" | "poster" | "thumbnail";
+  version?: string;
+  mimeType?: string;
+  fileName?: string;
+  byteLength?: number;
+  source: MediaRemoteSource;
+  metadata?: Record<string, JsonValue>;
 }
 
 export interface MediaRemoteSource {
-  url: string
-  method?: 'GET'
-  headers?: Record<string, string>
+  url: string;
+  method?: "GET";
+  headers?: Record<string, string>;
 }
 ```
 
@@ -209,57 +202,57 @@ export interface MediaRemoteSource {
 
 ```ts
 const manifest: MediaCacheManifest = {
-  snapshotId: '2026-03-16T17:00:00Z',
+  snapshotId: "2026-03-16T17:00:00Z",
   namespaces: [
     {
-      key: 'lobby',
-      label: 'Lobby Kiosk',
+      key: "lobby",
+      label: "Lobby Kiosk",
       items: [
         {
-          id: 'spring-campaign',
-          version: '2026-03-10.1',
-          kind: 'video',
-          title: 'Spring Campaign',
-          description: 'Primary looping campaign video for the lobby display.',
+          id: "spring-campaign",
+          version: "2026-03-10.1",
+          kind: "video",
+          title: "Spring Campaign",
+          description: "Primary looping campaign video for the lobby display.",
           blobs: {
-            captionText: 'Welcome to the Rock Hall',
+            captionText: "Welcome to the Rock Hall",
           },
           metadata: {
-            cmsEntryId: 'abc123',
+            cmsEntryId: "abc123",
           },
           assets: [
             {
-              id: 'main',
-              role: 'primary',
-              kind: 'video',
-              mimeType: 'video/mp4',
-              fileName: 'spring-campaign.mp4',
+              id: "main",
+              role: "primary",
+              kind: "video",
+              mimeType: "video/mp4",
+              fileName: "spring-campaign.mp4",
               byteLength: 238472193,
               source: {
-                url: 'https://cdn.example.com/assets/spring-campaign.v2026-03-10.mp4',
+                url: "https://cdn.example.com/assets/spring-campaign.v2026-03-10.mp4",
                 headers: {
-                  Authorization: 'Bearer <token>',
+                  Authorization: "Bearer <token>",
                 },
               },
             },
             {
-              id: 'poster',
-              role: 'poster',
-              kind: 'poster',
-              mimeType: 'image/jpeg',
-              fileName: 'spring-campaign-poster.jpg',
+              id: "poster",
+              role: "poster",
+              kind: "poster",
+              mimeType: "image/jpeg",
+              fileName: "spring-campaign-poster.jpg",
               source: {
-                url: 'https://cdn.example.com/assets/spring-campaign-poster.v4.jpg',
+                url: "https://cdn.example.com/assets/spring-campaign-poster.v4.jpg",
               },
             },
             {
-              id: 'en-subtitles',
-              role: 'subtitle',
-              kind: 'subtitle',
-              mimeType: 'text/vtt',
-              fileName: 'spring-campaign.en.vtt',
+              id: "en-subtitles",
+              role: "subtitle",
+              kind: "subtitle",
+              mimeType: "text/vtt",
+              fileName: "spring-campaign.en.vtt",
               source: {
-                url: 'https://cdn.example.com/assets/spring-campaign.en.vtt',
+                url: "https://cdn.example.com/assets/spring-campaign.en.vtt",
               },
             },
           ],
@@ -267,7 +260,7 @@ const manifest: MediaCacheManifest = {
       ],
     },
   ],
-}
+};
 ```
 
 ### Notes
@@ -398,7 +391,7 @@ The renderer-facing contract should expose local URLs such as:
 
 ```ts
 {
-  url: 'media://default/item-123/main-video'
+  url: "media://default/item-123/main-video";
 }
 ```
 
@@ -406,7 +399,7 @@ Not:
 
 ```ts
 {
-  path: '/absolute/path/to/file.mp4'
+  path: "/absolute/path/to/file.mp4";
 }
 ```
 
@@ -414,36 +407,30 @@ Not:
 
 ```ts
 export interface MediaCacheOptions {
-  storageRoot?: string
-  maxCacheBytes?: number
-  reserveFreeBytes?: number
-  staleDeleteAfterMs?: number
-  onSyncFailure?: 'serve-last-snapshot' | 'throw'
+  storageRoot?: string;
+  maxCacheBytes?: number;
+  reserveFreeBytes?: number;
+  staleDeleteAfterMs?: number;
+  onSyncFailure?: "serve-last-snapshot" | "throw";
   resolveManifest: () =>
-    | Promise<
-        MediaCacheManifest
-        | MediaNamespaceDefinition[]
-        | MediaContentDefinition[]
-      >
+    | Promise<MediaCacheManifest | MediaNamespaceDefinition[] | MediaContentDefinition[]>
     | MediaCacheManifest
     | MediaNamespaceDefinition[]
-    | MediaContentDefinition[]
+    | MediaContentDefinition[];
   resolveAssetRequest?: (
-    ctx: ResolveAssetRequestContext
-  ) => Promise<DownloadRequest> | DownloadRequest
+    ctx: ResolveAssetRequestContext,
+  ) => Promise<DownloadRequest> | DownloadRequest;
 }
 
 export interface MediaCacheMain {
-  start(): Promise<void>
-  syncNow(): Promise<void>
-  getStatus(): Promise<MediaCacheStatus>
-  registerProtocol(): void
-  attachIpc(): void
+  start(): Promise<void>;
+  syncNow(): Promise<void>;
+  getStatus(): Promise<MediaCacheStatus>;
+  registerProtocol(): void;
+  attachIpc(): void;
 }
 
-export declare function createMediaCache(
-  options: MediaCacheOptions
-): MediaCacheMain
+export declare function createMediaCache(options: MediaCacheOptions): MediaCacheMain;
 ```
 
 ## Renderer Contract
@@ -454,26 +441,26 @@ The renderer should work in terms of content items, not low-level assets.
 
 ```ts
 export interface ResolvedMediaContentItem {
-  namespace: string
-  id: string
-  version: string
-  kind: MediaKind
-  title?: string
-  description?: string
-  summary?: string
-  blobs: Record<string, string>
-  metadata: Record<string, JsonValue>
-  assets: ResolvedMediaAsset[]
+  namespace: string;
+  id: string;
+  version: string;
+  kind: MediaKind;
+  title?: string;
+  description?: string;
+  summary?: string;
+  blobs: Record<string, string>;
+  metadata: Record<string, JsonValue>;
+  assets: ResolvedMediaAsset[];
 }
 
 export interface ResolvedMediaAsset {
-  id: string
-  role: string
-  kind: string
-  mimeType?: string
-  byteLength?: number
-  url: string
-  metadata: Record<string, JsonValue>
+  id: string;
+  role: string;
+  kind: string;
+  mimeType?: string;
+  byteLength?: number;
+  url: string;
+  metadata: Record<string, JsonValue>;
 }
 ```
 

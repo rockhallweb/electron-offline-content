@@ -1,5 +1,5 @@
-import { ManifestValidationError } from './errors.js';
-import { fileStem } from './stem.js';
+import { ManifestValidationError } from "./errors.js";
+import { fileStem } from "./stem.js";
 import type {
   DownloadRequest,
   JsonValue,
@@ -8,7 +8,7 @@ import type {
   MediaCacheManifest,
   MediaContentDefinition,
   MediaNamespaceDefinition,
-} from './types.js';
+} from "./types.js";
 
 export interface NormalizedAsset extends MediaAssetDefinition {
   resolvedVersion: string;
@@ -16,13 +16,13 @@ export interface NormalizedAsset extends MediaAssetDefinition {
   normalizedFileStem: string;
 }
 
-export interface NormalizedItem extends Omit<MediaContentDefinition, 'assets'> {
+export interface NormalizedItem extends Omit<MediaContentDefinition, "assets"> {
   blobs: Record<string, string>;
   metadata: Record<string, JsonValue>;
   assets: NormalizedAsset[];
 }
 
-export interface NormalizedNamespace extends Omit<MediaNamespaceDefinition, 'items'> {
+export interface NormalizedNamespace extends Omit<MediaNamespaceDefinition, "items"> {
   label?: string;
   metadata: Record<string, JsonValue>;
   items: NormalizedItem[];
@@ -38,7 +38,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
 
   const namespaces = manifest.namespaces.map((namespace) => {
     if (!namespace.key) {
-      throw new ManifestValidationError('Namespace key is required.');
+      throw new ManifestValidationError("Namespace key is required.");
     }
 
     if (namespaceSeen.has(namespace.key)) {
@@ -49,9 +49,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
     const itemSeen = new Set<string>();
     const items = namespace.items.map((item) => {
       if (!item.id) {
-        throw new ManifestValidationError(
-          `Item ID is required in namespace "${namespace.key}".`,
-        );
+        throw new ManifestValidationError(`Item ID is required in namespace "${namespace.key}".`);
       }
       if (!item.version) {
         throw new ManifestValidationError(
@@ -117,14 +115,14 @@ function toManifest(input: ManifestInput): MediaCacheManifest {
     }
 
     const first = input[0] as MediaNamespaceDefinition | MediaContentDefinition;
-    if ('items' in first) {
+    if ("items" in first) {
       return { namespaces: input as MediaNamespaceDefinition[] };
     }
 
     return {
       namespaces: [
         {
-          key: 'default',
+          key: "default",
           items: input as MediaContentDefinition[],
         },
       ],
@@ -136,8 +134,8 @@ function toManifest(input: ManifestInput): MediaCacheManifest {
 
 function deriveFileName(source: DownloadRequest): string {
   const parsed = new URL(source.url);
-  const path = parsed.pathname ?? '';
-  const segments = path.split('/').filter(Boolean);
+  const path = parsed.pathname ?? "";
+  const segments = path.split("/").filter(Boolean);
   const candidate = segments.at(-1);
   if (!candidate) {
     throw new ManifestValidationError(

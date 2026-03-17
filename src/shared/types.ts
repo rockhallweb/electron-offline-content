@@ -6,7 +6,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type MediaCacheLogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type MediaCacheLogLevel = "debug" | "info" | "warn" | "error";
 
 export interface MediaCacheLogEvent {
   [key: string]: JsonValue | undefined;
@@ -19,14 +19,7 @@ export interface MediaCacheLogEvent {
 
 export type MediaCacheLogHandler = (entry: MediaCacheLogEvent) => void;
 
-export type MediaKind =
-  | 'video'
-  | 'image'
-  | 'audio'
-  | 'document'
-  | 'html'
-  | 'text'
-  | 'binary';
+export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "text" | "binary";
 
 export interface MediaCacheManifest {
   snapshotId?: string;
@@ -56,7 +49,7 @@ export interface MediaContentDefinition {
 export interface MediaAssetDefinition {
   id: string;
   role: string;
-  kind: MediaKind | 'subtitle' | 'caption' | 'poster' | 'thumbnail';
+  kind: MediaKind | "subtitle" | "caption" | "poster" | "thumbnail";
   version?: string;
   mimeType?: string;
   fileName?: string;
@@ -67,7 +60,7 @@ export interface MediaAssetDefinition {
 
 export interface MediaRemoteSource {
   url: string;
-  method?: 'GET';
+  method?: "GET";
   headers?: Record<string, string>;
 }
 
@@ -78,7 +71,7 @@ export type ManifestInput =
 
 export interface DownloadRequest {
   url: string;
-  method?: 'GET';
+  method?: "GET";
   headers?: Record<string, string>;
 }
 
@@ -88,7 +81,7 @@ export interface ResolveAssetRequestContext {
   asset: MediaAssetDefinition;
 }
 
-export type SyncFailureMode = 'serve-last-snapshot' | 'throw';
+export type SyncFailureMode = "serve-last-snapshot" | "throw";
 
 export interface MediaCacheOptions {
   storageRoot?: string;
@@ -116,7 +109,7 @@ export interface PaginationResult<T> {
 }
 
 export interface MediaCacheStatus {
-  phase: 'idle' | 'syncing' | 'ready' | 'error';
+  phase: "idle" | "syncing" | "ready" | "error";
   activeGenerationId: number | null;
   progress: SyncProgress | null;
   lastRun: SyncRunSummary | null;
@@ -127,12 +120,12 @@ export interface MediaCacheStatus {
 export interface SyncProgress {
   runId: number;
   phase:
-    | 'resolving-manifest'
-    | 'staging-generation'
-    | 'diffing'
-    | 'downloading'
-    | 'committing'
-    | 'pruning';
+    | "resolving-manifest"
+    | "staging-generation"
+    | "diffing"
+    | "downloading"
+    | "committing"
+    | "pruning";
   totalAssets: number;
   completedAssets: number;
   downloadedAssets: number;
@@ -142,7 +135,7 @@ export interface SyncProgress {
 
 export interface SyncRunSummary {
   id: number;
-  status: 'running' | 'success' | 'error';
+  status: "running" | "success" | "error";
   startedAt: number;
   finishedAt: number | null;
   errorCode: string | null;
