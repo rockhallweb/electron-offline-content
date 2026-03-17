@@ -1,12 +1,13 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type PropsWithChildren,
-} from 'react';
+} from "react";
 import type {
   FileStemMatch,
   MediaCacheBridge,
@@ -14,7 +15,7 @@ import type {
   PaginationInput,
   PaginationResult,
   ResolvedMediaContentItem,
-} from '../shared/types.js';
+} from "../shared/types.js";
 
 declare global {
   interface Window {
@@ -43,7 +44,7 @@ export function useMediaCacheBridge(): MediaCacheBridge {
   const bridge = useContext(MediaCacheContext) ?? window.mediaCache ?? null;
   if (!bridge) {
     throw new Error(
-      'MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.',
+      "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.",
     );
   }
   return bridge;
@@ -134,7 +135,8 @@ export function useMediaItem(
   id: string,
 ): AsyncState<ResolvedMediaContentItem | null> {
   const bridge = useMediaCacheBridge();
-  return useAsyncResource(() => bridge.getItem(namespace, id), [bridge, namespace, id]);
+  const loader = useCallback(() => bridge.getItem(namespace, id), [bridge, namespace, id]);
+  return useAsyncResource(loader);
 }
 
 export function useMediaNamespace(
@@ -142,10 +144,13 @@ export function useMediaNamespace(
   pagination?: PaginationInput,
 ): AsyncState<PaginationResult<ResolvedMediaContentItem>> {
   const bridge = useMediaCacheBridge();
-  return useAsyncResource(
-    () => bridge.listNamespace(namespace, pagination),
-    [bridge, namespace, pagination?.cursor, pagination?.limit],
+  const cursor = pagination?.cursor;
+  const limit = pagination?.limit;
+  const loader = useCallback(
+    () => bridge.listNamespace(namespace, { cursor, limit }),
+    [bridge, namespace, cursor, limit],
   );
+  return useAsyncResource(loader);
 }
 
 export function useMediaNamespaceTree(
@@ -153,10 +158,13 @@ export function useMediaNamespaceTree(
   pagination?: PaginationInput,
 ): AsyncState<PaginationResult<ResolvedMediaContentItem>> {
   const bridge = useMediaCacheBridge();
-  return useAsyncResource(
-    () => bridge.listNamespaceTree(prefix, pagination),
-    [bridge, prefix, pagination?.cursor, pagination?.limit],
+  const cursor = pagination?.cursor;
+  const limit = pagination?.limit;
+  const loader = useCallback(
+    () => bridge.listNamespaceTree(prefix, { cursor, limit }),
+    [bridge, prefix, cursor, limit],
   );
+  return useAsyncResource(loader);
 }
 
 export function useFileStemMatch(
@@ -164,13 +172,17 @@ export function useFileStemMatch(
   options?: PaginationInput & { namespace?: string },
 ): AsyncState<PaginationResult<FileStemMatch>> {
   const bridge = useMediaCacheBridge();
-  return useAsyncResource(
-    () => bridge.findByFileStem(stem, options),
-    [bridge, stem, options?.namespace, options?.cursor, options?.limit],
+  const namespace = options?.namespace;
+  const cursor = options?.cursor;
+  const limit = options?.limit;
+  const loader = useCallback(
+    () => bridge.findByFileStem(stem, { namespace, cursor, limit }),
+    [bridge, stem, namespace, cursor, limit],
   );
+  return useAsyncResource(loader);
 }
 
-function useAsyncResource<T>(loader: () => Promise<T>, deps: readonly unknown[]): AsyncState<T> {
+function useAsyncResource<T>(loader: () => Promise<T>): AsyncState<T> {
   const latestLoader = useRef(loader);
   latestLoader.current = loader;
 
@@ -209,7 +221,7 @@ function useAsyncResource<T>(loader: () => Promise<T>, deps: readonly unknown[])
 
   useEffect(() => {
     void refresh();
-  }, deps);
+  }, [loader]);
 
   return { data, loading, error, refresh };
 }
@@ -223,4 +235,4 @@ export type {
   MediaCacheBridge,
   MediaCacheStatus,
   ResolvedMediaContentItem,
-} from '../shared/types.js';
+} from "../shared/types.js";

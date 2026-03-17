@@ -2,13 +2,13 @@
   "name": "@rockhallweb/electron-offline-content",
   "version": "0.1.0",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
-  "type": "module",
   "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
   "sideEffects": false,
-  "engines": {
-    "node": ">=24.0.0",
-    "pnpm": ">=10.0.0"
-  },
   "exports": {
     "./main": {
       "types": "./dist/main/index.d.ts",
@@ -27,20 +27,35 @@
     },
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
+    "lint": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --deny-warnings .",
+    "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --fix --deny-warnings .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "example:dev": "pnpm build && node scripts/run-example.mjs dev",
     "example:demo:nasa": "MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev",
     "example:smoke": "pnpm build && node scripts/run-example.mjs smoke",
     "pack:smoke": "pnpm build && node scripts/pack-smoke.mjs",
-    "ci:validate": "pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
+    "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "electron": "^40.0.0",
+    "jsdom": "^27.0.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "electron": ">=40.0.0",
@@ -55,18 +70,9 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@testing-library/react": "^16.3.0",
-    "@types/node": "^24.5.2",
-    "@types/react": "^19.1.13",
-    "@types/react-dom": "^19.1.9",
-    "electron": "^40.0.0",
-    "jsdom": "^27.0.0",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "tsup": "^8.5.0",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

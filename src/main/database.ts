@@ -1,7 +1,7 @@
-import { mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
-import { paginateArray } from '../shared/pagination.js';
+import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import { paginateArray } from "../shared/pagination.js";
 import type {
   FileStemMatch,
   JsonValue,
@@ -10,12 +10,12 @@ import type {
   PaginationResult,
   ResolvedMediaContentItem,
   SyncRunSummary,
-} from '../shared/types.js';
-import type { NormalizedManifest } from '../shared/normalize.js';
+} from "../shared/types.js";
+import type { NormalizedManifest } from "../shared/normalize.js";
 
 type JsonObject = Record<string, JsonValue>;
 const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 export interface ActiveAssetRow {
   generationId: number;
@@ -53,14 +53,14 @@ export interface SyncRunStats {
 }
 
 export class MediaCacheDatabase {
-  private readonly db: import('node:sqlite').DatabaseSync;
+  private readonly db: import("node:sqlite").DatabaseSync;
 
   constructor(private readonly root: string) {
-    const sqliteDir = join(root, 'sqlite');
+    const sqliteDir = join(root, "sqlite");
     mkdirSync(sqliteDir, { recursive: true });
-    this.db = new DatabaseSync(join(sqliteDir, 'media-cache.db'));
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec('PRAGMA foreign_keys = ON;');
+    this.db = new DatabaseSync(join(sqliteDir, "media-cache.db"));
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA foreign_keys = ON;");
     this.migrate();
   }
 
@@ -80,7 +80,7 @@ export class MediaCacheDatabase {
   }
 
   saveStatus(status: MediaCacheStatus, now: number): void {
-    this.db.exec('BEGIN');
+    this.db.exec("BEGIN");
     try {
       this.db
         .prepare(
@@ -94,9 +94,9 @@ export class MediaCacheDatabase {
            VALUES ('global', '*', ?, ?)`,
         )
         .run(JSON.stringify(status), now);
-      this.db.exec('COMMIT');
+      this.db.exec("COMMIT");
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      this.db.exec("ROLLBACK");
       throw error;
     }
   }
@@ -113,7 +113,7 @@ export class MediaCacheDatabase {
 
   completeSyncRun(
     id: number,
-    status: 'success' | 'error',
+    status: "success" | "error",
     now: number,
     stats: SyncRunStats,
     errorCode: string | null = null,
@@ -142,7 +142,7 @@ export class MediaCacheDatabase {
           id: number;
           started_at_ms: number;
           finished_at_ms: number | null;
-          status: 'running' | 'success' | 'error';
+          status: "running" | "success" | "error";
           error_code: string | null;
           error_message: string | null;
           stats_json: string;
@@ -178,7 +178,7 @@ export class MediaCacheDatabase {
     }
 
     const ids = rows.map((row) => row.id);
-    const placeholders = ids.map(() => '?').join(', ');
+    const placeholders = ids.map(() => "?").join(", ");
     this.db.prepare(`DELETE FROM sync_runs WHERE id IN (${placeholders})`).run(...ids);
   }
 
@@ -194,7 +194,7 @@ export class MediaCacheDatabase {
   }
 
   createStagedGeneration(manifest: NormalizedManifest, now: number): number {
-    this.db.exec('BEGIN');
+    this.db.exec("BEGIN");
     try {
       const generationInsert = this.db
         .prepare(
@@ -211,7 +211,8 @@ export class MediaCacheDatabase {
           manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
           manifest.namespaces.reduce(
             (count, namespace) =>
-              count + namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
+              count +
+              namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
             0,
           ),
         );
@@ -282,24 +283,26 @@ export class MediaCacheDatabase {
         });
       });
 
-      this.db.exec('COMMIT');
+      this.db.exec("COMMIT");
       return generationId;
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      this.db.exec("ROLLBACK");
       throw error;
     }
   }
 
   deleteGeneration(generationId: number): void {
-    this.db.exec('BEGIN');
+    this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM assets WHERE generation_id = ?`).run(generationId);
       this.db.prepare(`DELETE FROM items WHERE generation_id = ?`).run(generationId);
-      this.db.prepare(`DELETE FROM generation_namespaces WHERE generation_id = ?`).run(generationId);
+      this.db
+        .prepare(`DELETE FROM generation_namespaces WHERE generation_id = ?`)
+        .run(generationId);
       this.db.prepare(`DELETE FROM generations WHERE id = ?`).run(generationId);
-      this.db.exec('COMMIT');
+      this.db.exec("COMMIT");
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      this.db.exec("ROLLBACK");
       throw error;
     }
   }
@@ -361,7 +364,7 @@ export class MediaCacheDatabase {
   activateGeneration(generationId: number, now: number): number | null {
     const previousActive = this.getActiveGenerationId();
 
-    this.db.exec('BEGIN');
+    this.db.exec("BEGIN");
     try {
       this.db
         .prepare(`UPDATE generations SET status = 'committed', committed_at_ms = ? WHERE id = ?`)
@@ -378,9 +381,9 @@ export class MediaCacheDatabase {
            VALUES ('global', '*', ?)`,
         )
         .run(generationId);
-      this.db.exec('COMMIT');
+      this.db.exec("COMMIT");
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      this.db.exec("ROLLBACK");
       throw error;
     }
 
@@ -443,7 +446,7 @@ export class MediaCacheDatabase {
       return;
     }
 
-    const placeholders = logicalKeys.map(() => '?').join(', ');
+    const placeholders = logicalKeys.map(() => "?").join(", ");
     this.db
       .prepare(`DELETE FROM pending_deletions WHERE logical_key IN (${placeholders})`)
       .run(...logicalKeys);
@@ -461,7 +464,9 @@ export class MediaCacheDatabase {
          FROM assets
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
-      .get(activeGeneration, namespace, itemId, assetId) as { relative_path: string | null } | undefined;
+      .get(activeGeneration, namespace, itemId, assetId) as
+      | { relative_path: string | null }
+      | undefined;
 
     if (!row?.relative_path) {
       return null;
@@ -474,7 +479,7 @@ export class MediaCacheDatabase {
     namespace: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
-    const rows = this.getResolvedRows('exact', namespace);
+    const rows = this.getResolvedRows("exact", namespace);
     return paginateArray(buildResolvedItems(rows), pagination);
   }
 
@@ -482,12 +487,12 @@ export class MediaCacheDatabase {
     prefix: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
-    const rows = this.getResolvedRows('tree', prefix);
+    const rows = this.getResolvedRows("tree", prefix);
     return paginateArray(buildResolvedItems(rows), pagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
-    const rows = this.getResolvedRows('item', namespace, id);
+    const rows = this.getResolvedRows("item", namespace, id);
     const items = buildResolvedItems(rows);
     return items[0] ?? null;
   }
@@ -517,7 +522,7 @@ export class MediaCacheDatabase {
        AND generation_namespaces.namespace_key = assets.namespace_key
       WHERE assets.generation_id = ?
         AND assets.file_stem = ?
-        ${namespace ? 'AND assets.namespace_key = ?' : ''}
+        ${namespace ? "AND assets.namespace_key = ?" : ""}
       ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index
     `;
 
@@ -560,7 +565,7 @@ export class MediaCacheDatabase {
   }
 
   private getResolvedRows(
-    mode: 'exact' | 'tree' | 'item',
+    mode: "exact" | "tree" | "item",
     namespace: string,
     itemId?: string,
   ): ActiveAssetRow[] {
@@ -602,13 +607,15 @@ export class MediaCacheDatabase {
       WHERE assets.generation_id = ?
     `;
 
-    if (mode === 'exact') {
+    if (mode === "exact") {
       return this.db
-        .prepare(`${baseSql} AND assets.namespace_key = ? ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`)
+        .prepare(
+          `${baseSql} AND assets.namespace_key = ? ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+        )
         .all(activeGeneration, namespace) as unknown as ActiveAssetRow[];
     }
 
-    if (mode === 'tree') {
+    if (mode === "tree") {
       return this.db
         .prepare(
           `${baseSql}
@@ -741,7 +748,7 @@ function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] 
         namespace: row.namespace,
         id: row.itemId,
         version: row.itemVersion,
-        kind: row.itemKind as ResolvedMediaContentItem['kind'],
+        kind: row.itemKind as ResolvedMediaContentItem["kind"],
         title: row.itemTitle ?? undefined,
         description: row.itemDescription ?? undefined,
         summary: row.itemSummary ?? undefined,
@@ -779,7 +786,7 @@ function parseLogicalItemKey(key: string): [string, string] {
   if (
     Array.isArray(parsed) &&
     parsed.length === 2 &&
-    parsed.every((entry) => typeof entry === 'string')
+    parsed.every((entry) => typeof entry === "string")
   ) {
     return parsed as [string, string];
   }

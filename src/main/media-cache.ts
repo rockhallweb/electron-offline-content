@@ -1,32 +1,31 @@
-import { EventEmitter } from 'node:events';
+import { EventEmitter } from "node:events";
 import {
   createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   statSync,
-} from 'node:fs';
-import { statfs, unlink } from 'node:fs/promises';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { IpcMain, Session } from 'electron';
-import { MEDIA_CACHE_IPC } from '../shared/ipc.js';
-import { normalizeManifest, type NormalizedManifest } from '../shared/normalize.js';
-import { normalizeStem } from '../shared/stem.js';
+} from "node:fs";
+import { statfs, unlink } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type { IpcMain, Session } from "electron";
+import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
+import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
+import { normalizeStem } from "../shared/stem.js";
 import {
   ManifestValidationError,
   StorageLimitError,
   SyncFailureError,
   isNoSpaceError,
   toSerializedError,
-} from '../shared/errors.js';
+} from "../shared/errors.js";
 import type {
   DownloadRequest,
   JsonValue,
@@ -38,10 +37,9 @@ import type {
   PaginationInput,
   ResolvedMediaContentItem,
   SyncProgress,
-  SyncRunSummary,
-} from '../shared/types.js';
-import { MediaCacheDatabase, type ActiveAssetRow, type SyncRunStats } from './database.js';
-import { defaultStorageRoot } from './default-storage.js';
+} from "../shared/types.js";
+import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
+import { defaultStorageRoot } from "./default-storage.js";
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
@@ -94,16 +92,16 @@ export interface MediaCacheMain {
   findByFileStem(
     stem: string,
     options?: PaginationInput & { namespace?: string },
-  ): Promise<Awaited<ReturnType<MediaCacheBridge['findByFileStem']>>>;
+  ): Promise<Awaited<ReturnType<MediaCacheBridge["findByFileStem"]>>>;
   registerProtocol(options?: RegisterProtocolOptions): Promise<void>;
   attachIpc(options?: AttachIpcOptions): Promise<void>;
 }
 
 export async function registerMediaCacheProtocolSchemes(): Promise<void> {
-  const { protocol } = await import('electron');
+  const { protocol } = await import("electron");
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: 'media',
+      scheme: "media",
       privileges: {
         standard: true,
         secure: true,
@@ -138,7 +136,7 @@ export class MediaCache implements MediaCacheMain {
       randomUUID: deps?.randomUUID ?? randomUUID,
     };
     this.status = {
-      phase: 'idle',
+      phase: "idle",
       activeGenerationId: null,
       progress: null,
       lastRun: null,
@@ -155,7 +153,7 @@ export class MediaCache implements MediaCacheMain {
   async syncNow(): Promise<void> {
     await this.ensureInitialized();
     if (this.syncPromise) {
-      this.emitLog('debug', 'sync_reused', {
+      this.emitLog("debug", "sync_reused", {
         phase: this.status.phase,
         active_generation_id: this.status.activeGenerationId,
       });
@@ -190,70 +188,66 @@ export class MediaCache implements MediaCacheMain {
 
   async findByFileStem(stem: string, options?: PaginationInput & { namespace?: string }) {
     await this.ensureInitialized();
-    return this.db!.findByFileStem(
-      normalizeStem(stem),
-      options?.namespace,
-      options,
-    );
+    return this.db!.findByFileStem(normalizeStem(stem), options?.namespace, options);
   }
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
     await this.ensureInitialized();
     if (this.protocolRegistered) {
-      this.emitLog('debug', 'protocol_registration_skipped', { reason: 'already_registered' });
+      this.emitLog("debug", "protocol_registration_skipped", { reason: "already_registered" });
       return;
     }
 
-    const electron = options?.session ? null : await import('electron');
+    const electron = options?.session ? null : await import("electron");
     const session = options?.session ?? electron!.session.defaultSession;
 
     const fetchFile =
       options?.fetchFile ??
       (async (request: Request, filePath: string) => createFileResponse(filePath, request));
 
-    session.protocol.handle('media', async (request) => {
+    session.protocol.handle("media", async (request) => {
       const parsed = new URL(request.url);
-      const parts = parsed.pathname.split('/').filter(Boolean);
+      const parts = parsed.pathname.split("/").filter(Boolean);
 
-      if (parsed.hostname !== 'asset' || parts.length !== 3) {
-        return new Response('Not found', { status: 404 });
+      if (parsed.hostname !== "asset" || parts.length !== 3) {
+        return new Response("Not found", { status: 404 });
       }
 
       const [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part));
       const absolutePath = this.db!.getAssetAbsolutePath(namespace, itemId, assetId);
 
       if (!absolutePath || !existsSync(absolutePath)) {
-        this.emitLog('debug', 'protocol_request_missing', {
+        this.emitLog("debug", "protocol_request_missing", {
           namespace,
           item_id: itemId,
           asset_id: assetId,
           method: request.method,
         });
-        return new Response('Not found', { status: 404 });
+        return new Response("Not found", { status: 404 });
       }
 
-      this.emitLog('debug', 'protocol_request_resolved', {
+      this.emitLog("debug", "protocol_request_resolved", {
         namespace,
         item_id: itemId,
         asset_id: assetId,
         method: request.method,
-        range: request.headers.get('range'),
+        range: request.headers.get("range"),
       });
       return fetchFile(request, absolutePath);
     });
 
     this.protocolRegistered = true;
-    this.emitLog('info', 'protocol_registered', {});
+    this.emitLog("info", "protocol_registered", {});
   }
 
   async attachIpc(options?: AttachIpcOptions): Promise<void> {
     await this.ensureInitialized();
     if (this.ipcAttached) {
-      this.emitLog('debug', 'ipc_attach_skipped', { reason: 'already_attached' });
+      this.emitLog("debug", "ipc_attach_skipped", { reason: "already_attached" });
       return;
     }
 
-    const electron = options?.ipcMain ? null : await import('electron');
+    const electron = options?.ipcMain ? null : await import("electron");
     const ipcMain = options?.ipcMain ?? electron!.ipcMain;
 
     ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
@@ -272,11 +266,8 @@ export class MediaCache implements MediaCacheMain {
     );
     ipcMain.handle(
       MEDIA_CACHE_IPC.findByFileStem,
-      async (
-        _event,
-        stem: string,
-        options?: PaginationInput & { namespace?: string },
-      ) => this.findByFileStem(stem, options),
+      async (_event, stem: string, options?: PaginationInput & { namespace?: string }) =>
+        this.findByFileStem(stem, options),
     );
 
     if (electron) {
@@ -288,7 +279,7 @@ export class MediaCache implements MediaCacheMain {
     }
 
     this.ipcAttached = true;
-    this.emitLog('info', 'ipc_attached', {});
+    this.emitLog("info", "ipc_attached", {});
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -296,10 +287,11 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    this.storageRoot = normalizeStorageRoot(this.options.storageRoot) ?? (await defaultStorageRoot());
+    this.storageRoot =
+      normalizeStorageRoot(this.options.storageRoot) ?? (await defaultStorageRoot());
     mkdirSync(this.storageRoot, { recursive: true });
-    mkdirSync(join(this.storageRoot, 'temp'), { recursive: true });
-    mkdirSync(join(this.storageRoot, 'blobs'), { recursive: true });
+    mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
+    mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 
     this.db = new MediaCacheDatabase(this.storageRoot);
     const storedStatus = this.db.loadStatus();
@@ -307,7 +299,7 @@ export class MediaCache implements MediaCacheMain {
       this.status = storedStatus;
     }
     this.status.activeGenerationId = this.db.getActiveGenerationId();
-    this.emitLog('info', 'cache_initialized', {
+    this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
     });
@@ -324,11 +316,11 @@ export class MediaCache implements MediaCacheMain {
     };
 
     this.updateStatus({
-      phase: 'syncing',
+      phase: "syncing",
       error: null,
       progress: {
         runId,
-        phase: 'resolving-manifest',
+        phase: "resolving-manifest",
         totalAssets: 0,
         completedAssets: 0,
         downloadedAssets: 0,
@@ -336,7 +328,7 @@ export class MediaCache implements MediaCacheMain {
         bytesDownloaded: 0,
       },
     });
-    this.emitLog('info', 'sync_started', {
+    this.emitLog("info", "sync_started", {
       run_id: runId,
       active_generation_id: this.status.activeGenerationId,
     });
@@ -346,14 +338,18 @@ export class MediaCache implements MediaCacheMain {
     try {
       const manifest = normalizeManifest(await this.options.resolveManifest());
       stagedGenerationId = this.db!.createStagedGeneration(manifest, now);
-      this.emitLog('info', 'manifest_resolved', {
+      this.emitLog("info", "manifest_resolved", {
         run_id: runId,
         staged_generation_id: stagedGenerationId,
         namespace_count: manifest.namespaces.length,
-        item_count: manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
+        item_count: manifest.namespaces.reduce(
+          (count, namespace) => count + namespace.items.length,
+          0,
+        ),
         asset_count: manifest.namespaces.reduce(
           (count, namespace) =>
-            count + namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
+            count +
+            namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
           0,
         ),
       });
@@ -367,17 +363,22 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateProgress((progress) => ({
         ...progress,
-        phase: 'diffing',
+        phase: "diffing",
         totalAssets: stagedAssets.length,
       }));
 
-      const currentMap = new Map(currentAssets.map((row) => [logicalKey(row.namespace, row.itemId, row.assetId), row]));
+      const currentMap = new Map(
+        currentAssets.map((row) => [logicalKey(row.namespace, row.itemId, row.assetId), row]),
+      );
       const downloads: DownloadTarget[] = [];
 
       for (const row of stagedAssets) {
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
         const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
-        if (activeRow?.relativePath && existsSync(join(this.storageRoot!, activeRow.relativePath))) {
+        if (
+          activeRow?.relativePath &&
+          existsSync(join(this.storageRoot!, activeRow.relativePath))
+        ) {
           const currentVersion = getResolvedVersionFromPath(activeRow.relativePath);
           const nextVersion = manifestAsset.asset.resolvedVersion;
           if (currentVersion === nextVersion) {
@@ -393,7 +394,12 @@ export class MediaCache implements MediaCacheMain {
           }
         }
 
-        const request = await this.resolveDownloadRequest(manifest, row.namespace, row.itemId, row.assetId);
+        const request = await this.resolveDownloadRequest(
+          manifest,
+          row.namespace,
+          row.itemId,
+          row.assetId,
+        );
         downloads.push({
           namespace: row.namespace,
           itemId: row.itemId,
@@ -406,7 +412,7 @@ export class MediaCache implements MediaCacheMain {
         });
       }
 
-      this.emitLog('info', 'sync_diffed', {
+      this.emitLog("info", "sync_diffed", {
         run_id: runId,
         total_assets: stagedAssets.length,
         download_count: downloads.length,
@@ -417,14 +423,14 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateProgress((progress) => ({
         ...progress,
-        phase: 'downloading',
+        phase: "downloading",
         totalAssets: stagedAssets.length,
         completedAssets: stats.skippedAssets,
         skippedAssets: stats.skippedAssets,
       }));
 
       for (const download of downloads) {
-        this.emitLog('debug', 'asset_download_started', {
+        this.emitLog("debug", "asset_download_started", {
           run_id: runId,
           namespace: download.namespace,
           item_id: download.itemId,
@@ -447,7 +453,7 @@ export class MediaCache implements MediaCacheMain {
           relativePath,
         );
         stats.downloadedAssets += 1;
-        this.emitLog('debug', 'asset_download_completed', {
+        this.emitLog("debug", "asset_download_completed", {
           run_id: runId,
           namespace: download.namespace,
           item_id: download.itemId,
@@ -465,7 +471,7 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateProgress((progress) => ({
         ...progress,
-        phase: 'committing',
+        phase: "committing",
       }));
 
       const previousGenerationId = this.db!.activateGeneration(stagedGenerationId, this.deps.now());
@@ -473,7 +479,7 @@ export class MediaCache implements MediaCacheMain {
       if (previousGenerationId) {
         this.markRemovedAssetsForDeletion(previousGenerationId, stagedGenerationId);
       }
-      this.emitLog('info', 'generation_committed', {
+      this.emitLog("info", "generation_committed", {
         run_id: runId,
         previous_generation_id: previousGenerationId,
         active_generation_id: stagedGenerationId,
@@ -481,13 +487,13 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateProgress((progress) => ({
         ...progress,
-        phase: 'pruning',
+        phase: "pruning",
       }));
       await this.pruneExpiredDeletions();
 
-      const summary = this.db!.completeSyncRun(runId, 'success', this.deps.now(), stats);
+      const summary = this.db!.completeSyncRun(runId, "success", this.deps.now(), stats);
       this.db!.pruneSyncHistory(this.options.syncHistoryLimit ?? DEFAULT_SYNC_HISTORY_LIMIT);
-      this.emitLog('info', 'sync_completed', {
+      this.emitLog("info", "sync_completed", {
         run_id: runId,
         active_generation_id: stagedGenerationId,
         total_assets: summary.stats.totalAssets,
@@ -496,7 +502,7 @@ export class MediaCache implements MediaCacheMain {
         bytes_downloaded: summary.stats.bytesDownloaded,
       });
       this.updateStatus({
-        phase: 'ready',
+        phase: "ready",
         activeGenerationId: stagedGenerationId,
         progress: null,
         lastRun: summary,
@@ -510,13 +516,13 @@ export class MediaCache implements MediaCacheMain {
       const serialized = toSerializedError(error);
       const summary = this.db!.completeSyncRun(
         runId,
-        'error',
+        "error",
         this.deps.now(),
         stats,
         serialized.code,
         serialized.message,
       );
-      this.emitLog('error', 'sync_failed', {
+      this.emitLog("error", "sync_failed", {
         run_id: runId,
         active_generation_id: this.db!.getActiveGenerationId(),
         error_code: serialized.code,
@@ -528,14 +534,19 @@ export class MediaCache implements MediaCacheMain {
       });
 
       this.updateStatus({
-        phase: this.options.onSyncFailure === 'throw' ? 'error' : this.db!.getActiveGenerationId() ? 'ready' : 'error',
+        phase:
+          this.options.onSyncFailure === "throw"
+            ? "error"
+            : this.db!.getActiveGenerationId()
+              ? "ready"
+              : "error",
         activeGenerationId: this.db!.getActiveGenerationId(),
         progress: null,
         lastRun: summary,
         error: serialized,
       });
 
-      if (this.options.onSyncFailure === 'throw') {
+      if (this.options.onSyncFailure === "throw") {
         throw error;
       }
     }
@@ -566,9 +577,9 @@ export class MediaCache implements MediaCacheMain {
     );
 
     if (this.options.maxCacheBytes !== undefined) {
-      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, 'blobs'));
+      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, "blobs"));
       if (currentBytes + estimatedDownloadBytes > this.options.maxCacheBytes) {
-        this.emitLog('warn', 'storage_limit_exceeded', {
+        this.emitLog("warn", "storage_limit_exceeded", {
           current_bytes: currentBytes,
           estimated_download_bytes: estimatedDownloadBytes,
           max_cache_bytes: this.options.maxCacheBytes,
@@ -583,7 +594,7 @@ export class MediaCache implements MediaCacheMain {
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
     const reserve = this.options.reserveFreeBytes ?? 0;
     if (availableBytes - estimatedDownloadBytes < reserve) {
-      this.emitLog('warn', 'storage_reserve_violation', {
+      this.emitLog("warn", "storage_reserve_violation", {
         available_bytes: availableBytes,
         estimated_download_bytes: estimatedDownloadBytes,
         reserve_free_bytes: reserve,
@@ -599,7 +610,7 @@ export class MediaCache implements MediaCacheMain {
     onChunk: (chunkBytes: number) => void,
   ): Promise<string> {
     const destinationRelativePath = join(
-      'blobs',
+      "blobs",
       sanitizeSegment(download.namespace),
       sanitizeSegment(download.itemId),
       sanitizeSegment(download.assetId),
@@ -609,18 +620,18 @@ export class MediaCache implements MediaCacheMain {
     const destinationPath = join(this.storageRoot!, destinationRelativePath);
 
     mkdirSync(dirname(destinationPath), { recursive: true });
-    mkdirSync(join(this.storageRoot!, 'temp'), { recursive: true });
+    mkdirSync(join(this.storageRoot!, "temp"), { recursive: true });
 
-    const tempPath = join(this.storageRoot!, 'temp', `${this.deps.randomUUID()}.part`);
+    const tempPath = join(this.storageRoot!, "temp", `${this.deps.randomUUID()}.part`);
 
     try {
       const response = await this.deps.fetchImpl(download.request.url, {
-        method: download.request.method ?? 'GET',
+        method: download.request.method ?? "GET",
         headers: download.request.headers,
       });
 
       if (!response.ok || !response.body) {
-        this.emitLog('warn', 'asset_download_rejected', {
+        this.emitLog("warn", "asset_download_rejected", {
           namespace: download.namespace,
           item_id: download.itemId,
           asset_id: download.assetId,
@@ -636,9 +647,9 @@ export class MediaCache implements MediaCacheMain {
       const nodeStream = Readable.fromWeb(
         response.body as unknown as NodeReadableStream<Uint8Array>,
       );
-      const writeStream = createWriteStream(tempPath, { flags: 'wx' });
+      const writeStream = createWriteStream(tempPath, { flags: "wx" });
 
-      nodeStream.on('data', (chunk) => {
+      nodeStream.on("data", (chunk) => {
         onChunk((chunk as Buffer).byteLength);
       });
 
@@ -653,7 +664,7 @@ export class MediaCache implements MediaCacheMain {
         await unlink(tempPath).catch(() => undefined);
       }
       if (isNoSpaceError(error)) {
-        this.emitLog('error', 'asset_download_storage_failed', {
+        this.emitLog("error", "asset_download_storage_failed", {
           namespace: download.namespace,
           item_id: download.itemId,
           asset_id: download.assetId,
@@ -674,20 +685,22 @@ export class MediaCache implements MediaCacheMain {
     const reserve = this.options.reserveFreeBytes ?? 0;
     const tempSize = statSync(tempPath).size;
     if (availableBytes - tempSize < reserve) {
-      throw new StorageLimitError(
-        `Committing download would violate reserveFreeBytes ${reserve}.`,
-      );
+      throw new StorageLimitError(`Committing download would violate reserveFreeBytes ${reserve}.`);
     }
   }
 
-  private markRemovedAssetsForDeletion(previousGenerationId: number, stagedGenerationId: number): void {
+  private markRemovedAssetsForDeletion(
+    previousGenerationId: number,
+    stagedGenerationId: number,
+  ): void {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
     const nextAssets = new Set(
-      this.db!
-        .getGenerationAssets(stagedGenerationId)
-        .map((row) => logicalKey(row.namespace, row.itemId, row.assetId)),
+      this.db!.getGenerationAssets(stagedGenerationId).map((row) =>
+        logicalKey(row.namespace, row.itemId, row.assetId),
+      ),
     );
-    const deleteAfterMs = this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
+    const deleteAfterMs =
+      this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
 
     let markedCount = 0;
     for (const row of previousAssets) {
@@ -705,7 +718,7 @@ export class MediaCache implements MediaCacheMain {
         markedCount += 1;
       }
     }
-    this.emitLog('debug', 'assets_marked_for_deletion', {
+    this.emitLog("debug", "assets_marked_for_deletion", {
       previous_generation_id: previousGenerationId,
       active_generation_id: stagedGenerationId,
       marked_count: markedCount,
@@ -716,7 +729,7 @@ export class MediaCache implements MediaCacheMain {
   private async pruneExpiredDeletions(): Promise<void> {
     const expired = this.db!.getExpiredPendingDeletions(this.deps.now());
     if (expired.length === 0) {
-      this.emitLog('debug', 'deletion_prune_skipped', { expired_count: 0 });
+      this.emitLog("debug", "deletion_prune_skipped", { expired_count: 0 });
       return;
     }
 
@@ -727,7 +740,7 @@ export class MediaCache implements MediaCacheMain {
     }
 
     this.db!.deletePendingDeletions(expired.map((item) => item.logicalKey));
-    this.emitLog('debug', 'assets_pruned', { pruned_count: expired.length });
+    this.emitLog("debug", "assets_pruned", { pruned_count: expired.length });
   }
 
   private currentBytesOnDisk(directory: string): number {
@@ -774,7 +787,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    const threshold = LOG_LEVEL_WEIGHT[this.options.logLevel ?? 'info'];
+    const threshold = LOG_LEVEL_WEIGHT[this.options.logLevel ?? "info"];
     if (LOG_LEVEL_WEIGHT[level] < threshold) {
       return;
     }
@@ -783,8 +796,8 @@ export class MediaCache implements MediaCacheMain {
       timestamp: new Date(this.deps.now()).toISOString(),
       level,
       event,
-      service: 'rockhallweb-electron-offline-content',
-      component: 'media-cache',
+      service: "rockhallweb-electron-offline-content",
+      component: "media-cache",
       ...fields,
     };
 
@@ -862,15 +875,15 @@ function renameSyncSafe(from: string, to: string): void {
 function createFileResponse(filePath: string, request: Request): Response {
   const stats = statSync(filePath);
   const size = stats.size;
-  const rangeHeader = request.headers.get('range');
+  const rangeHeader = request.headers.get("range");
   const mimeType = inferMimeType(filePath);
   const baseHeaders = new Headers({
-    'accept-ranges': 'bytes',
-    'content-type': mimeType,
+    "accept-ranges": "bytes",
+    "content-type": mimeType,
   });
 
-  if (request.method === 'HEAD') {
-    baseHeaders.set('content-length', String(size));
+  if (request.method === "HEAD") {
+    baseHeaders.set("content-length", String(size));
     return new Response(null, {
       status: 200,
       headers: baseHeaders,
@@ -878,7 +891,7 @@ function createFileResponse(filePath: string, request: Request): Response {
   }
 
   if (!rangeHeader) {
-    baseHeaders.set('content-length', String(size));
+    baseHeaders.set("content-length", String(size));
     return new Response(Readable.toWeb(createReadStream(filePath)) as BodyInit, {
       status: 200,
       headers: baseHeaders,
@@ -887,7 +900,7 @@ function createFileResponse(filePath: string, request: Request): Response {
 
   const parsedRange = parseByteRange(rangeHeader, size);
   if (!parsedRange) {
-    baseHeaders.set('content-range', `bytes */${size}`);
+    baseHeaders.set("content-range", `bytes */${size}`);
     return new Response(null, {
       status: 416,
       headers: baseHeaders,
@@ -896,33 +909,30 @@ function createFileResponse(filePath: string, request: Request): Response {
 
   const { start, end } = parsedRange;
   const chunkLength = end - start + 1;
-  baseHeaders.set('content-length', String(chunkLength));
-  baseHeaders.set('content-range', `bytes ${start}-${end}/${size}`);
-  return new Response(
-    Readable.toWeb(createReadStream(filePath, { start, end })) as BodyInit,
-    {
-      status: 206,
-      headers: baseHeaders,
-    },
-  );
+  baseHeaders.set("content-length", String(chunkLength));
+  baseHeaders.set("content-range", `bytes ${start}-${end}/${size}`);
+  return new Response(Readable.toWeb(createReadStream(filePath, { start, end })) as BodyInit, {
+    status: 206,
+    headers: baseHeaders,
+  });
 }
 
 function parseByteRange(rangeHeader: string, size: number): { start: number; end: number } | null {
-  if (!rangeHeader.startsWith('bytes=')) {
+  if (!rangeHeader.startsWith("bytes=")) {
     return null;
   }
 
-  const value = rangeHeader.slice('bytes='.length).trim();
-  if (value.length === 0 || value.includes(',')) {
+  const value = rangeHeader.slice("bytes=".length).trim();
+  if (value.length === 0 || value.includes(",")) {
     return null;
   }
 
-  const [startText, endText] = value.split('-', 2);
+  const [startText, endText] = value.split("-", 2);
   if (startText === undefined || endText === undefined) {
     return null;
   }
 
-  if (startText === '') {
+  if (startText === "") {
     const suffixLength = Number.parseInt(endText, 10);
     if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
       return null;
@@ -933,7 +943,7 @@ function parseByteRange(rangeHeader: string, size: number): { start: number; end
   }
 
   const start = Number.parseInt(startText, 10);
-  const end = endText === '' ? size - 1 : Number.parseInt(endText, 10);
+  const end = endText === "" ? size - 1 : Number.parseInt(endText, 10);
   if (!Number.isFinite(start) || !Number.isFinite(end)) {
     return null;
   }
@@ -950,60 +960,60 @@ function parseByteRange(rangeHeader: string, size: number): { start: number; end
 
 function inferMimeType(filePath: string): string {
   const lower = filePath.toLowerCase();
-  if (lower.endsWith('.mp4')) {
-    return 'video/mp4';
+  if (lower.endsWith(".mp4")) {
+    return "video/mp4";
   }
-  if (lower.endsWith('.webm')) {
-    return 'video/webm';
+  if (lower.endsWith(".webm")) {
+    return "video/webm";
   }
-  if (lower.endsWith('.mov')) {
-    return 'video/quicktime';
+  if (lower.endsWith(".mov")) {
+    return "video/quicktime";
   }
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
-    return 'image/jpeg';
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return "image/jpeg";
   }
-  if (lower.endsWith('.png')) {
-    return 'image/png';
+  if (lower.endsWith(".png")) {
+    return "image/png";
   }
-  if (lower.endsWith('.gif')) {
-    return 'image/gif';
+  if (lower.endsWith(".gif")) {
+    return "image/gif";
   }
-  if (lower.endsWith('.webp')) {
-    return 'image/webp';
+  if (lower.endsWith(".webp")) {
+    return "image/webp";
   }
-  if (lower.endsWith('.vtt')) {
-    return 'text/vtt';
+  if (lower.endsWith(".vtt")) {
+    return "text/vtt";
   }
-  if (lower.endsWith('.srt')) {
-    return 'application/x-subrip';
+  if (lower.endsWith(".srt")) {
+    return "application/x-subrip";
   }
-  if (lower.endsWith('.mp3')) {
-    return 'audio/mpeg';
+  if (lower.endsWith(".mp3")) {
+    return "audio/mpeg";
   }
-  if (lower.endsWith('.wav')) {
-    return 'audio/wav';
+  if (lower.endsWith(".wav")) {
+    return "audio/wav";
   }
-  if (lower.endsWith('.html')) {
-    return 'text/html; charset=utf-8';
+  if (lower.endsWith(".html")) {
+    return "text/html; charset=utf-8";
   }
-  if (lower.endsWith('.txt')) {
-    return 'text/plain; charset=utf-8';
+  if (lower.endsWith(".txt")) {
+    return "text/plain; charset=utf-8";
   }
-  if (lower.endsWith('.json')) {
-    return 'application/json; charset=utf-8';
+  if (lower.endsWith(".json")) {
+    return "application/json; charset=utf-8";
   }
-  if (lower.endsWith('.pdf')) {
-    return 'application/pdf';
+  if (lower.endsWith(".pdf")) {
+    return "application/pdf";
   }
-  return 'application/octet-stream';
+  return "application/octet-stream";
 }
 
 function normalizeLogValue(value: unknown): JsonValue | undefined {
   if (
     value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
   ) {
     return value;
   }
@@ -1025,7 +1035,7 @@ function normalizeLogValue(value: unknown): JsonValue | undefined {
     };
   }
 
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
         .map(([key, entry]) => [key, normalizeLogValue(entry)])
