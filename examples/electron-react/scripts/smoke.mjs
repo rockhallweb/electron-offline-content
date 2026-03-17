@@ -73,6 +73,11 @@ const electronArgs = [
   `--media-cache-renderer-index=${join(rendererOutDir, 'index.html')}`,
 ];
 
+if (shouldDisableElectronSandbox()) {
+  // GitHub-hosted Linux runners cannot use Electron's SUID sandbox from the temp install path.
+  electronArgs.push('--no-sandbox');
+}
+
 await run('pnpm', electronArgs, exampleRoot, {
   ...process.env,
   MEDIA_CACHE_EXAMPLE_PROFILE: profile,
@@ -114,4 +119,8 @@ async function waitForFile(path, timeoutMs) {
     }
   }
   throw new Error(`Timed out waiting for smoke sentinel at ${path}.`);
+}
+
+function shouldDisableElectronSandbox() {
+  return process.platform === 'linux' && process.env.GITHUB_ACTIONS === 'true';
 }
