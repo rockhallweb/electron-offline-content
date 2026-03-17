@@ -1,0 +1,78 @@
+{
+  "name": "@rockhallweb/media-cache",
+  "version": "0.1.0",
+  "description": "Electron-first offline media cache for kiosk-style apps.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "private": true,
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "exports": {
+    "./main": {
+      "types": "./dist/main/index.d.ts",
+      "import": "./dist/main/index.js",
+      "require": "./dist/main/index.cjs"
+    },
+    "./preload": {
+      "types": "./dist/preload/index.d.ts",
+      "import": "./dist/preload/index.js",
+      "require": "./dist/preload/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example:dev": "pnpm build && node scripts/run-example.mjs dev",
+    "example:demo:nasa": "MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev",
+    "example:smoke": "pnpm build && node scripts/run-example.mjs smoke",
+    "pack:smoke": "pnpm build && node scripts/pack-smoke.mjs",
+    "ci:validate": "pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
+  },
+  "peerDependencies": {
+    "electron": ">=40.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "electron": "^40.0.0",
+    "jsdom": "^27.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}

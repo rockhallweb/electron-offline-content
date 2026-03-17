@@ -1,0 +1,199 @@
+# `@rockhallweb/media-cache`
+
+Electron-first offline media caching for kiosk-style applications.
+
+## Workspace
+
+This repo is a pnpm workspace with:
+
+- the package at the root
+- a real consumer app at `examples/electron-react`
+
+The example app is the maintainer validation target. It uses Electron Forge, React, and Vite for manual development, plus a direct Electron smoke path for deterministic automation.
+
+## Features
+
+- Global authoritative manifest sync with namespace support
+- File-backed binary asset cache with SQLite metadata index
+- Strict all-or-nothing snapshot commits
+- Grace-period deletion for removed assets
+- Privileged `media://` protocol for committed local assets
+- Structured main-process log callback for forwarding cache events into `pino`, `logtape`, or a custom logger
+- Preload bridge and React hooks for renderer access
+
+## Install
+
+```bash
+pnpm add @rockhallweb/media-cache
+```
+
+Peer dependencies:
+
+- `electron >= 40`
+- `react >= 18` when using `@rockhallweb/media-cache/react`
+
+## Development and Validation
+
+Use the root commands for maintainership and CI:
+
+- `pnpm check`
+  Type-check the package.
+- `pnpm test`
+  Run fast package-level behavior tests.
+- `pnpm build`
+  Build the package outputs in `dist/`.
+- `pnpm example:dev`
+  Launch the in-repo Electron Forge example for manual integration testing.
+- `pnpm example:demo:nasa`
+  Launch the manual demo against the NASA-backed profile with a minimal browsing interface.
+- `pnpm example:smoke`
+  Build and run the example in deterministic smoke mode against local fixtures.
+- `pnpm pack:smoke`
+  Pack the root package into a tarball, install that tarball into a temporary example copy, and run the same smoke assertions against the publishable artifact.
+- `pnpm ci:validate`
+  Run the full maintainer validation chain: check, test, build, and packed smoke.
+
+Workspace installs are for day-to-day development. `pnpm pack:smoke` is the release validation path because it catches package export mistakes, missing files, and install-time issues that workspace linking can hide.
+
+## Example App
+
+The example app lives at `examples/electron-react`.
+
+Two content profiles are supported:
+
+- `local`
+  Default. Uses tiny local fixtures served over a local HTTP server. This is the profile used by smoke tests and CI.
+- `nasa`
+  Opt-in. Uses public NASA-hosted media for heavier manual demos. This is intentionally excluded from automated validation.
+
+Examples:
+
+```bash
+pnpm example:dev
+pnpm example:demo:nasa
+MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev
+pnpm example:smoke
+```
+
+Example logging is configurable through the runtime config written by the launcher scripts. Manual runs default to pretty logs and smoke runs default to JSON logs.
+
+Overrides:
+
+```bash
+MEDIA_CACHE_LOG_FORMAT=pretty MEDIA_CACHE_LOG_LEVEL=debug pnpm example:dev
+MEDIA_CACHE_LOG_FORMAT=pretty MEDIA_CACHE_LOG_LEVEL=debug pnpm example:demo:nasa
+MEDIA_CACHE_LOG_FORMAT=json pnpm example:smoke
+```
+
+The example UI exercises:
+
+- sync status
+- exact namespace listing
+- namespace subtree listing
+- item lookup by `(namespace, id)`
+- exact file-stem lookup
+- local image and video rendering from `media://` URLs
+
+## Main process
+
+Call the scheme registration helper before app readiness, then create the cache, register
+the protocol and IPC, and start the initial sync.
+
+```ts
+import { app } from 'electron';
+import {
+  createMediaCache,
+  registerMediaCacheProtocolSchemes,
+} from '@rockhallweb/media-cache/main';
+
+await registerMediaCacheProtocolSchemes();
+
+const mediaCache = createMediaCache({
+  logLevel: 'info',
+  onLog: (entry) => {
+    console.log(entry);
+  },
+  resolveManifest: async () => ({
+    namespaces: [
+      {
+        key: 'nature',
+        items: [
+          {
+            id: 'forest',
+            version: 'v1',
+            kind: 'video',
+            title: 'Forest',
+            assets: [
+              {
+                id: 'main',
+                role: 'primary',
+                kind: 'video',
+                fileName: 'forest.mp4',
+                source: {
+                  url: 'https://cdn.example.com/forest.v1.mp4',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }),
+});
+
+await app.whenReady();
+await mediaCache.registerProtocol();
+await mediaCache.attachIpc();
+await mediaCache.start();
+```
+
+`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
+
+## Preload
+
+```ts
+import { exposeMediaCacheBridge } from '@rockhallweb/media-cache/preload';
+
+exposeMediaCacheBridge();
+```
+
+## React
+
+```tsx
+import {
+  MediaCacheProvider,
+  useMediaCacheStatus,
+  useMediaNamespaceTree,
+} from '@rockhallweb/media-cache/react';
+
+function App() {
+  const status = useMediaCacheStatus();
+  const items = useMediaNamespaceTree('nature', { limit: 20 });
+
+  if (status.loading || items.loading) {
+    return <div>Loading…</div>;
+  }
+
+  return (
+    <div>
+      {items.data?.items.map((item) => (
+        <video key={`${item.namespace}/${item.id}`} src={item.assets[0]?.url} controls />
+      ))}
+    </div>
+  );
+}
+
+export function Root() {
+  return (
+    <MediaCacheProvider>
+      <App />
+    </MediaCacheProvider>
+  );
+}
+```
+
+## Notes
+
+- v1 requires consumers to own cache busting through manifest versions.
+- v1 treats every asset as required for snapshot commit.
+- `node:sqlite` is used for the local index, which is still marked experimental in Node 24.
