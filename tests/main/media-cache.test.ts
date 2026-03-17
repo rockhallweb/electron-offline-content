@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, mkdtempSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
@@ -602,6 +602,49 @@ describe('media cache sync and queries', () => {
     expect(logs.some((entry) => entry.event === 'asset_download_started')).toBe(true);
     expect(logs.every((entry) => entry.service === 'rockhallweb-media-cache')).toBe(true);
     expect(logs.every((entry) => entry.component === 'media-cache')).toBe(true);
+  });
+
+  it('falls back to the default storage root when storageRoot is blank', async () => {
+    const homeRoot = createStorageRoot();
+    const originalHome = process.env.HOME;
+    const originalLocalAppData = process.env.LOCALAPPDATA;
+
+    process.env.HOME = homeRoot;
+    process.env.LOCALAPPDATA = join(homeRoot, 'AppData', 'Local');
+
+    try {
+      const cache = new MediaCache({
+        storageRoot: '   ',
+        resolveManifest: () => ({
+          snapshotId: 'blank-storage-root',
+          namespaces: [],
+        }),
+      });
+
+      await cache.start();
+
+      const activeStorageRoot = (cache as unknown as { storageRoot: string | null }).storageRoot;
+      const expectedStorageRoot =
+        process.platform === 'darwin'
+          ? join(homeRoot, 'Library', 'Caches', 'electron-media-cache', 'media-cache')
+          : process.platform === 'win32'
+            ? join(homeRoot, 'AppData', 'Local', 'electron-media-cache', 'media-cache')
+            : join(homeRoot, '.cache', 'electron-media-cache', 'media-cache');
+      expect(activeStorageRoot).toBe(expectedStorageRoot);
+      expect(existsSync(activeStorageRoot!)).toBe(true);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalLocalAppData === undefined) {
+        delete process.env.LOCALAPPDATA;
+      } else {
+        process.env.LOCALAPPDATA = originalLocalAppData;
+      }
+      rmSync(homeRoot, { recursive: true, force: true });
+    }
   });
 });
 

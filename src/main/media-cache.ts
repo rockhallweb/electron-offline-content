@@ -296,7 +296,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    this.storageRoot = this.options.storageRoot ?? (await defaultStorageRoot());
+    this.storageRoot = normalizeStorageRoot(this.options.storageRoot) ?? (await defaultStorageRoot());
     mkdirSync(this.storageRoot, { recursive: true });
     mkdirSync(join(this.storageRoot, 'temp'), { recursive: true });
     mkdirSync(join(this.storageRoot, 'blobs'), { recursive: true });
@@ -802,6 +802,14 @@ function logicalKey(namespace: string, itemId: string, assetId: string): string 
 
 function sanitizeSegment(segment: string): string {
   return encodeURIComponent(segment);
+}
+
+function normalizeStorageRoot(storageRoot: string | undefined): string | null {
+  if (storageRoot === undefined) {
+    return null;
+  }
+
+  return storageRoot.trim().length > 0 ? storageRoot : null;
 }
 
 function pruneEmptyParents(pathToFile: string, storageRoot: string): void {

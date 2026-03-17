@@ -46,7 +46,10 @@ const child = spawn(
       MEDIA_CACHE_LOG_FORMAT: logFormat,
       MEDIA_CACHE_LOG_LEVEL: logLevel,
       MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel ?? '',
-      MEDIA_CACHE_STORAGE_ROOT: smokeStorageRoot ?? process.env.MEDIA_CACHE_STORAGE_ROOT ?? '',
+      ...resolveOptionalEnv(
+        'MEDIA_CACHE_STORAGE_ROOT',
+        smokeStorageRoot ?? process.env.MEDIA_CACHE_STORAGE_ROOT,
+      ),
     },
   },
 );
@@ -84,4 +87,12 @@ async function waitForFile(path, timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
+}
+
+function resolveOptionalEnv(name, value) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return {};
+  }
+
+  return { [name]: value };
 }

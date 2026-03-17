@@ -111,11 +111,12 @@ async function bootstrap() {
   process.env.MEDIA_CACHE_EXAMPLE_FILE_STEM = exampleProfile.clientConfig.fileStem;
   process.env.MEDIA_CACHE_EXAMPLE_NAMESPACE_TREE_PREFIX =
     exampleProfile.clientConfig.namespaceTreePrefix;
+  const storageRoot =
+    readOptionalEnv('MEDIA_CACHE_STORAGE_ROOT') ??
+    join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName);
 
   const mediaCache = createMediaCache({
-    storageRoot:
-      process.env.MEDIA_CACHE_STORAGE_ROOT ??
-      join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
+    storageRoot,
     logLevel: selectedLogLevel,
     onLog: (entry) => {
       logger.forward(entry);
@@ -123,9 +124,7 @@ async function bootstrap() {
     resolveManifest: exampleProfile.resolveManifest,
   });
   logger.info('media_cache_created', {
-    storage_root:
-      process.env.MEDIA_CACHE_STORAGE_ROOT ??
-      join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
+    storage_root: storageRoot,
   });
 
   let mainWindow: BrowserWindow | null = null;
@@ -366,6 +365,11 @@ function readArgValue(flag: string): string | undefined {
   const prefix = `--${flag}=`;
   const match = cliArgs.find((arg) => arg.startsWith(prefix));
   return match ? match.slice(prefix.length) : undefined;
+}
+
+function readOptionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.trim().length > 0 ? value : undefined;
 }
 
 function traceSmoke(message: string): void {
