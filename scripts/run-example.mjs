@@ -12,6 +12,7 @@ const mode = process.argv[2] ?? 'dev';
 const isSmoke = mode === 'smoke';
 const smokeDir = isSmoke ? await mkdtemp(join(tmpdir(), 'media-cache-example-smoke-')) : null;
 const smokeSentinel = smokeDir ? join(smokeDir, 'result.json') : null;
+const smokeStorageRoot = smokeDir ? join(smokeDir, 'cache') : null;
 const profile = process.env.MEDIA_CACHE_EXAMPLE_PROFILE ?? 'local';
 const logFormat = process.env.MEDIA_CACHE_LOG_FORMAT ?? (isSmoke ? 'json' : 'pretty');
 const logLevel = process.env.MEDIA_CACHE_LOG_LEVEL ?? 'info';
@@ -45,6 +46,7 @@ const child = spawn(
       MEDIA_CACHE_LOG_FORMAT: logFormat,
       MEDIA_CACHE_LOG_LEVEL: logLevel,
       MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel ?? '',
+      MEDIA_CACHE_STORAGE_ROOT: smokeStorageRoot ?? process.env.MEDIA_CACHE_STORAGE_ROOT ?? '',
     },
   },
 );

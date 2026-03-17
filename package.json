@@ -4,7 +4,6 @@
   "description": "Electron-first offline media cache for kiosk-style apps.",
   "type": "module",
   "license": "UNLICENSED",
-  "private": true,
   "sideEffects": false,
   "engines": {
     "node": ">=24.0.0",

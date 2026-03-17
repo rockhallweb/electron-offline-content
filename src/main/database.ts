@@ -388,16 +388,21 @@ export class MediaCacheDatabase {
   }
 
   clearPendingDeletionsForGeneration(generationId: number): void {
-    this.db
-      .prepare(
-        `DELETE FROM pending_deletions
-         WHERE logical_key IN (
-           SELECT namespace_key || '|' || item_id || '|' || asset_id
+    const logicalKeys = (
+      this.db
+        .prepare(
+          `SELECT namespace_key AS namespaceKey, item_id AS itemId, asset_id AS assetId
            FROM assets
-           WHERE generation_id = ?
-         )`,
-      )
-      .run(generationId);
+           WHERE generation_id = ?`,
+        )
+        .all(generationId) as Array<{
+        namespaceKey: string;
+        itemId: string;
+        assetId: string;
+      }>
+    ).map((row) => createLogicalKey(row.namespaceKey, row.itemId, row.assetId));
+
+    this.deletePendingDeletions(logicalKeys);
   }
 
   markPendingDeletion(
@@ -530,7 +535,7 @@ export class MediaCacheDatabase {
 
     const uniqueItemKeys = new Map<string, string[]>();
     for (const row of matchRows) {
-      const key = `${row.namespace}|${row.itemId}`;
+      const key = createLogicalKey(row.namespace, row.itemId);
       const existing = uniqueItemKeys.get(key);
       if (existing) {
         existing.push(row.assetId);
@@ -541,7 +546,7 @@ export class MediaCacheDatabase {
 
     const matches: FileStemMatch[] = [];
     for (const [key, matchedAssetIds] of uniqueItemKeys.entries()) {
-      const [namespaceKey, itemId] = key.split('|');
+      const [namespaceKey, itemId] = parseLogicalItemKey(key);
       const item = this.getItem(namespaceKey, itemId);
       if (item) {
         matches.push({
@@ -763,6 +768,23 @@ function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] 
 
 function buildMediaUrl(namespace: string, itemId: string, assetId: string): string {
   return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
+}
+
+function createLogicalKey(...parts: string[]): string {
+  return JSON.stringify(parts);
+}
+
+function parseLogicalItemKey(key: string): [string, string] {
+  const parsed = JSON.parse(key) as unknown;
+  if (
+    Array.isArray(parsed) &&
+    parsed.length === 2 &&
+    parsed.every((entry) => typeof entry === 'string')
+  ) {
+    return parsed as [string, string];
+  }
+
+  throw new Error(`Invalid logical item key: ${key}`);
 }
 
 function emptyStats(): SyncRunStats {

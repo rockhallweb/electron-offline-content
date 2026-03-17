@@ -6,3 +6,4 @@ coverage
 examples/electron-react/.smoke/
 examples/electron-react/.vite/
 examples/electron-react/.runtime/
+examples/electron-react/out/

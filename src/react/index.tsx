@@ -54,24 +54,34 @@ export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
   const [data, setData] = useState<MediaCacheStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const requestSequence = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      requestSequence.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
+      const requestId = ++requestSequence.current;
       setLoading(true);
       try {
         const status = await bridge.getStatus();
-        if (!cancelled) {
+        if (!cancelled && mounted.current && requestId === requestSequence.current) {
           setData(status);
           setError(null);
         }
       } catch (caught) {
-        if (!cancelled) {
+        if (!cancelled && mounted.current && requestId === requestSequence.current) {
           setError(toError(caught));
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && mounted.current && requestId === requestSequence.current) {
           setLoading(false);
         }
       }
@@ -79,7 +89,8 @@ export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
 
     void load();
     const unsubscribe = bridge.subscribeStatus((status) => {
-      if (!cancelled) {
+      requestSequence.current += 1;
+      if (!cancelled && mounted.current) {
         setData(status);
         setLoading(false);
         setError(null);
@@ -97,10 +108,23 @@ export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
     loading,
     error,
     refresh: async () => {
-      const status = await bridge.getStatus();
-      setData(status);
-      setError(null);
-      setLoading(false);
+      const requestId = ++requestSequence.current;
+      setLoading(true);
+      try {
+        const status = await bridge.getStatus();
+        if (mounted.current && requestId === requestSequence.current) {
+          setData(status);
+          setError(null);
+        }
+      } catch (caught) {
+        if (mounted.current && requestId === requestSequence.current) {
+          setError(toError(caught));
+        }
+      } finally {
+        if (mounted.current && requestId === requestSequence.current) {
+          setLoading(false);
+        }
+      }
     },
   };
 }
@@ -153,17 +177,33 @@ function useAsyncResource<T>(loader: () => Promise<T>, deps: readonly unknown[])
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const requestSequence = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      requestSequence.current += 1;
+    };
+  }, []);
 
   const refresh = async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     try {
       const result = await latestLoader.current();
-      setData(result);
-      setError(null);
+      if (mounted.current && requestId === requestSequence.current) {
+        setData(result);
+        setError(null);
+      }
     } catch (caught) {
-      setError(toError(caught));
+      if (mounted.current && requestId === requestSequence.current) {
+        setError(toError(caught));
+      }
     } finally {
-      setLoading(false);
+      if (mounted.current && requestId === requestSequence.current) {
+        setLoading(false);
+      }
     }
   };
 

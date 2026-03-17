@@ -113,7 +113,9 @@ async function bootstrap() {
     exampleProfile.clientConfig.namespaceTreePrefix;
 
   const mediaCache = createMediaCache({
-    storageRoot: join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
+    storageRoot:
+      process.env.MEDIA_CACHE_STORAGE_ROOT ??
+      join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
     logLevel: selectedLogLevel,
     onLog: (entry) => {
       logger.forward(entry);
@@ -121,7 +123,9 @@ async function bootstrap() {
     resolveManifest: exampleProfile.resolveManifest,
   });
   logger.info('media_cache_created', {
-    storage_root: join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
+    storage_root:
+      process.env.MEDIA_CACHE_STORAGE_ROOT ??
+      join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName),
   });
 
   let mainWindow: BrowserWindow | null = null;

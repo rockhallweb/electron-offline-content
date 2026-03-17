@@ -797,7 +797,7 @@ export class MediaCache implements MediaCacheMain {
 }
 
 function logicalKey(namespace: string, itemId: string, assetId: string): string {
-  return `${namespace}|${itemId}|${assetId}`;
+  return JSON.stringify([namespace, itemId, assetId]);
 }
 
 function sanitizeSegment(segment: string): string {
@@ -843,7 +843,7 @@ function findManifestAsset(
 }
 
 function getResolvedVersionFromPath(relativePath: string): string | null {
-  const parts = relativePath.split('/');
+  const parts = relativePath.split(/[\\/]/);
   return parts.length >= 5 ? decodeURIComponent(parts.at(-2)!) : null;
 }
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdtempSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
@@ -313,6 +313,90 @@ describe('media cache sync and queries', () => {
 
     await cache.syncNow();
     expect(requestCounts['/main.mp4']).toBe(2);
+  });
+
+  it('reuses cached assets when stored relative paths use windows separators', async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    expect(requestCounts['/main.mp4']).toBe(1);
+
+    const db = (cache as unknown as { db: {
+      getActiveGenerationId(): number | null;
+      getGenerationAssets(generationId: number): Array<{ namespace: string; itemId: string; assetId: string; relativePath: string | null }>;
+      setAssetRelativePath(
+        generationId: number,
+        namespace: string,
+        itemId: string,
+        assetId: string,
+        relativePath: string,
+      ): void;
+    } }).db;
+    const activeGenerationId = db.getActiveGenerationId();
+    expect(activeGenerationId).not.toBeNull();
+
+    const mainAsset = db
+      .getGenerationAssets(activeGenerationId!)
+      .find((row) => row.namespace === 'nature' && row.itemId === 'forest' && row.assetId === 'main');
+    expect(mainAsset?.relativePath).toBeTruthy();
+
+    const originalPath = join(storageRoot, mainAsset!.relativePath!);
+    const windowsRelativePath = 'blobs\\nature\\forest\\main\\v1\\main.mp4';
+    copyFileSync(originalPath, join(storageRoot, windowsRelativePath));
+    db.setAssetRelativePath(activeGenerationId!, 'nature', 'forest', 'main', windowsRelativePath);
+
+    await cache.syncNow();
+    expect(requestCounts['/main.mp4']).toBe(1);
+  });
+
+  it('supports pipe characters in namespace, item, and asset ids', async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: 'pipe-ids',
+      namespaces: [
+        {
+          key: 'nature|archive',
+          items: [
+            {
+              id: 'forest|loop',
+              version: 'v1',
+              kind: 'video',
+              assets: [
+                {
+                  id: 'main|primary',
+                  role: 'primary',
+                  kind: 'video',
+                  fileName: 'main.mp4',
+                  byteLength: 9,
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    const item = await cache.getItem('nature|archive', 'forest|loop');
+    expect(item?.assets[0]?.url).toBe('media://asset/nature%7Carchive/forest%7Cloop/main%7Cprimary');
+
+    const matches = await cache.findByFileStem('main', { limit: 10 });
+    expect(matches.items).toHaveLength(1);
+    expect(matches.items[0]?.item.namespace).toBe('nature|archive');
+    expect(matches.items[0]?.item.id).toBe('forest|loop');
+    expect(matches.items[0]?.matchedAssetIds).toEqual(['main|primary']);
   });
 
   it('marks removed assets for deletion instead of deleting them immediately', async () => {

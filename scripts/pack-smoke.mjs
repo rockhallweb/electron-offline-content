@@ -12,6 +12,7 @@ const workspaceTmp = await mkdtemp(join(tmpdir(), 'media-cache-pack-smoke-'));
 const packDir = join(workspaceTmp, 'pack');
 const copiedExampleDir = join(workspaceTmp, 'example');
 const smokeSentinel = join(workspaceTmp, 'smoke-result.json');
+const smokeStorageRoot = join(workspaceTmp, 'cache');
 
 await run('pnpm', ['pack', '--pack-destination', packDir], {
   cwd: repoRoot,
@@ -55,6 +56,7 @@ await run('pnpm', ['run', 'smoke'], {
     ...process.env,
     MEDIA_CACHE_EXAMPLE_PROFILE: 'local',
     MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel,
+    MEDIA_CACHE_STORAGE_ROOT: smokeStorageRoot,
   },
 });
 
