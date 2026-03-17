@@ -36,6 +36,12 @@ Peer dependencies:
 
 Use the root commands for maintainership and CI:
 
+- `pnpm lint`
+  Run Oxlint across the workspace source and config files.
+- `pnpm format:check`
+  Verify formatting with Oxfmt without rewriting files.
+- `pnpm format`
+  Rewrite supported files in place with Oxfmt.
 - `pnpm check`
   Type-check the package.
 - `pnpm test`
@@ -51,7 +57,7 @@ Use the root commands for maintainership and CI:
 - `pnpm pack:smoke`
   Pack the root package into a tarball, install that tarball into a temporary example copy, and run the same smoke assertions against the publishable artifact.
 - `pnpm ci:validate`
-  Run the full maintainer validation chain: check, test, build, and packed smoke.
+  Run the full maintainer validation chain: lint, format check, type-check, test, build, and packed smoke.
 
 GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is restricted to member-controlled branches and same-repository PRs; see [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
 

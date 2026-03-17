@@ -1,0 +1,11 @@
+{
+  "ignorePatterns": [
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "examples/electron-react/.runtime/**",
+    "examples/electron-react/.smoke/**",
+    "examples/electron-react/.vite/**",
+    "examples/electron-react/out/**"
+  ]
+}

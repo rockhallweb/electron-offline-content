@@ -34,13 +34,17 @@
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
+    "lint": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --deny-warnings .",
+    "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --fix --deny-warnings .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "example:dev": "pnpm build && node scripts/run-example.mjs dev",
     "example:demo:nasa": "MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev",
     "example:smoke": "pnpm build && node scripts/run-example.mjs smoke",
     "pack:smoke": "pnpm build && node scripts/pack-smoke.mjs",
-    "ci:validate": "pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
+    "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
   },
   "peerDependencies": {
     "electron": ">=40.0.0",
@@ -62,6 +66,8 @@
     "@types/react-dom": "^19.1.9",
     "electron": "^40.0.0",
     "jsdom": "^27.0.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tsup": "^8.5.0",
