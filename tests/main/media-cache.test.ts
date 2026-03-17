@@ -1,12 +1,27 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, mkdtempSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { MediaCache, createMediaCache } from '../../src/main/media-cache.js';
-import { normalizeManifest } from '../../src/shared/normalize.js';
-import { ManifestValidationError, StorageLimitError } from '../../src/shared/errors.js';
-import type { ManifestInput, MediaAssetDefinition, MediaCacheLogEvent } from '../../src/shared/types.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  copyFileSync,
+  mkdtempSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  statfsSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MediaCache, createMediaCache } from "../../src/main/media-cache.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
+import { ManifestValidationError, StorageLimitError } from "../../src/shared/errors.js";
+import type {
+  ManifestInput,
+  MediaAssetDefinition,
+  MediaCacheLogEvent,
+} from "../../src/shared/types.js";
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -120,7 +135,7 @@ describe("media cache sync and queries", () => {
       const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
       requestRanges[path] ??= [];
-      requestRanges[path].push(req.headers.range ?? '');
+      requestRanges[path].push(req.headers.range ?? "");
 
       if (path === "/broken.mp4") {
         res.writeHead(500);
@@ -128,71 +143,71 @@ describe("media cache sync and queries", () => {
         return;
       }
 
-      if (path === '/retry-once.mp4') {
+      if (path === "/retry-once.mp4") {
         if (requestCounts[path] === 1) {
           res.writeHead(503);
-          res.end('retry');
+          res.end("retry");
           return;
         }
-        sendStaticBody(req, res, 'retry-success', 'video/mp4');
+        sendStaticBody(req, res, "retry-success", "video/mp4");
         return;
       }
 
-      if (path === '/nonretryable.mp4') {
+      if (path === "/nonretryable.mp4") {
         res.writeHead(404);
-        res.end('missing');
+        res.end("missing");
         return;
       }
 
-      if (path === '/range-ignored.mp4') {
-        sendStaticBody(req, res, 'range-ignore', 'video/mp4', { ignoreRange: true });
+      if (path === "/range-ignored.mp4") {
+        sendStaticBody(req, res, "range-ignore", "video/mp4", { ignoreRange: true });
         return;
       }
 
-      if (path === '/range-mismatch.mp4') {
-        sendStaticBody(req, res, 'range-mismatch', 'video/mp4', { forceRangeStart: 0 });
+      if (path === "/range-mismatch.mp4") {
+        sendStaticBody(req, res, "range-mismatch", "video/mp4", { forceRangeStart: 0 });
         return;
       }
 
-      if (path === '/range-not-satisfiable.mp4') {
+      if (path === "/range-not-satisfiable.mp4") {
         if (req.headers.range) {
           res.writeHead(416, {
-            'Content-Range': `bytes */${'range-416'.length}`,
+            "Content-Range": `bytes */${"range-416".length}`,
           });
           res.end();
           return;
         }
-        sendStaticBody(req, res, 'range-416', 'video/mp4');
+        sendStaticBody(req, res, "range-416", "video/mp4");
         return;
       }
 
-      if (path === '/resumable.mp4') {
-        sendStaticBody(req, res, 'resume-data', 'video/mp4');
+      if (path === "/resumable.mp4") {
+        sendStaticBody(req, res, "resume-data", "video/mp4");
         return;
       }
 
-      if (path === '/resume-retryable.mp4') {
+      if (path === "/resume-retryable.mp4") {
         if (req.headers.range && requestCounts[path] === 1) {
           res.writeHead(503);
-          res.end('retry');
+          res.end("retry");
           return;
         }
-        sendStaticBody(req, res, 'resume-retry-success', 'video/mp4');
+        sendStaticBody(req, res, "resume-retry-success", "video/mp4");
         return;
       }
 
-      if (path === '/drop-after-two.mp4') {
-        sendInterruptedBody(req, res, 'retry-bytes', 'video/mp4', 2);
+      if (path === "/drop-after-two.mp4") {
+        sendInterruptedBody(req, res, "retry-bytes", "video/mp4", 2);
         return;
       }
 
-      if (path === '/mime-fallback.bin') {
-        sendStaticBody(req, res, 'mime-fallback', 'video/quicktime');
+      if (path === "/mime-fallback.bin") {
+        sendStaticBody(req, res, "mime-fallback", "video/quicktime");
         return;
       }
 
-      if (path === '/mime-manifest.bin') {
-        sendStaticBody(req, res, 'mime-manifest', 'application/octet-stream');
+      if (path === "/mime-manifest.bin") {
+        sendStaticBody(req, res, "mime-manifest", "application/octet-stream");
         return;
       }
 
@@ -321,7 +336,7 @@ describe("media cache sync and queries", () => {
     });
   }
 
-  it('syncs a manifest, preserves manifest order, supports tree queries, and finds file stems', async () => {
+  it("syncs a manifest, preserves manifest order, supports tree queries, and finds file stems", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
@@ -602,33 +617,33 @@ describe("media cache sync and queries", () => {
     expect(item?.version).toBe("v1");
   });
 
-  it('resumes an existing partial download across cache instances', async () => {
+  it("resumes an existing partial download across cache instances", async () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'resumable.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "resumable.mp4"),
     );
-    mkdirSync(join(storageRoot, 'temp'), { recursive: true });
-    mkdirSync(join(partialPath, '..'), { recursive: true });
-    writeFileSync(partialPath, 'resume');
+    mkdirSync(join(storageRoot, "temp"), { recursive: true });
+    mkdirSync(join(partialPath, ".."), { recursive: true });
+    writeFileSync(partialPath, "resume");
 
     manifests = {
-      snapshotId: 'resume',
+      snapshotId: "resume",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'resumable.mp4',
-                  byteLength: 'resume-data'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "resumable.mp4",
+                  byteLength: "resume-data".length,
                   source: {
                     url: `${baseUrl}/resumable.mp4`,
                   },
@@ -647,39 +662,42 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    expect(requestRanges['/resumable.mp4']).toContain('bytes=6-');
+    expect(requestRanges["/resumable.mp4"]).toContain("bytes=6-");
     expect(existsSync(partialPath)).toBe(false);
 
-    const finalPath = join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'resumable.mp4'));
-    expect(readFileSync(finalPath, 'utf8')).toBe('resume-data');
+    const finalPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "resumable.mp4"),
+    );
+    expect(readFileSync(finalPath, "utf8")).toBe("resume-data");
   });
 
-  it('discounts existing partial bytes when enforcing reserveFreeBytes', async () => {
+  it("discounts existing partial bytes when enforcing reserveFreeBytes", async () => {
     const storageRoot = createStorageRoot();
-    const body = 'x'.repeat(1_000_000);
+    const body = "x".repeat(1_000_000);
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'reserve-resumable.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "reserve-resumable.mp4"),
     );
-    mkdirSync(join(partialPath, '..'), { recursive: true });
+    mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body.slice(0, 990_000));
 
     manifests = {
-      snapshotId: 'reserve-resume',
+      snapshotId: "reserve-resume",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'reserve-resumable.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "reserve-resumable.mp4",
                   byteLength: body.length,
                   source: {
                     url: `${baseUrl}/reserve-resumable.mp4`,
@@ -692,12 +710,15 @@ describe("media cache sync and queries", () => {
       ],
     };
 
-    const cache = new MediaCache({
-      storageRoot,
-      resolveManifest: () => manifests,
-    }, {
-      sleep: async () => undefined,
-    });
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => manifests,
+      },
+      {
+        sleep: async () => undefined,
+      },
+    );
 
     await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
     const stats = statfsSync(storageRoot);
@@ -716,24 +737,26 @@ describe("media cache sync and queries", () => {
     await expect(
       (
         cache as unknown as {
-          enforceStorageLimits(downloads: Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            request: { url: string };
-            fileName: string;
-            resolvedVersion: string;
-            byteLength?: number;
-          }>): Promise<void>;
+          enforceStorageLimits(
+            downloads: Array<{
+              namespace: string;
+              itemId: string;
+              assetId: string;
+              request: { url: string };
+              fileName: string;
+              resolvedVersion: string;
+              byteLength?: number;
+            }>,
+          ): Promise<void>;
         }
       ).enforceStorageLimits([
         {
-          namespace: 'nature',
-          itemId: 'forest',
-          assetId: 'main',
+          namespace: "nature",
+          itemId: "forest",
+          assetId: "main",
           request: { url: `${baseUrl}/reserve-resumable.mp4` },
-          fileName: 'reserve-resumable.mp4',
-          resolvedVersion: 'v1',
+          fileName: "reserve-resumable.mp4",
+          resolvedVersion: "v1",
           byteLength: body.length,
         },
       ]),
@@ -749,32 +772,32 @@ describe("media cache sync and queries", () => {
     ).resolves.toBeUndefined();
   });
 
-  it('preserves partial files across retryable HTTP failures during resumed downloads', async () => {
+  it("preserves partial files across retryable HTTP failures during resumed downloads", async () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'resume-retryable.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "resume-retryable.mp4"),
     );
-    mkdirSync(join(partialPath, '..'), { recursive: true });
-    writeFileSync(partialPath, 'resume');
+    mkdirSync(join(partialPath, ".."), { recursive: true });
+    writeFileSync(partialPath, "resume");
 
     manifests = {
-      snapshotId: 'resume-retryable',
+      snapshotId: "resume-retryable",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'resume-retryable.mp4',
-                  byteLength: 'resume-retry-success'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "resume-retryable.mp4",
+                  byteLength: "resume-retry-success".length,
                   source: {
                     url: `${baseUrl}/resume-retryable.mp4`,
                   },
@@ -793,39 +816,42 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    expect(requestRanges['/resume-retryable.mp4']).toEqual(['bytes=6-', 'bytes=6-']);
+    expect(requestRanges["/resume-retryable.mp4"]).toEqual(["bytes=6-", "bytes=6-"]);
     expect(existsSync(partialPath)).toBe(false);
 
-    const finalPath = join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'resume-retryable.mp4'));
-    expect(readFileSync(finalPath, 'utf8')).toBe('resume-retry-success');
+    const finalPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "resume-retryable.mp4"),
+    );
+    expect(readFileSync(finalPath, "utf8")).toBe("resume-retry-success");
   });
 
-  it('restarts from byte zero when a server ignores a range request', async () => {
+  it("restarts from byte zero when a server ignores a range request", async () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'range-ignored.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "range-ignored.mp4"),
     );
-    mkdirSync(join(partialPath, '..'), { recursive: true });
-    writeFileSync(partialPath, 'range');
+    mkdirSync(join(partialPath, ".."), { recursive: true });
+    writeFileSync(partialPath, "range");
 
     manifests = {
-      snapshotId: 'range-ignored',
+      snapshotId: "range-ignored",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'range-ignored.mp4',
-                  byteLength: 'range-ignore'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "range-ignored.mp4",
+                  byteLength: "range-ignore".length,
                   source: {
                     url: `${baseUrl}/range-ignored.mp4`,
                   },
@@ -844,37 +870,37 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    expect(requestCounts['/range-ignored.mp4']).toBe(2);
-    expect(requestRanges['/range-ignored.mp4']).toEqual(['bytes=5-', '']);
+    expect(requestCounts["/range-ignored.mp4"]).toBe(2);
+    expect(requestRanges["/range-ignored.mp4"]).toEqual(["bytes=5-", ""]);
     expect(existsSync(partialPath)).toBe(false);
   });
 
-  it('restarts from byte zero when a server returns a mismatched content range', async () => {
+  it("restarts from byte zero when a server returns a mismatched content range", async () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'range-mismatch.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "range-mismatch.mp4"),
     );
-    mkdirSync(join(partialPath, '..'), { recursive: true });
-    writeFileSync(partialPath, 'range');
+    mkdirSync(join(partialPath, ".."), { recursive: true });
+    writeFileSync(partialPath, "range");
 
     manifests = {
-      snapshotId: 'range-mismatch',
+      snapshotId: "range-mismatch",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'range-mismatch.mp4',
-                  byteLength: 'range-mismatch'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "range-mismatch.mp4",
+                  byteLength: "range-mismatch".length,
                   source: {
                     url: `${baseUrl}/range-mismatch.mp4`,
                   },
@@ -893,40 +919,43 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    expect(requestCounts['/range-mismatch.mp4']).toBe(2);
-    expect(requestRanges['/range-mismatch.mp4']).toEqual(['bytes=5-', '']);
+    expect(requestCounts["/range-mismatch.mp4"]).toBe(2);
+    expect(requestRanges["/range-mismatch.mp4"]).toEqual(["bytes=5-", ""]);
     expect(existsSync(partialPath)).toBe(false);
 
-    const finalPath = join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'range-mismatch.mp4'));
-    expect(readFileSync(finalPath, 'utf8')).toBe('range-mismatch');
+    const finalPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "range-mismatch.mp4"),
+    );
+    expect(readFileSync(finalPath, "utf8")).toBe("range-mismatch");
   });
 
-  it('restarts from byte zero when a server rejects a completed range with 416', async () => {
+  it("restarts from byte zero when a server rejects a completed range with 416", async () => {
     const storageRoot = createStorageRoot();
-    const body = 'range-416';
+    const body = "range-416";
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'range-not-satisfiable.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "range-not-satisfiable.mp4"),
     );
-    mkdirSync(join(partialPath, '..'), { recursive: true });
+    mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body);
 
     manifests = {
-      snapshotId: 'range-not-satisfiable',
+      snapshotId: "range-not-satisfiable",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'range-not-satisfiable.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "range-not-satisfiable.mp4",
                   byteLength: body.length,
                   source: {
                     url: `${baseUrl}/range-not-satisfiable.mp4`,
@@ -946,35 +975,38 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    expect(requestCounts['/range-not-satisfiable.mp4']).toBe(2);
-    expect(requestRanges['/range-not-satisfiable.mp4']).toEqual([`bytes=${body.length}-`, '']);
+    expect(requestCounts["/range-not-satisfiable.mp4"]).toBe(2);
+    expect(requestRanges["/range-not-satisfiable.mp4"]).toEqual([`bytes=${body.length}-`, ""]);
     expect(existsSync(partialPath)).toBe(false);
 
-    const finalPath = join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'range-not-satisfiable.mp4'));
-    expect(readFileSync(finalPath, 'utf8')).toBe(body);
+    const finalPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "range-not-satisfiable.mp4"),
+    );
+    expect(readFileSync(finalPath, "utf8")).toBe(body);
   });
 
-  it('retries retryable HTTP failures and does not retry non-retryable 4xx failures', async () => {
+  it("retries retryable HTTP failures and does not retry non-retryable 4xx failures", async () => {
     const retryableRoot = createStorageRoot();
     const retryableCache = createNoSleepCache({
       storageRoot: retryableRoot,
       resolveManifest: () => ({
-        snapshotId: 'retry-once',
+        snapshotId: "retry-once",
         namespaces: [
           {
-            key: 'nature',
+            key: "nature",
             items: [
               {
-                id: 'forest',
-                version: 'v1',
-                kind: 'video',
+                id: "forest",
+                version: "v1",
+                kind: "video",
                 assets: [
                   {
-                    id: 'main',
-                    role: 'primary',
-                    kind: 'video',
-                    fileName: 'retry-once.mp4',
-                    byteLength: 'retry-success'.length,
+                    id: "main",
+                    role: "primary",
+                    kind: "video",
+                    fileName: "retry-once.mp4",
+                    byteLength: "retry-success".length,
                     source: {
                       url: `${baseUrl}/retry-once.mp4`,
                     },
@@ -988,28 +1020,28 @@ describe("media cache sync and queries", () => {
     });
 
     await retryableCache.start();
-    expect(requestCounts['/retry-once.mp4']).toBe(2);
+    expect(requestCounts["/retry-once.mp4"]).toBe(2);
 
     const nonRetryableRoot = createStorageRoot();
     const nonRetryableCache = createNoSleepCache({
       storageRoot: nonRetryableRoot,
-      onSyncFailure: 'throw',
+      onSyncFailure: "throw",
       resolveManifest: () => ({
-        snapshotId: 'nonretryable',
+        snapshotId: "nonretryable",
         namespaces: [
           {
-            key: 'nature',
+            key: "nature",
             items: [
               {
-                id: 'forest',
-                version: 'v1',
-                kind: 'video',
+                id: "forest",
+                version: "v1",
+                kind: "video",
                 assets: [
                   {
-                    id: 'main',
-                    role: 'primary',
-                    kind: 'video',
-                    fileName: 'nonretryable.mp4',
+                    id: "main",
+                    role: "primary",
+                    kind: "video",
+                    fileName: "nonretryable.mp4",
                     byteLength: 1,
                     source: {
                       url: `${baseUrl}/nonretryable.mp4`,
@@ -1023,29 +1055,29 @@ describe("media cache sync and queries", () => {
       }),
     });
 
-    await expect(nonRetryableCache.start()).rejects.toThrow();
-    expect(requestCounts['/nonretryable.mp4']).toBe(1);
+    await expect(nonRetryableCache.start()).rejects.toThrow("Download failed");
+    expect(requestCounts["/nonretryable.mp4"]).toBe(1);
   });
 
-  it('preserves partial files after exhausting retryable download failures', async () => {
+  it("preserves partial files after exhausting retryable download failures", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
-      snapshotId: 'drop-after-two',
+      snapshotId: "drop-after-two",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'drop-after-two.mp4',
-                  byteLength: 'retry-bytes'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "drop-after-two.mp4",
+                  byteLength: "retry-bytes".length,
                   source: {
                     url: `${baseUrl}/drop-after-two.mp4`,
                   },
@@ -1059,28 +1091,32 @@ describe("media cache sync and queries", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      onSyncFailure: 'throw',
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
-    await expect(cache.start()).rejects.toThrow();
+    await expect(cache.start()).rejects.toThrow("terminated");
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'drop-after-two.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "drop-after-two.mp4"),
     );
     expect(existsSync(partialPath)).toBe(true);
     expect(statSync(partialPath).size).toBeGreaterThan(0);
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'drop-after-two.mp4')))).toBe(false);
+    expect(
+      existsSync(
+        join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "drop-after-two.mp4")),
+      ),
+    ).toBe(false);
   });
 
-  it('cleans up obsolete partial files that no longer match current download targets', async () => {
+  it("cleans up obsolete partial files that no longer match current download targets", async () => {
     const storageRoot = createStorageRoot();
     const obsoletePartialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'stale-version', 'main.mp4'),
+      partialPathFor("nature", "forest", "main", "stale-version", "main.mp4"),
     );
-    mkdirSync(join(obsoletePartialPath, '..'), { recursive: true });
-    writeFileSync(obsoletePartialPath, 'stale-bytes');
+    mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
+    writeFileSync(obsoletePartialPath, "stale-bytes");
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -1090,41 +1126,50 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     expect(existsSync(obsoletePartialPath)).toBe(false);
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'main.mp4')))).toBe(true);
+    expect(
+      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+    ).toBe(true);
   });
 
-  it('classifies wrapped ENOSPC download failures as storage limit errors', async () => {
+  it("classifies wrapped ENOSPC download failures as storage limit errors", async () => {
     const storageRoot = createStorageRoot();
-    const cache = new MediaCache({
-      storageRoot,
-      onSyncFailure: 'throw',
-      resolveManifest: () => manifests,
-    }, {
-      sleep: async () => undefined,
-      fetchImpl: async () => new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode('x'));
-          queueMicrotask(() => {
-            controller.error(Object.assign(new Error('disk full'), { code: 'ENOSPC' }));
-          });
-        },
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'video/mp4',
-        },
-      }),
-    });
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveManifest: () => manifests,
+      },
+      {
+        sleep: async () => undefined,
+        fetchImpl: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("x"));
+                queueMicrotask(() => {
+                  controller.error(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
+                });
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "video/mp4",
+              },
+            },
+          ),
+      },
+    );
 
     await expect(cache.start()).rejects.toThrow(StorageLimitError);
     const partialPath = join(
       storageRoot,
-      partialPathFor('nature', 'forest', 'main', 'v1', 'main.mp4'),
+      partialPathFor("nature", "forest", "main", "v1", "main.mp4"),
     );
     expect(existsSync(partialPath)).toBe(false);
   });
 
-  it('cleans up newly staged blob files after a failed sync while keeping the last committed snapshot', async () => {
+  it("cleans up newly staged blob files after a failed sync while keeping the last committed snapshot", async () => {
     const storageRoot = createStorageRoot();
     const cache = createNoSleepCache({
       storageRoot,
@@ -1134,31 +1179,31 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     manifests = {
-      snapshotId: 'cleanup-failed-stage',
+      snapshotId: "cleanup-failed-stage",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v2',
-              kind: 'video',
+              id: "forest",
+              version: "v2",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'retry-once.mp4',
-                  byteLength: 'retry-success'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "retry-once.mp4",
+                  byteLength: "retry-success".length,
                   source: {
                     url: `${baseUrl}/retry-once.mp4`,
                   },
                 },
                 {
-                  id: 'poster',
-                  role: 'poster',
-                  kind: 'poster',
-                  fileName: 'broken.mp4',
+                  id: "poster",
+                  role: "poster",
+                  kind: "poster",
+                  fileName: "broken.mp4",
                   byteLength: 6,
                   source: {
                     url: `${baseUrl}/broken.mp4`,
@@ -1173,30 +1218,36 @@ describe("media cache sync and queries", () => {
 
     await cache.syncNow();
 
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v2', 'retry-once.mp4')))).toBe(false);
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'main.mp4')))).toBe(true);
-    expect((await cache.getItem('nature', 'forest'))?.version).toBe('v1');
+    expect(
+      existsSync(
+        join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "retry-once.mp4")),
+      ),
+    ).toBe(false);
+    expect(
+      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+    ).toBe(true);
+    expect((await cache.getItem("nature", "forest"))?.version).toBe("v1");
   });
 
-  it('prunes expired deletions before enforcing storage limits', async () => {
+  it("prunes expired deletions before enforcing storage limits", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
     manifests = {
-      snapshotId: 'small-initial',
+      snapshotId: "small-initial",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v1',
-              kind: 'video',
+              id: "forest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'main.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
                   byteLength: 9,
                   source: {
                     url: `${baseUrl}/main.mp4`,
@@ -1224,28 +1275,28 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     manifests = {
-      snapshotId: 'pending-delete',
+      snapshotId: "pending-delete",
       namespaces: [],
     };
     await cache.syncNow();
 
     currentNow = 2_000;
     manifests = {
-      snapshotId: 'after-prune',
+      snapshotId: "after-prune",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'forest',
-              version: 'v2',
-              kind: 'video',
+              id: "forest",
+              version: "v2",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'flower.mp4',
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "flower.mp4",
                   byteLength: 12,
                   source: {
                     url: `${baseUrl}/flower.mp4`,
@@ -1259,29 +1310,33 @@ describe("media cache sync and queries", () => {
     };
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v1', 'main.mp4')))).toBe(false);
-    expect(existsSync(join(storageRoot, blobPathFor('nature', 'forest', 'main', 'v2', 'flower.mp4')))).toBe(true);
+    expect(
+      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+    ).toBe(false);
+    expect(
+      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "flower.mp4"))),
+    ).toBe(true);
   });
 
-  it('uses response content type only as a mimeType fallback', async () => {
+  it("uses response content type only as a mimeType fallback", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
-      snapshotId: 'mime-fallback',
+      snapshotId: "mime-fallback",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'fallback',
-              version: 'v1',
-              kind: 'video',
+              id: "fallback",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'mime-fallback.bin',
-                  byteLength: 'mime-fallback'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "mime-fallback.bin",
+                  byteLength: "mime-fallback".length,
                   source: {
                     url: `${baseUrl}/mime-fallback.bin`,
                   },
@@ -1289,17 +1344,17 @@ describe("media cache sync and queries", () => {
               ],
             },
             {
-              id: 'manifest',
-              version: 'v1',
-              kind: 'video',
+              id: "manifest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  mimeType: 'video/mp4',
-                  fileName: 'mime-manifest.bin',
-                  byteLength: 'mime-manifest'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  mimeType: "video/mp4",
+                  fileName: "mime-manifest.bin",
+                  byteLength: "mime-manifest".length,
                   source: {
                     url: `${baseUrl}/mime-manifest.bin`,
                   },
@@ -1318,29 +1373,29 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    const fallbackItem = await cache.getItem('nature', 'fallback');
-    expect(fallbackItem?.assets[0]?.mimeType).toBe('video/quicktime');
+    const fallbackItem = await cache.getItem("nature", "fallback");
+    expect(fallbackItem?.assets[0]?.mimeType).toBe("video/quicktime");
 
-    const manifestItem = await cache.getItem('nature', 'manifest');
-    expect(manifestItem?.assets[0]?.mimeType).toBe('video/mp4');
+    const manifestItem = await cache.getItem("nature", "manifest");
+    expect(manifestItem?.assets[0]?.mimeType).toBe("video/mp4");
 
     manifests = {
-      snapshotId: 'mime-fallback-skip',
+      snapshotId: "mime-fallback-skip",
       namespaces: [
         {
-          key: 'nature',
+          key: "nature",
           items: [
             {
-              id: 'fallback',
-              version: 'v1',
-              kind: 'video',
+              id: "fallback",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'mime-fallback.bin',
-                  byteLength: 'mime-fallback'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "mime-fallback.bin",
+                  byteLength: "mime-fallback".length,
                   source: {
                     url: `${baseUrl}/mime-fallback.bin`,
                   },
@@ -1348,16 +1403,16 @@ describe("media cache sync and queries", () => {
               ],
             },
             {
-              id: 'manifest',
-              version: 'v1',
-              kind: 'video',
+              id: "manifest",
+              version: "v1",
+              kind: "video",
               assets: [
                 {
-                  id: 'main',
-                  role: 'primary',
-                  kind: 'video',
-                  fileName: 'mime-manifest.bin',
-                  byteLength: 'mime-manifest'.length,
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "mime-manifest.bin",
+                  byteLength: "mime-manifest".length,
                   source: {
                     url: `${baseUrl}/mime-manifest.bin`,
                   },
@@ -1370,17 +1425,17 @@ describe("media cache sync and queries", () => {
     };
 
     await cache.syncNow();
-    expect(requestCounts['/mime-fallback.bin']).toBe(1);
-    expect(requestCounts['/mime-manifest.bin']).toBe(1);
+    expect(requestCounts["/mime-fallback.bin"]).toBe(1);
+    expect(requestCounts["/mime-manifest.bin"]).toBe(1);
 
-    const skippedFallbackItem = await cache.getItem('nature', 'fallback');
-    expect(skippedFallbackItem?.assets[0]?.mimeType).toBe('video/quicktime');
+    const skippedFallbackItem = await cache.getItem("nature", "fallback");
+    expect(skippedFallbackItem?.assets[0]?.mimeType).toBe("video/quicktime");
 
-    const skippedManifestItem = await cache.getItem('nature', 'manifest');
-    expect(skippedManifestItem?.assets[0]?.mimeType).toBe('video/mp4');
+    const skippedManifestItem = await cache.getItem("nature", "manifest");
+    expect(skippedManifestItem?.assets[0]?.mimeType).toBe("video/mp4");
   });
 
-  it('registers a protocol handler that resolves committed files only', async () => {
+  it("registers a protocol handler that resolves committed files only", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
@@ -1650,7 +1705,7 @@ function blobPathFor(
   fileName: string,
 ): string {
   return join(
-    'blobs',
+    "blobs",
     encodeURIComponent(namespace),
     encodeURIComponent(itemId),
     encodeURIComponent(assetId),
@@ -1667,7 +1722,7 @@ function partialPathFor(
   fileName: string,
 ): string {
   return join(
-    'temp',
+    "temp",
     encodeURIComponent(namespace),
     encodeURIComponent(itemId),
     encodeURIComponent(assetId),
@@ -1686,8 +1741,8 @@ function sendStaticBody(
   const rangeHeader = options?.ignoreRange ? null : req.headers.range;
   if (!rangeHeader) {
     res.writeHead(200, {
-      'Content-Type': contentType,
-      'Content-Length': Buffer.byteLength(body),
+      "Content-Type": contentType,
+      "Content-Length": Buffer.byteLength(body),
     });
     res.end(body);
     return;
@@ -1696,9 +1751,9 @@ function sendStaticBody(
   const start = options?.forceRangeStart ?? parseRangeStart(rangeHeader);
   const partial = body.slice(start);
   res.writeHead(206, {
-    'Content-Type': contentType,
-    'Content-Length': Buffer.byteLength(partial),
-    'Content-Range': `bytes ${start}-${body.length - 1}/${body.length}`,
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(partial),
+    "Content-Range": `bytes ${start}-${body.length - 1}/${body.length}`,
   });
   res.end(partial);
 }
@@ -1713,9 +1768,9 @@ function sendInterruptedBody(
   const start = req.headers.range ? parseRangeStart(req.headers.range) : 0;
   const chunk = body.slice(start, Math.min(start + chunkSize, body.length));
   res.writeHead(start > 0 ? 206 : 200, {
-    'Content-Type': contentType,
-    'Content-Length': Buffer.byteLength(body.slice(start)),
-    ...(start > 0 ? { 'Content-Range': `bytes ${start}-${body.length - 1}/${body.length}` } : {}),
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(body.slice(start)),
+    ...(start > 0 ? { "Content-Range": `bytes ${start}-${body.length - 1}/${body.length}` } : {}),
   });
   res.flushHeaders();
   res.write(chunk);

@@ -8,17 +8,17 @@ import {
   renameSync,
   rmSync,
   statSync,
-} from 'node:fs';
-import { statfs, unlink } from 'node:fs/promises';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { dirname, join } from 'node:path';
-import type { IpcMain, Session } from 'electron';
-import { MEDIA_CACHE_IPC } from '../shared/ipc.js';
-import { normalizeManifest, type NormalizedManifest } from '../shared/normalize.js';
-import { normalizeStem } from '../shared/stem.js';
+} from "node:fs";
+import { statfs, unlink } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { setTimeout as sleep } from "node:timers/promises";
+import { dirname, join } from "node:path";
+import type { IpcMain, Session } from "electron";
+import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
+import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
+import { normalizeStem } from "../shared/stem.js";
 import {
   ManifestValidationError,
   StorageLimitError,
@@ -439,13 +439,16 @@ export class MediaCache implements MediaCacheMain {
           resolved_version: download.resolvedVersion,
           url: download.request.url,
         });
-        const { relativePath, fallbackMimeType } = await this.downloadAsset(download, (chunkBytes) => {
-          stats.bytesDownloaded += chunkBytes;
-          this.updateProgress((progress) => ({
-            ...progress,
-            bytesDownloaded: stats.bytesDownloaded,
-          }));
-        });
+        const { relativePath, fallbackMimeType } = await this.downloadAsset(
+          download,
+          (chunkBytes) => {
+            stats.bytesDownloaded += chunkBytes;
+            this.updateProgress((progress) => ({
+              ...progress,
+              bytesDownloaded: stats.bytesDownloaded,
+            }));
+          },
+        );
         this.db!.setAssetDownloadState(
           stagedGenerationId,
           download.namespace,
@@ -584,9 +587,9 @@ export class MediaCache implements MediaCacheMain {
     );
 
     if (this.options.maxCacheBytes !== undefined) {
-      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, 'blobs'));
+      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, "blobs"));
       if (currentBytes + estimatedBlobBytes > this.options.maxCacheBytes) {
-        this.emitLog('warn', 'storage_limit_exceeded', {
+        this.emitLog("warn", "storage_limit_exceeded", {
           current_bytes: currentBytes,
           estimated_download_bytes: estimatedBlobBytes,
           max_cache_bytes: this.options.maxCacheBytes,
@@ -601,7 +604,7 @@ export class MediaCache implements MediaCacheMain {
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
     const reserve = this.options.reserveFreeBytes ?? 0;
     if (availableBytes - estimatedRemainingDownloadBytes < reserve) {
-      this.emitLog('warn', 'storage_reserve_violation', {
+      this.emitLog("warn", "storage_reserve_violation", {
         available_bytes: availableBytes,
         estimated_download_bytes: estimatedRemainingDownloadBytes,
         reserve_free_bytes: reserve,
@@ -634,13 +637,19 @@ export class MediaCache implements MediaCacheMain {
 
     for (let attempt = 0; attempt < TOTAL_DOWNLOAD_ATTEMPTS; attempt += 1) {
       try {
-        return await this.downloadAssetAttempt(download, destinationPath, destinationRelativePath, tempPath, onChunk);
+        return await this.downloadAssetAttempt(
+          download,
+          destinationPath,
+          destinationRelativePath,
+          tempPath,
+          onChunk,
+        );
       } catch (error) {
         lastError = error;
 
         if (isNoSpaceError(error)) {
           await unlink(tempPath).catch(() => undefined);
-          this.emitLog('error', 'asset_download_storage_failed', {
+          this.emitLog("error", "asset_download_storage_failed", {
             namespace: download.namespace,
             item_id: download.itemId,
             asset_id: download.assetId,
@@ -659,7 +668,7 @@ export class MediaCache implements MediaCacheMain {
         }
 
         if (attempt === TOTAL_DOWNLOAD_ATTEMPTS - 1) {
-          this.emitLog('warn', 'asset_download_retry_exhausted', {
+          this.emitLog("warn", "asset_download_retry_exhausted", {
             namespace: download.namespace,
             item_id: download.itemId,
             asset_id: download.assetId,
@@ -670,7 +679,7 @@ export class MediaCache implements MediaCacheMain {
         }
 
         const delayMs = calculateRetryDelay(attempt);
-        this.emitLog('warn', 'asset_download_retry_scheduled', {
+        this.emitLog("warn", "asset_download_retry_scheduled", {
           namespace: download.namespace,
           item_id: download.itemId,
           asset_id: download.assetId,
@@ -708,11 +717,11 @@ export class MediaCache implements MediaCacheMain {
       const resumeSize = existsSync(tempPath) ? statSync(tempPath).size : 0;
       const headers = new Headers(download.request.headers);
       if (resumeSize > 0) {
-        headers.set('range', `bytes=${resumeSize}-`);
+        headers.set("range", `bytes=${resumeSize}-`);
       }
 
       const response = await this.deps.fetchImpl(download.request.url, {
-        method: download.request.method ?? 'GET',
+        method: download.request.method ?? "GET",
         headers,
       });
 
@@ -727,13 +736,13 @@ export class MediaCache implements MediaCacheMain {
 
         restartedWithoutRange = true;
         await unlink(tempPath).catch(() => undefined);
-        this.emitLog('debug', 'asset_download_range_restart', {
+        this.emitLog("debug", "asset_download_range_restart", {
           namespace: download.namespace,
           item_id: download.itemId,
           asset_id: download.assetId,
           resumed_bytes: resumeSize,
           response_status: response.status,
-          content_range: response.headers.get('content-range'),
+          content_range: response.headers.get("content-range"),
         });
         continue;
       }
@@ -756,7 +765,8 @@ export class MediaCache implements MediaCacheMain {
 
       if (
         resumeSize > 0 &&
-        (response.status !== 206 || parseContentRangeStart(response.headers.get('content-range')) !== resumeSize)
+        (response.status !== 206 ||
+          parseContentRangeStart(response.headers.get("content-range")) !== resumeSize)
       ) {
         if (restartedWithoutRange) {
           throw createDownloadError(
@@ -768,13 +778,13 @@ export class MediaCache implements MediaCacheMain {
 
         restartedWithoutRange = true;
         await unlink(tempPath).catch(() => undefined);
-        this.emitLog('debug', 'asset_download_range_restart', {
+        this.emitLog("debug", "asset_download_range_restart", {
           namespace: download.namespace,
           item_id: download.itemId,
           asset_id: download.assetId,
           resumed_bytes: resumeSize,
           response_status: response.status,
-          content_range: response.headers.get('content-range'),
+          content_range: response.headers.get("content-range"),
         });
         continue;
       }
@@ -782,7 +792,7 @@ export class MediaCache implements MediaCacheMain {
       const nodeStream = Readable.fromWeb(
         response.body as unknown as NodeReadableStream<Uint8Array>,
       );
-      const writeStream = createWriteStream(tempPath, { flags: resumeSize > 0 ? 'a' : 'w' });
+      const writeStream = createWriteStream(tempPath, { flags: resumeSize > 0 ? "a" : "w" });
 
       nodeStream.on("data", (chunk) => {
         onChunk((chunk as Buffer).byteLength);
@@ -794,32 +804,30 @@ export class MediaCache implements MediaCacheMain {
         throw wrapRetryableDownloadError(error);
       }
 
-      await this.ensureFileSpaceCommit(tempPath);
+      await this.ensureFileSpaceCommit();
       mkdirSync(dirname(destinationPath), { recursive: true });
       rmSync(destinationPath, { force: true });
       renameSyncSafe(tempPath, destinationPath);
       return {
         relativePath: destinationRelativePath,
-        fallbackMimeType: normalizeResponseMimeType(response.headers.get('content-type')),
+        fallbackMimeType: normalizeResponseMimeType(response.headers.get("content-type")),
       };
     }
   }
 
-  private async ensureFileSpaceCommit(tempPath: string): Promise<void> {
+  private async ensureFileSpaceCommit(): Promise<void> {
     const stats = await statfs(this.storageRoot!);
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
     const reserve = this.options.reserveFreeBytes ?? 0;
     if (availableBytes < reserve) {
-      throw new StorageLimitError(
-        `Committing download would violate reserveFreeBytes ${reserve}.`,
-      );
+      throw new StorageLimitError(`Committing download would violate reserveFreeBytes ${reserve}.`);
     }
   }
 
   private partialDownloadPath(download: DownloadTarget): string {
     return join(
       this.storageRoot!,
-      'temp',
+      "temp",
       sanitizeSegment(download.namespace),
       sanitizeSegment(download.itemId),
       sanitizeSegment(download.assetId),
@@ -829,14 +837,14 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private cleanupObsoletePartialDownloads(downloads: DownloadTarget[]): void {
-    const tempRoot = join(this.storageRoot!, 'temp');
+    const tempRoot = join(this.storageRoot!, "temp");
     if (!existsSync(tempRoot)) {
       return;
     }
 
     const resumablePaths = new Set(downloads.map((download) => this.partialDownloadPath(download)));
     for (const filePath of listFilesRecursively(tempRoot)) {
-      if (!filePath.endsWith('.part') || resumablePaths.has(filePath)) {
+      if (!filePath.endsWith(".part") || resumablePaths.has(filePath)) {
         continue;
       }
 
@@ -851,9 +859,9 @@ export class MediaCache implements MediaCacheMain {
   ): void {
     const activePaths = new Set(
       activeGenerationId
-        ? this.db!
-            .getGenerationAssets(activeGenerationId)
-            .flatMap((row) => (row.relativePath ? [row.relativePath] : []))
+        ? this.db!.getGenerationAssets(activeGenerationId).flatMap((row) =>
+            row.relativePath ? [row.relativePath] : [],
+          )
         : [],
     );
 
@@ -868,7 +876,10 @@ export class MediaCache implements MediaCacheMain {
     }
   }
 
-  private markRemovedAssetsForDeletion(previousGenerationId: number, stagedGenerationId: number): void {
+  private markRemovedAssetsForDeletion(
+    previousGenerationId: number,
+    stagedGenerationId: number,
+  ): void {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
     const nextAssets = new Set(
       this.db!.getGenerationAssets(stagedGenerationId).map((row) =>
@@ -1064,15 +1075,15 @@ function renameSyncSafe(from: string, to: string): void {
 const TOTAL_DOWNLOAD_ATTEMPTS = 4;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_ERROR_CODES = new Set([
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'ENOTFOUND',
-  'ETIMEDOUT',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_HEADERS_TIMEOUT',
-  'UND_ERR_SOCKET',
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
 ]);
 
 type RetryableDownloadError = Error & {
@@ -1092,7 +1103,10 @@ function createDownloadError(
   status?: number,
   cause?: unknown,
 ): RetryableDownloadError {
-  const error = new SyncFailureError(message, cause ? { cause } : undefined) as RetryableDownloadError;
+  const error = new SyncFailureError(
+    message,
+    cause ? { cause } : undefined,
+  ) as RetryableDownloadError;
   error.retryable = retryable;
   error.status = status;
   return error;
@@ -1138,13 +1152,13 @@ function isRetryableErrorCode(code: string | undefined): boolean {
 function isRetryableMessage(message: string): boolean {
   const value = message.toLowerCase();
   return (
-    value.includes('aborted') ||
-    value.includes('connection') ||
-    value.includes('network') ||
-    value.includes('reset') ||
-    value.includes('socket') ||
-    value.includes('terminated') ||
-    value.includes('timeout')
+    value.includes("aborted") ||
+    value.includes("connection") ||
+    value.includes("network") ||
+    value.includes("reset") ||
+    value.includes("socket") ||
+    value.includes("terminated") ||
+    value.includes("timeout")
   );
 }
 

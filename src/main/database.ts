@@ -339,14 +339,7 @@ export class MediaCacheDatabase {
            mime_type = COALESCE(mime_type, ?)
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
-      .run(
-        relativePath,
-        fallbackMimeType,
-        generationId,
-        namespace,
-        itemId,
-        assetId,
-      );
+      .run(relativePath, fallbackMimeType, generationId, namespace, itemId, assetId);
   }
 
   getGenerationAssets(generationId: number): ActiveAssetRow[] {

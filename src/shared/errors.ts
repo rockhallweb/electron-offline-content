@@ -57,8 +57,11 @@ export function toSerializedError(error: unknown): SerializedMediaCacheError {
 }
 
 export function isNoSpaceError(error: unknown): boolean {
-  return error instanceof Error && collectErrorChain(error).some(
-    (entry) => 'code' in entry && (entry as NodeJS.ErrnoException).code === 'ENOSPC',
+  return (
+    error instanceof Error &&
+    collectErrorChain(error).some(
+      (entry) => "code" in entry && (entry as NodeJS.ErrnoException).code === "ENOSPC",
+    )
   );
 }
 
