@@ -53,6 +53,8 @@ Use the root commands for maintainership and CI:
 - `pnpm ci:validate`
   Run the full maintainer validation chain: check, test, build, and packed smoke.
 
+GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is restricted to member-controlled branches and same-repository PRs; see [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
+
 Workspace installs are for day-to-day development. `pnpm pack:smoke` is the release validation path because it catches package export mistakes, missing files, and install-time issues that workspace linking can hide.
 
 ## Example App
