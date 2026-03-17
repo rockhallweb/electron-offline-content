@@ -122,5 +122,5 @@ async function waitForFile(path, timeoutMs) {
 }
 
 function shouldDisableElectronSandbox() {
-  return process.platform === 'linux' && (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true');
+  return process.platform === 'linux' && process.env.GITHUB_ACTIONS === 'true';
 }
