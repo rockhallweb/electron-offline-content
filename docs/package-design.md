@@ -390,17 +390,17 @@ Recommendation:
 The renderer-facing contract should expose local URLs such as:
 
 ```ts
-{
+const resolved = {
   url: "media://default/item-123/main-video";
-}
+};
 ```
 
 Not:
 
 ```ts
-{
+const resolved = {
   path: "/absolute/path/to/file.mp4";
-}
+};
 ```
 
 ## Main-process API Sketch
