@@ -8,7 +8,7 @@ import {
   createMediaCache,
   registerMediaCacheProtocolSchemes,
   type MediaCacheLogEvent,
-} from '@rockhallweb/media-cache/main';
+} from '@rockhallweb/electron-offline-content/main';
 import { createExampleProfile, type ExampleClientConfig } from './example-content.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -27,7 +27,10 @@ const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
 };
 
 const cliArgs = process.argv.slice(1);
-const smokeTracePath = join(tmpdir(), 'rockhallweb-media-cache-example-smoke.log');
+const smokeTracePath = join(
+  tmpdir(),
+  'rockhallweb-electron-offline-content-example-smoke.log',
+);
 const smokeSentinelPath =
   process.env.MEDIA_CACHE_SMOKE_SENTINEL ?? readArgValue('media-cache-smoke-sentinel');
 const runtimeConfig = readRuntimeConfig();
@@ -113,7 +116,7 @@ async function bootstrap() {
     exampleProfile.clientConfig.namespaceTreePrefix;
   const storageRoot =
     readOptionalEnv('MEDIA_CACHE_STORAGE_ROOT') ??
-    join(app.getPath('temp'), 'rockhallweb-media-cache-example', profileName);
+    join(app.getPath('temp'), 'rockhallweb-electron-offline-content-example', profileName);
 
   const mediaCache = createMediaCache({
     storageRoot,
@@ -390,7 +393,7 @@ function readRuntimeConfig(): RuntimeConfig | null {
 
 function createLogger(options: { level: LogLevel; format: LogFormat }) {
   const threshold = LOG_LEVEL_WEIGHT[options.level];
-  const service = 'rockhallweb-media-cache-example';
+  const service = 'rockhallweb-electron-offline-content-example';
   const environment = app.isPackaged ? 'prod' : 'dev';
 
   return {

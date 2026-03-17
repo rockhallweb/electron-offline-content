@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import type { MediaCacheManifest } from '@rockhallweb/media-cache/main';
+import type { MediaCacheManifest } from '@rockhallweb/electron-offline-content/main';
 
 const fixturesDir = join(process.cwd(), 'fixtures', 'local');
 

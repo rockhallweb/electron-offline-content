@@ -1,8 +1,8 @@
 {
-  "name": "@rockhallweb/media-cache-example",
-  "productName": "Rock Hall Media Cache Example",
+  "name": "@rockhallweb/electron-offline-content-example",
+  "productName": "Rock Hall Electron Offline Content Example",
   "version": "0.1.0",
-  "description": "Electron Forge + React example for @rockhallweb/media-cache",
+  "description": "Electron Forge + React example for @rockhallweb/electron-offline-content",
   "private": true,
   "main": ".vite/build/main.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "package": "electron-forge package"
   },
   "dependencies": {
-    "@rockhallweb/media-cache": "workspace:*",
+    "@rockhallweb/electron-offline-content": "workspace:*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

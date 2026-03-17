@@ -600,7 +600,9 @@ describe('media cache sync and queries', () => {
     expect(logs.some((entry) => entry.event === 'sync_started')).toBe(true);
     expect(logs.some((entry) => entry.event === 'sync_completed')).toBe(true);
     expect(logs.some((entry) => entry.event === 'asset_download_started')).toBe(true);
-    expect(logs.every((entry) => entry.service === 'rockhallweb-media-cache')).toBe(true);
+    expect(logs.every((entry) => entry.service === 'rockhallweb-electron-offline-content')).toBe(
+      true,
+    );
     expect(logs.every((entry) => entry.component === 'media-cache')).toBe(true);
   });
 
@@ -626,10 +628,10 @@ describe('media cache sync and queries', () => {
       const activeStorageRoot = (cache as unknown as { storageRoot: string | null }).storageRoot;
       const expectedStorageRoot =
         process.platform === 'darwin'
-          ? join(homeRoot, 'Library', 'Caches', 'electron-media-cache', 'media-cache')
+          ? join(homeRoot, 'Library', 'Caches', 'electron-offline-content', 'media-cache')
           : process.platform === 'win32'
-            ? join(homeRoot, 'AppData', 'Local', 'electron-media-cache', 'media-cache')
-            : join(homeRoot, '.cache', 'electron-media-cache', 'media-cache');
+            ? join(homeRoot, 'AppData', 'Local', 'electron-offline-content', 'media-cache')
+            : join(homeRoot, '.cache', 'electron-offline-content', 'media-cache');
       expect(activeStorageRoot).toBe(expectedStorageRoot);
       expect(existsSync(activeStorageRoot!)).toBe(true);
     } finally {

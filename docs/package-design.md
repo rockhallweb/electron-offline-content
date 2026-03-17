@@ -1,9 +1,9 @@
-# `@rockhallweb/media-cache` Design Draft
+# `@rockhallweb/electron-offline-content` Design Draft
 
 ## Purpose
 
-`@rockhallweb/media-cache` is an Electron-first TypeScript package for downloading,
-caching, indexing, and serving offline-ready media content to a renderer with minimal
+`@rockhallweb/electron-offline-content` is a TypeScript package for Electron apps that
+downloads, stages, indexes, and serves offline-ready content to a renderer with minimal
 consumer plumbing.
 
 The target use case is kiosk-style Electron apps where:
@@ -39,9 +39,9 @@ trying to be a general-purpose cache layer.
 
 Start as one package with subpath exports:
 
-- `@rockhallweb/media-cache/main`
-- `@rockhallweb/media-cache/preload`
-- `@rockhallweb/media-cache/react`
+- `@rockhallweb/electron-offline-content/main`
+- `@rockhallweb/electron-offline-content/preload`
+- `@rockhallweb/electron-offline-content/react`
 
 This keeps installation simple while still separating the main-process, preload, and
 React-facing APIs.

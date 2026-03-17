@@ -23,10 +23,12 @@ async function getAppName(): Promise<string> {
     const electron = await import('electron');
     return sanitizeName(electron.app.getName());
   } catch {
-    return 'electron-media-cache';
+    return 'electron-offline-content';
   }
 }
 
 function sanitizeName(name: string): string {
-  return name.trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'electron-media-cache';
+  return (
+    name.trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'electron-offline-content'
+  );
 }

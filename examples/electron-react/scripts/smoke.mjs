@@ -42,7 +42,7 @@ await build({
   format: 'cjs',
   target: 'node22',
   sourcemap: true,
-  external: ['electron', '@rockhallweb/media-cache/main'],
+  external: ['electron', '@rockhallweb/electron-offline-content/main'],
   define: {
     MAIN_WINDOW_VITE_DEV_SERVER_URL: 'undefined',
     MAIN_WINDOW_VITE_NAME: JSON.stringify('main_window'),

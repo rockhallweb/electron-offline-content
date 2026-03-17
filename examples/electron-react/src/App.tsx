@@ -5,7 +5,7 @@ import {
   useMediaItem,
   useMediaNamespace,
   useMediaNamespaceTree,
-} from '@rockhallweb/media-cache/react';
+} from '@rockhallweb/electron-offline-content/react';
 
 interface ExampleConfig {
   profile: 'local' | 'nasa';

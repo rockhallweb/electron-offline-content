@@ -1,6 +1,6 @@
-# `@rockhallweb/media-cache`
+# `@rockhallweb/electron-offline-content`
 
-Electron-first offline media caching for kiosk-style applications.
+A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.
 
 ## Workspace
 
@@ -24,13 +24,13 @@ The example app is the maintainer validation target. It uses Electron Forge, Rea
 ## Install
 
 ```bash
-pnpm add @rockhallweb/media-cache
+pnpm add @rockhallweb/electron-offline-content
 ```
 
 Peer dependencies:
 
 - `electron >= 40`
-- `react >= 18` when using `@rockhallweb/media-cache/react`
+- `react >= 18` when using `@rockhallweb/electron-offline-content/react`
 
 ## Development and Validation
 
@@ -104,7 +104,7 @@ import { app } from 'electron';
 import {
   createMediaCache,
   registerMediaCacheProtocolSchemes,
-} from '@rockhallweb/media-cache/main';
+} from '@rockhallweb/electron-offline-content/main';
 
 await registerMediaCacheProtocolSchemes();
 
@@ -152,7 +152,7 @@ await mediaCache.start();
 ## Preload
 
 ```ts
-import { exposeMediaCacheBridge } from '@rockhallweb/media-cache/preload';
+import { exposeMediaCacheBridge } from '@rockhallweb/electron-offline-content/preload';
 
 exposeMediaCacheBridge();
 ```
@@ -164,7 +164,7 @@ import {
   MediaCacheProvider,
   useMediaCacheStatus,
   useMediaNamespaceTree,
-} from '@rockhallweb/media-cache/react';
+} from '@rockhallweb/electron-offline-content/react';
 
 function App() {
   const status = useMediaCacheStatus();

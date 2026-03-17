@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { MediaCacheProvider } from '@rockhallweb/media-cache/react';
+import { MediaCacheProvider } from '@rockhallweb/electron-offline-content/react';
 import { App } from './App.js';
 import './styles.css';
 

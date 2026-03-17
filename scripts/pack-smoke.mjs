@@ -38,7 +38,7 @@ await writeFile(
 
 const packageJsonPath = join(copiedExampleDir, 'package.json');
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-packageJson.dependencies['@rockhallweb/media-cache'] = join(packDir, tarball);
+packageJson.dependencies['@rockhallweb/electron-offline-content'] = join(packDir, tarball);
 packageJson.pnpm = {
   ...(packageJson.pnpm ?? {}),
   onlyBuiltDependencies: ['electron', 'esbuild'],

@@ -783,7 +783,7 @@ export class MediaCache implements MediaCacheMain {
       timestamp: new Date(this.deps.now()).toISOString(),
       level,
       event,
-      service: 'rockhallweb-media-cache',
+      service: 'rockhallweb-electron-offline-content',
       component: 'media-cache',
       ...fields,
     };

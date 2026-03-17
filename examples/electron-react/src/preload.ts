@@ -1,5 +1,5 @@
 import { contextBridge } from 'electron';
-import { exposeMediaCacheBridge } from '@rockhallweb/media-cache/preload';
+import { exposeMediaCacheBridge } from '@rockhallweb/electron-offline-content/preload';
 import type { ExampleClientConfig } from './example-content.js';
 
 declare global {
