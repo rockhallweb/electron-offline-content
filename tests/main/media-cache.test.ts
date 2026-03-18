@@ -2471,6 +2471,16 @@ describe("media cache sync and queries", () => {
       storageRoot,
       devPassthrough: false,
       resolveManifest: () => manifestWithoutExplicitAssetFields,
+      resolveAssetRequest: ({ asset }) => ({
+        url:
+          asset.fileName === undefined && asset.mimeType === undefined
+            ? `${baseUrl}/auth.mp4`
+            : asset.source.url,
+        headers:
+          asset.fileName === undefined && asset.mimeType === undefined
+            ? { "x-media-auth": "passthrough-secret" }
+            : undefined,
+      }),
     });
 
     await initialCache.start();
@@ -2502,26 +2512,22 @@ describe("media cache sync and queries", () => {
     const legacyDb = new DatabaseSync(sqlitePath);
     legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_mime_type;`);
     legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_file_name;`);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN has_precise_manifest_fields;`);
     legacyDb.close();
 
-    const resolveAssetRequest = ({ asset }: { asset: MediaAssetDefinition }) => ({
-      url:
-        asset.fileName === undefined && asset.mimeType === undefined
-          ? `${baseUrl}/auth.mp4`
-          : asset.source.url,
-      headers:
-        asset.fileName === undefined && asset.mimeType === undefined
-          ? { "x-media-auth": "passthrough-secret" }
-          : undefined,
-    });
-
+    let restartResolveCalls = 0;
     const restartedCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
       resolveManifest: () => {
         throw new Error("manifest unavailable");
       },
-      resolveAssetRequest,
+      resolveAssetRequest: () => {
+        restartResolveCalls += 1;
+        return {
+          url: `${baseUrl}/main.mp4`,
+        };
+      },
     });
 
     await restartedCache.start();
@@ -2531,7 +2537,112 @@ describe("media cache sync and queries", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+    expect(restartResolveCalls).toBe(0);
+    expect(requestAuthHeaders["/auth.mp4"]?.at(-1)).toBe("passthrough-secret");
+  });
+
+  it("uses persisted requests for migrated caches when explicit manifest asset fields may be lossy", async () => {
+    const storageRoot = createStorageRoot();
+    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
+    const manifestWithExplicitAssetFields: ManifestInput = {
+      snapshotId: "legacy-explicit-asset-fields",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  mimeType: "video/mp4",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      resolveManifest: () => manifestWithExplicitAssetFields,
+      resolveAssetRequest: ({ asset }) => ({
+        url:
+          asset.fileName === "main.mp4" && asset.mimeType === "video/mp4"
+            ? `${baseUrl}/auth.mp4`
+            : asset.source.url,
+        headers:
+          asset.fileName === "main.mp4" && asset.mimeType === "video/mp4"
+            ? { "x-media-auth": "passthrough-secret" }
+            : undefined,
+      }),
+    });
+
+    await initialCache.start();
+
+    const initialDb = (
+      initialCache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            relativePath: string | null;
+          }>;
+          close(): void;
+        };
+      }
+    ).db;
+    const activeGenerationId = initialDb.getActiveGenerationId()!;
+    const mainAsset = initialDb
+      .getGenerationAssets(activeGenerationId)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      )!;
+    rmSync(join(storageRoot, mainAsset.relativePath!));
+    initialDb.close();
+
+    const legacyDb = new DatabaseSync(sqlitePath);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_mime_type;`);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_file_name;`);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN has_precise_manifest_fields;`);
+    legacyDb.close();
+
+    let restartResolveCalls = 0;
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest: () => {
+        restartResolveCalls += 1;
+        return {
+          url: `${baseUrl}/main.mp4`,
+        };
+      },
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(restartResolveCalls).toBe(0);
+    expect(requestAuthHeaders["/auth.mp4"]?.at(-1)).toBe("passthrough-secret");
   });
 
   it("falls back to the persisted request when passthrough refresh fails after restart", async () => {

@@ -176,6 +176,7 @@ export const protocolAssetResolveContextRowSchema = z.object({
   asset_version: z.string().nullable(),
   asset_manifest_mime_type: z.string().nullable(),
   asset_manifest_file_name: z.string().nullable(),
+  asset_has_precise_manifest_fields: z.union([z.literal(0), z.literal(1)]),
   asset_byte_length: nonNegativeNumberSchema.nullable(),
   asset_source_json: z.string(),
   asset_metadata_json: z.string(),

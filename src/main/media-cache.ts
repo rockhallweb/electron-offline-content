@@ -798,7 +798,7 @@ export class MediaCache implements MediaCacheMain {
       }
 
       const context = this.db!.getProtocolAssetResolveContext(namespaceKey, itemId, assetId);
-      if (!context) {
+      if (!context || !context.hasPreciseManifestFields) {
         return persistedRequest;
       }
 

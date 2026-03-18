@@ -77,6 +77,7 @@ export interface ProtocolAssetTarget {
 }
 
 export interface ProtocolAssetResolveContext {
+  hasPreciseManifestFields: boolean;
   namespace: MediaNamespaceDefinition;
   item: MediaContentDefinition;
   asset: MediaAssetDefinition;
@@ -284,8 +285,8 @@ export class MediaCacheDatabase {
           generation_id, namespace_key, item_id, asset_id, role, kind, resolved_version,
           asset_version, manifest_mime_type, manifest_file_name, mime_type, file_name,
           file_stem, byte_length, source_json, resolved_request_json, metadata_json,
-          order_index, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          order_index, has_precise_manifest_fields, relative_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
 
       manifest.namespaces.forEach((namespace, namespaceOrder) => {
@@ -348,6 +349,7 @@ export class MediaCacheDatabase {
                 `metadata for asset "${namespace.key}/${item.id}/${asset.id}"`,
               ),
               assetOrder,
+              1,
             );
           });
         });
@@ -651,6 +653,7 @@ export class MediaCacheDatabase {
            assets.asset_version,
            assets.manifest_mime_type AS asset_manifest_mime_type,
            assets.manifest_file_name AS asset_manifest_file_name,
+           assets.has_precise_manifest_fields AS asset_has_precise_manifest_fields,
            assets.byte_length AS asset_byte_length,
            assets.source_json AS asset_source_json,
            assets.metadata_json AS asset_metadata_json
@@ -743,6 +746,12 @@ export class MediaCacheDatabase {
     }
 
     return {
+      hasPreciseManifestFields: validatedRows.some(
+        (row) =>
+          row.item_id === itemId &&
+          row.asset_id === assetId &&
+          row.asset_has_precise_manifest_fields === 1,
+      ),
       namespace: namespaceDefinition,
       item: itemDefinition,
       asset: assetDefinition,
@@ -985,6 +994,7 @@ export class MediaCacheDatabase {
         resolved_request_json TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
+        has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1,
         relative_path TEXT,
         PRIMARY KEY (generation_id, namespace_key, item_id, asset_id)
       );
@@ -1087,6 +1097,19 @@ export class MediaCacheDatabase {
           row.asset_id,
         );
       }
+    }
+
+    const hasPreciseManifestFieldsColumn = assetColumns.some(
+      (column) => column.name === "has_precise_manifest_fields",
+    );
+    if (!hasPreciseManifestFieldsColumn) {
+      this.db.exec(
+        `ALTER TABLE assets ADD COLUMN has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1;`,
+      );
+      this.db.exec(`
+        UPDATE assets
+        SET has_precise_manifest_fields = 0
+      `);
     }
 
     const pendingDeletionColumns = this.db
