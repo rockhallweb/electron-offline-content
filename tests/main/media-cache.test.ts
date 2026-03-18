@@ -1769,6 +1769,9 @@ describe("media cache sync and queries", () => {
       storageRoot,
       devPassthrough: true,
       resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/resumable.mp4` : asset.source.url,
+      }),
     });
 
     await cache.start();
@@ -1791,9 +1794,9 @@ describe("media cache sync and queries", () => {
       }),
     );
     expect(rangeResponse.status).toBe(206);
-    expect(rangeResponse.headers.get("content-range")).toBe("bytes 5-8/9");
-    expect(await rangeResponse.text()).toBe("-one");
-    expect(requestRanges["/main.mp4"]).toContain("bytes=5-");
+    expect(rangeResponse.headers.get("content-range")).toBe("bytes 5-10/11");
+    expect(await rangeResponse.text()).toBe("e-data");
+    expect(requestRanges["/resumable.mp4"]).toContain("bytes=5-");
   });
 
   it("forwards resolved request headers in passthrough mode", async () => {
