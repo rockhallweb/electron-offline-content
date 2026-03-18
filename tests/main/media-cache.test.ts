@@ -2197,6 +2197,41 @@ describe("media cache sync and queries", () => {
     expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
   });
 
+  it("falls back to the persisted request when passthrough refresh fails after restart", async () => {
+    const storageRoot = createStorageRoot();
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
+      }),
+    });
+
+    await initialCache.start();
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest: () => {
+        throw new Error("signer unavailable");
+      },
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
   it("propagates remote error responses in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     manifests = {

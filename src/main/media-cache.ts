@@ -741,16 +741,27 @@ export class MediaCache implements MediaCacheMain {
       return persistedRequest;
     }
 
-    if (this.activeManifest) {
-      return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
-    }
+    try {
+      if (this.activeManifest) {
+        return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
+      }
 
-    const context = this.db!.getProtocolAssetResolveContext(namespaceKey, itemId, assetId);
-    if (!context) {
+      const context = this.db!.getProtocolAssetResolveContext(namespaceKey, itemId, assetId);
+      if (!context) {
+        return persistedRequest;
+      }
+
+      return this.options.resolveAssetRequest(context);
+    } catch (error) {
+      this.emitLog("warn", "protocol_request_refresh_failed", {
+        namespace: namespaceKey,
+        item_id: itemId,
+        asset_id: assetId,
+        url: persistedRequest.url,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
       return persistedRequest;
     }
-
-    return this.options.resolveAssetRequest(context);
   }
 
   private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {
