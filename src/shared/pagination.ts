@@ -1,5 +1,5 @@
 import type { PaginationInput, PaginationResult } from "./types.js";
-import { cursorPayloadSchema, parseJsonWithSchema } from "./validation.js";
+import { cursorPayloadSchema, parseJsonWithSchema } from "../internal/validation.js";
 
 interface DecodedCursor {
   index: number;

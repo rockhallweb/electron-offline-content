@@ -1952,6 +1952,7 @@ describe("media cache sync and queries", () => {
     await expect(
       handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", { limit: -5 }),
     ).rejects.toThrow(DataValidationError);
+    expect(dbCalled).toBe(false);
     await expect(
       handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", {
         cursor: null,
@@ -1959,8 +1960,7 @@ describe("media cache sync and queries", () => {
     ).resolves.toMatchObject({
       items: expect.any(Array),
     });
-    dbCalled = false;
-    expect(dbCalled).toBe(false);
+    expect(dbCalled).toBe(true);
   });
 
   it("wraps circular manifest metadata serialization errors in DataValidationError", async () => {

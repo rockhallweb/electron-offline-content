@@ -19,7 +19,6 @@ import {
   generationAssetKeyRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
-  optionalPaginationInputSchema,
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
@@ -29,7 +28,7 @@ import {
   syncRunIdRowSchema,
   syncRunRowSchema,
   syncRunStatsSchema,
-} from "../shared/validation.js";
+} from "../internal/validation.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -553,28 +552,18 @@ export class MediaCacheDatabase {
     namespace: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
-    const validatedPagination = parseWithSchema(
-      optionalPaginationInputSchema,
-      pagination,
-      "namespace pagination input",
-    );
-    resolvePaginationWindow(validatedPagination);
+    resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("exact", namespace);
-    return paginateArray(buildResolvedItems(rows), validatedPagination);
+    return paginateArray(buildResolvedItems(rows), pagination);
   }
 
   listNamespaceTree(
     prefix: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
-    const validatedPagination = parseWithSchema(
-      optionalPaginationInputSchema,
-      pagination,
-      "namespace tree pagination input",
-    );
-    resolvePaginationWindow(validatedPagination);
+    resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("tree", prefix);
-    return paginateArray(buildResolvedItems(rows), validatedPagination);
+    return paginateArray(buildResolvedItems(rows), pagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
@@ -593,12 +582,7 @@ export class MediaCacheDatabase {
       return { items: [], nextCursor: null };
     }
 
-    const validatedPagination = parseWithSchema(
-      optionalPaginationInputSchema,
-      pagination,
-      "file stem pagination input",
-    );
-    resolvePaginationWindow(validatedPagination);
+    resolvePaginationWindow(pagination);
 
     const sql = `
       SELECT
@@ -650,7 +634,7 @@ export class MediaCacheDatabase {
       }
     }
 
-    return paginateArray(matches, validatedPagination);
+    return paginateArray(matches, pagination);
   }
 
   private getResolvedRows(

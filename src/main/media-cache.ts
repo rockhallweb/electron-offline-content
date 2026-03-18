@@ -44,7 +44,7 @@ import {
   optionalPaginationInputSchema,
   parseWithSchema,
   stringInputSchema,
-} from "../shared/validation.js";
+} from "../internal/validation.js";
 import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
 import { defaultStorageRoot } from "./default-storage.js";
 

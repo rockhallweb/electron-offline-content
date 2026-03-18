@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DataValidationError } from "./errors.js";
+import { DataValidationError } from "../shared/errors.js";
 import type { ActiveAssetRow, PendingDeletion, SyncRunStats } from "../main/database.js";
 import type {
   JsonValue,
@@ -7,7 +7,7 @@ import type {
   SerializedMediaCacheError,
   SyncProgress,
   SyncRunSummary,
-} from "./types.js";
+} from "../shared/types.js";
 
 const mediaKindSchema = z.enum(["video", "image", "audio", "document", "html", "text", "binary"]);
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
