@@ -280,6 +280,16 @@ export class MediaCache implements MediaCacheMain {
         return fetchFile(request, target.absolutePath);
       }
 
+      if (!this.devPassthrough) {
+        this.emitLog("debug", "protocol_request_missing", {
+          namespace,
+          item_id: itemId,
+          asset_id: assetId,
+          method: request.method,
+        });
+        return new Response("Not found", { status: 404 });
+      }
+
       this.emitLog("debug", "protocol_request_remote_resolved", {
         namespace,
         item_id: itemId,
@@ -485,15 +495,15 @@ export class MediaCache implements MediaCacheMain {
           row.itemId,
           row.assetId,
         );
-        this.db!.setAssetResolvedRequest(
-          stagedGenerationId,
-          row.namespace,
-          row.itemId,
-          row.assetId,
-          request,
-        );
 
         if (this.devPassthrough) {
+          this.db!.setAssetResolvedRequest(
+            stagedGenerationId,
+            row.namespace,
+            row.itemId,
+            row.assetId,
+            request,
+          );
           stats.skippedAssets += 1;
           continue;
         }

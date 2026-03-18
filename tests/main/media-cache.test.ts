@@ -520,6 +520,47 @@ describe("media cache sync and queries", () => {
     }
   });
 
+  it("does not persist resolved passthrough auth requests during offline syncs", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
+      }),
+    });
+
+    await cache.start();
+
+    const db = (
+      cache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            resolvedRequestJson: string;
+          }>;
+        };
+      }
+    ).db;
+    const activeGenerationId = db.getActiveGenerationId();
+    expect(activeGenerationId).not.toBeNull();
+
+    const mainAsset = db
+      .getGenerationAssets(activeGenerationId!)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      );
+    expect(JSON.parse(mainAsset!.resolvedRequestJson)).toEqual({
+      url: `${baseUrl}/main.mp4`,
+    });
+  });
+
   it("commits metadata without downloading assets when passthrough is enabled", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
@@ -1943,6 +1984,34 @@ describe("media cache sync and queries", () => {
     expect(response.headers.get("content-type")).toBe("video/mp4");
     expect(await response.text()).toBe("video-one");
     expect(requestCounts["/main.mp4"]).toBe(1);
+  });
+
+  it("does not proxy blob-less snapshots after passthrough is turned off", async () => {
+    const storageRoot = createStorageRoot();
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await passthroughCache.start();
+
+    requestCounts = {};
+    const offlineCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+    });
+
+    await offlineCache.start();
+
+    const handler = await createProtocolHandler(offlineCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(404);
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
   it("proxies HEAD and range requests in passthrough mode", async () => {
