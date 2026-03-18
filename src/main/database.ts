@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { paginateArray } from "../shared/pagination.js";
+import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
 import type {
   FileStemMatch,
   MediaCacheStatus,
@@ -558,6 +558,7 @@ export class MediaCacheDatabase {
       pagination,
       "namespace pagination input",
     );
+    resolvePaginationWindow(validatedPagination);
     const rows = this.getResolvedRows("exact", namespace);
     return paginateArray(buildResolvedItems(rows), validatedPagination);
   }
@@ -571,6 +572,7 @@ export class MediaCacheDatabase {
       pagination,
       "namespace tree pagination input",
     );
+    resolvePaginationWindow(validatedPagination);
     const rows = this.getResolvedRows("tree", prefix);
     return paginateArray(buildResolvedItems(rows), validatedPagination);
   }
@@ -590,6 +592,13 @@ export class MediaCacheDatabase {
     if (!activeGeneration) {
       return { items: [], nextCursor: null };
     }
+
+    const validatedPagination = parseWithSchema(
+      paginationInputSchema.optional(),
+      pagination,
+      "file stem pagination input",
+    );
+    resolvePaginationWindow(validatedPagination);
 
     const sql = `
       SELECT
@@ -641,10 +650,7 @@ export class MediaCacheDatabase {
       }
     }
 
-    return paginateArray(
-      matches,
-      parseWithSchema(paginationInputSchema.optional(), pagination, "file stem pagination input"),
-    );
+    return paginateArray(matches, validatedPagination);
   }
 
   private getResolvedRows(

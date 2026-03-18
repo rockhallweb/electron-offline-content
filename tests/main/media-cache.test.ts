@@ -346,6 +346,7 @@ describe("media cache sync and queries", () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
@@ -374,6 +375,7 @@ describe("media cache sync and queries", () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
@@ -496,6 +498,7 @@ describe("media cache sync and queries", () => {
 
     const cache = createMediaCache({
       storageRoot,
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
@@ -560,6 +563,7 @@ describe("media cache sync and queries", () => {
 
     const cache = createMediaCache({
       storageRoot,
+      onSyncFailure: "throw",
       resolveManifest: () => manifests,
     });
 
@@ -1759,28 +1763,16 @@ describe("media cache sync and queries", () => {
       resolveManifest: () => manifests,
     });
 
-    await (initialCache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+    await initialCache.start();
 
     const initialDb = (
       initialCache as unknown as {
         db: {
-          saveStatus(status: unknown, now: number): void;
           close(): void;
           db: { prepare(sql: string): { run(...args: unknown[]): void } };
         };
       }
     ).db;
-    initialDb.saveStatus(
-      {
-        phase: "ready",
-        activeGenerationId: 1,
-        progress: null,
-        lastRun: null,
-        error: null,
-        updatedAt: 1,
-      },
-      1,
-    );
     initialDb.db
       .prepare(
         `UPDATE status_snapshot
@@ -1802,10 +1794,9 @@ describe("media cache sync and queries", () => {
 
     const status = await cache.getStatus();
     expect(status).toMatchObject({
-      phase: "idle",
-      activeGenerationId: null,
+      phase: "ready",
+      activeGenerationId: expect.any(Number),
       progress: null,
-      lastRun: null,
       error: null,
     });
     expect(logs.some((entry) => entry.event === "status_snapshot_invalid")).toBe(true);
@@ -1945,7 +1936,72 @@ describe("media cache sync and queries", () => {
         limit: number;
       }),
     ).rejects.toThrow(DataValidationError);
+    await expect(
+      handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", { limit: -5 }),
+    ).rejects.toThrow(DataValidationError);
     expect(dbCalled).toBe(false);
+  });
+
+  it("wraps circular manifest metadata serialization errors in DataValidationError", async () => {
+    const storageRoot = createStorageRoot();
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    manifests = {
+      snapshotId: "circular-metadata",
+      namespaces: [
+        {
+          key: "nature",
+          metadata: circular as unknown as Record<string, JsonValue>,
+          items: [],
+        },
+      ],
+    };
+
+    const cache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await expect(cache.start()).rejects.toThrow(DataValidationError);
+  });
+
+  it("accepts non-integer manifest byteLength values", async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "fractional-byte-length",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  byteLength: 12.5,
+                  source: { url: `${baseUrl}/main.mp4` },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.assets[0]?.byteLength).toBe(12.5);
   });
 });
 

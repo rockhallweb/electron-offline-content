@@ -11,6 +11,7 @@ import type {
 
 const mediaKindSchema = z.enum(["video", "image", "audio", "document", "html", "text", "binary"]);
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
+const nonNegativeNumberSchema = z.number().nonnegative();
 
 export const stringInputSchema = z.string();
 
@@ -126,7 +127,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   assetRole: z.string(),
   assetKind: z.string(),
   mimeType: z.string().nullable(),
-  byteLength: nonNegativeIntegerSchema.nullable(),
+  byteLength: nonNegativeNumberSchema.nullable(),
   assetMetadataJson: z.string(),
   relativePath: z.string().nullable(),
   fileStem: z.string(),
@@ -148,7 +149,7 @@ export const fileStemRowSchema = z.object({
 });
 
 export const paginationInputSchema = z.object({
-  limit: z.number().int().optional(),
+  limit: z.number().int().positive().optional(),
   cursor: z.string().optional(),
 });
 
@@ -189,7 +190,14 @@ export function stringifyWithSchema<T>(
   schema: z.ZodType<T>,
   context: string,
 ): string {
-  const rawJson = JSON.stringify(value);
+  let rawJson: string | undefined;
+  try {
+    rawJson = JSON.stringify(value);
+  } catch (error) {
+    throw new DataValidationError(`Invalid ${context}: value is not JSON serializable.`, {
+      cause: error,
+    });
+  }
   if (rawJson === undefined) {
     throw new DataValidationError(`Invalid ${context}: value is not JSON serializable.`);
   }

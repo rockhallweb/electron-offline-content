@@ -18,7 +18,6 @@ import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
-import { decodeCursor } from "../shared/pagination.js";
 import { normalizeStem } from "../shared/stem.js";
 import {
   DataValidationError,
@@ -192,9 +191,6 @@ export class MediaCache implements MediaCacheMain {
       pagination,
       "namespace pagination input",
     );
-    if (validatedPagination?.cursor) {
-      decodeCursor(validatedPagination.cursor);
-    }
     await this.ensureInitialized();
     return this.db!.listNamespace(validatedNamespace, validatedPagination);
   }
@@ -206,9 +202,6 @@ export class MediaCache implements MediaCacheMain {
       pagination,
       "namespace tree pagination input",
     );
-    if (validatedPagination?.cursor) {
-      decodeCursor(validatedPagination.cursor);
-    }
     await this.ensureInitialized();
     return this.db!.listNamespaceTree(validatedPrefix, validatedPagination);
   }
@@ -220,9 +213,6 @@ export class MediaCache implements MediaCacheMain {
       options,
       "file stem search options",
     );
-    if (validatedOptions?.cursor) {
-      decodeCursor(validatedOptions.cursor);
-    }
     await this.ensureInitialized();
     return this.db!.findByFileStem(
       normalizeStem(validatedStem),
@@ -347,10 +337,19 @@ export class MediaCache implements MediaCacheMain {
         error_message: error.message,
       });
     }
+    const activeGenerationId = this.db.getActiveGenerationId();
     if (storedStatus) {
       this.status = storedStatus;
+    } else if (activeGenerationId !== null) {
+      this.status = {
+        ...this.status,
+        phase: "ready",
+        activeGenerationId,
+        progress: null,
+        error: null,
+      };
     }
-    this.status.activeGenerationId = this.db.getActiveGenerationId();
+    this.status.activeGenerationId = activeGenerationId;
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
