@@ -150,10 +150,10 @@ export const fileStemRowSchema = z.object({
   assetId: z.string(),
 });
 
-const optionalPositiveIntegerSchema = z
+const optionalNonNegativeIntegerSchema = z
   .number()
   .int()
-  .positive()
+  .nonnegative()
   .nullish()
   .transform((value) => value ?? undefined);
 
@@ -163,7 +163,7 @@ const optionalStringSchema = z
   .transform((value) => value ?? undefined);
 
 export const paginationInputSchema = z.object({
-  limit: optionalPositiveIntegerSchema,
+  limit: optionalNonNegativeIntegerSchema,
   cursor: optionalStringSchema,
 });
 

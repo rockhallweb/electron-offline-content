@@ -577,12 +577,12 @@ export class MediaCacheDatabase {
     namespace: string | undefined,
     pagination?: PaginationInput,
   ): PaginationResult<FileStemMatch> {
+    resolvePaginationWindow(pagination);
+
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
       return { items: [], nextCursor: null };
     }
-
-    resolvePaginationWindow(pagination);
 
     const sql = `
       SELECT

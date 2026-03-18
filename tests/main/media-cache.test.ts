@@ -1915,6 +1915,15 @@ describe("media cache sync and queries", () => {
         cursor: invalidDecodedCursor,
       }),
     ).rejects.toThrow(DataValidationError);
+    const emptyCache = createMediaCache({
+      storageRoot: createStorageRoot(),
+      resolveManifest: () => manifests,
+    });
+    await expect(
+      emptyCache.findByFileStem("main", {
+        cursor: invalidDecodedCursor,
+      }),
+    ).rejects.toThrow(DataValidationError);
     await expect(
       cache.listNamespace("nature", null as unknown as { limit?: number; cursor?: string }),
     ).resolves.toMatchObject({
@@ -1927,6 +1936,10 @@ describe("media cache sync and queries", () => {
       ),
     ).resolves.toMatchObject({
       items: expect.any(Array),
+    });
+    await expect(cache.listNamespaceTree("nature", { limit: 0 })).resolves.toMatchObject({
+      items: expect.any(Array),
+      nextCursor: expect.any(String),
     });
 
     const handlers = await createIpcHandlers(cache);
@@ -1952,6 +1965,15 @@ describe("media cache sync and queries", () => {
     await expect(
       handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", { limit: -5 }),
     ).rejects.toThrow(DataValidationError);
+    expect(dbCalled).toBe(false);
+    await expect(
+      handlers.get(MEDIA_CACHE_IPC.listNamespaceTree)!("nature", {
+        limit: 0,
+      } as unknown as { limit?: number }),
+    ).resolves.toMatchObject({
+      items: expect.any(Array),
+      nextCursor: expect.any(String),
+    });
     expect(dbCalled).toBe(false);
     await expect(
       handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", {
