@@ -9,7 +9,6 @@ import type {
   SyncRunSummary,
 } from "../shared/types.js";
 
-const mediaKindSchema = z.enum(["video", "image", "audio", "document", "html", "text", "binary"]);
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const nonNegativeNumberSchema = z.number().nonnegative();
 
