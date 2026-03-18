@@ -158,6 +158,29 @@ export const protocolAssetTargetRowSchema = z.object({
   resolved_request_json: z.string(),
 });
 
+export const protocolAssetResolveContextRowSchema = z.object({
+  namespace_key: z.string(),
+  namespace_label: z.string().nullable(),
+  namespace_metadata_json: z.string(),
+  item_id: z.string(),
+  item_version: z.string(),
+  item_kind: z.string(),
+  item_title: z.string().nullable(),
+  item_description: z.string().nullable(),
+  item_summary: z.string().nullable(),
+  item_blobs_json: z.string(),
+  item_metadata_json: z.string(),
+  asset_id: z.string(),
+  asset_role: z.string(),
+  asset_kind: z.string(),
+  asset_version: z.string().nullable(),
+  asset_mime_type: z.string().nullable(),
+  asset_file_name: z.string().nullable(),
+  asset_byte_length: nonNegativeNumberSchema.nullable(),
+  asset_source_json: z.string(),
+  asset_metadata_json: z.string(),
+});
+
 export const fileStemRowSchema = z.object({
   namespace: z.string(),
   itemId: z.string(),

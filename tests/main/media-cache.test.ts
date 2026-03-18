@@ -148,16 +148,20 @@ describe("media cache sync and queries", () => {
   let server: ReturnType<typeof createServer>;
   let baseUrl = "";
   let requestCounts: Record<string, number>;
+  let requestMethods: Record<string, string[]>;
   let requestRanges: Record<string, string[]>;
   let requestAuthHeaders: Record<string, string[]>;
   let manifests: ManifestInput;
 
   beforeAll(async () => {
     requestCounts = {};
+    requestMethods = {};
     requestRanges = {};
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
+      requestMethods[path] ??= [];
+      requestMethods[path].push(req.method ?? "GET");
       requestRanges[path] ??= [];
       requestRanges[path].push(req.headers.range ?? "");
       requestAuthHeaders[path] ??= [];
@@ -251,6 +255,16 @@ describe("media cache sync and queries", () => {
         return;
       }
 
+      if (path === "/method-bound.mp4") {
+        if (req.method !== "GET") {
+          res.writeHead(405);
+          res.end("method-not-allowed");
+          return;
+        }
+        sendStaticBody(req, res, "method-video", "video/mp4");
+        return;
+      }
+
       const payloads: Record<string, string> = {
         "/main.mp4": "video-one",
         "/poster.jpg": "poster",
@@ -293,6 +307,7 @@ describe("media cache sync and queries", () => {
 
   beforeEach(() => {
     requestCounts = {};
+    requestMethods = {};
     requestRanges = {};
     requestAuthHeaders = {};
     manifests = {
@@ -1946,6 +1961,31 @@ describe("media cache sync and queries", () => {
     expect(requestRanges["/resumable.mp4"]).toContain("bytes=5-");
   });
 
+  it("proxies passthrough HEAD requests upstream with the resolved GET method", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/method-bound.mp4` : asset.source.url,
+        method: "GET",
+      }),
+    });
+
+    await cache.start();
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(
+      new Request("media://asset/nature/forest/main", {
+        method: "HEAD",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("");
+    expect(requestMethods["/method-bound.mp4"]).toEqual(["GET"]);
+  });
+
   it("forwards resolved request headers in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
@@ -1994,6 +2034,44 @@ describe("media cache sync and queries", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("auth-video");
     expect(resolveCalls).toBe(5);
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
+  it("refreshes passthrough asset requests after restart when serving the last snapshot", async () => {
+    const storageRoot = createStorageRoot();
+    let authHeader = "stale-secret";
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
+      }),
+    });
+
+    await initialCache.start();
+
+    authHeader = "passthrough-secret";
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
+      }),
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
     expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
   });
 

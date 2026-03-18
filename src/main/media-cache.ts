@@ -688,14 +688,14 @@ export class MediaCache implements MediaCacheMain {
       }
 
       const response = await this.deps.fetchImpl(resolvedRequest.url, {
-        method: request.method,
+        method: resolvedRequest.method ?? "GET",
         headers,
       });
       const responseHeaders = new Headers(response.headers);
       if (!responseHeaders.has("content-type") && fallbackMimeType) {
         responseHeaders.set("content-type", fallbackMimeType);
       }
-      return new Response(response.body, {
+      return new Response(request.method === "HEAD" ? null : response.body, {
         status: response.status,
         statusText: response.statusText,
         headers: responseHeaders,
@@ -737,11 +737,20 @@ export class MediaCache implements MediaCacheMain {
     assetId: string,
     persistedRequest: DownloadRequest,
   ): Promise<DownloadRequest> {
-    if (!this.devPassthrough || !this.activeManifest) {
+    if (!this.devPassthrough || !this.options.resolveAssetRequest) {
       return persistedRequest;
     }
 
-    return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
+    if (this.activeManifest) {
+      return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
+    }
+
+    const context = this.db!.getProtocolAssetResolveContext(namespaceKey, itemId, assetId);
+    if (!context) {
+      return persistedRequest;
+    }
+
+    return this.options.resolveAssetRequest(context);
   }
 
   private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {

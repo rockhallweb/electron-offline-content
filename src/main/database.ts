@@ -5,7 +5,10 @@ import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js"
 import type {
   DownloadRequest,
   FileStemMatch,
+  MediaAssetDefinition,
   MediaCacheStatus,
+  MediaContentDefinition,
+  MediaNamespaceDefinition,
   PaginationInput,
   PaginationResult,
   ResolvedMediaContentItem,
@@ -23,6 +26,7 @@ import {
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
+  protocolAssetResolveContextRowSchema,
   protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
   stringRecordSchema,
@@ -69,6 +73,12 @@ export interface ProtocolAssetTarget {
   absolutePath: string | null;
   mimeType: string | null;
   request: DownloadRequest;
+}
+
+export interface ProtocolAssetResolveContext {
+  namespace: MediaNamespaceDefinition;
+  item: MediaContentDefinition;
+  asset: MediaAssetDefinition;
 }
 
 export interface SyncRunStats {
@@ -603,6 +613,112 @@ export class MediaCacheDatabase {
         downloadRequestSchema,
         `resolved request for asset "${namespace}/${itemId}/${assetId}"`,
       ),
+    };
+  }
+
+  getProtocolAssetResolveContext(
+    namespace: string,
+    itemId: string,
+    assetId: string,
+  ): ProtocolAssetResolveContext | null {
+    const activeGeneration = this.getActiveGenerationId();
+    if (!activeGeneration) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `SELECT
+           generation_namespaces.namespace_key,
+           generation_namespaces.label AS namespace_label,
+           generation_namespaces.metadata_json AS namespace_metadata_json,
+           items.item_id,
+           items.version AS item_version,
+           items.kind AS item_kind,
+           items.title AS item_title,
+           items.description AS item_description,
+           items.summary AS item_summary,
+           items.blobs_json AS item_blobs_json,
+           items.metadata_json AS item_metadata_json,
+           assets.asset_id,
+           assets.role AS asset_role,
+           assets.kind AS asset_kind,
+           assets.asset_version,
+           assets.mime_type AS asset_mime_type,
+           assets.file_name AS asset_file_name,
+           assets.byte_length AS asset_byte_length,
+           assets.source_json AS asset_source_json,
+           assets.metadata_json AS asset_metadata_json
+         FROM assets
+         INNER JOIN items
+           ON items.generation_id = assets.generation_id
+          AND items.namespace_key = assets.namespace_key
+          AND items.item_id = assets.item_id
+         INNER JOIN generation_namespaces
+           ON generation_namespaces.generation_id = assets.generation_id
+          AND generation_namespaces.namespace_key = assets.namespace_key
+         WHERE assets.generation_id = ? AND assets.namespace_key = ? AND assets.item_id = ? AND assets.asset_id = ?`,
+      )
+      .get(activeGeneration, namespace, itemId, assetId);
+
+    if (!row) {
+      return null;
+    }
+
+    const validatedRow = parseWithSchema(
+      protocolAssetResolveContextRowSchema,
+      row,
+      "protocol asset resolve context row",
+    );
+    return {
+      namespace: {
+        key: validatedRow.namespace_key,
+        label: validatedRow.namespace_label ?? undefined,
+        metadata: parseJsonWithSchema(
+          validatedRow.namespace_metadata_json,
+          jsonObjectSchema,
+          `metadata for namespace "${namespace}"`,
+        ),
+        items: [],
+      },
+      item: {
+        id: validatedRow.item_id,
+        version: validatedRow.item_version,
+        kind: validatedRow.item_kind as MediaContentDefinition["kind"],
+        title: validatedRow.item_title ?? undefined,
+        description: validatedRow.item_description ?? undefined,
+        summary: validatedRow.item_summary ?? undefined,
+        blobs: parseJsonWithSchema(
+          validatedRow.item_blobs_json,
+          stringRecordSchema,
+          `blobs for item "${namespace}/${itemId}"`,
+        ),
+        metadata: parseJsonWithSchema(
+          validatedRow.item_metadata_json,
+          jsonObjectSchema,
+          `metadata for item "${namespace}/${itemId}"`,
+        ),
+        assets: [],
+      },
+      asset: {
+        id: validatedRow.asset_id,
+        role: validatedRow.asset_role,
+        kind: validatedRow.asset_kind as MediaAssetDefinition["kind"],
+        version: validatedRow.asset_version ?? undefined,
+        mimeType: validatedRow.asset_mime_type ?? undefined,
+        fileName: validatedRow.asset_file_name ?? undefined,
+        byteLength: validatedRow.asset_byte_length ?? undefined,
+        source: parseJsonWithSchema(
+          validatedRow.asset_source_json,
+          downloadRequestSchema,
+          `source for asset "${namespace}/${itemId}/${assetId}"`,
+        ),
+        metadata: parseJsonWithSchema(
+          validatedRow.asset_metadata_json,
+          jsonObjectSchema,
+          `metadata for asset "${namespace}/${itemId}/${assetId}"`,
+        ),
+      },
     };
   }
 
