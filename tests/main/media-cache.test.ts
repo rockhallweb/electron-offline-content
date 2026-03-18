@@ -2367,6 +2367,73 @@ describe("media cache sync and queries", () => {
     expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
   });
 
+  it("preserves original manifest fileName and mimeType when rebuilding resolveAssetRequest context after restart", async () => {
+    const storageRoot = createStorageRoot();
+    const manifestWithoutExplicitAssetFields: ManifestInput = {
+      snapshotId: "implicit-asset-fields",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const resolveAssetRequest = ({ asset }: { asset: MediaAssetDefinition }) => ({
+      url:
+        asset.fileName === undefined && asset.mimeType === undefined
+          ? `${baseUrl}/auth.mp4`
+          : asset.source.url,
+      headers:
+        asset.fileName === undefined && asset.mimeType === undefined
+          ? { "x-media-auth": "passthrough-secret" }
+          : undefined,
+    });
+
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifestWithoutExplicitAssetFields,
+      resolveAssetRequest,
+    });
+
+    await initialCache.start();
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest,
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
   it("falls back to the persisted request when passthrough refresh fails after restart", async () => {
     const storageRoot = createStorageRoot();
     const initialCache = new RawMediaCache({

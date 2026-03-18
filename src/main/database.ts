@@ -282,9 +282,10 @@ export class MediaCacheDatabase {
       const assetStmt = this.db.prepare(
         `INSERT INTO assets (
           generation_id, namespace_key, item_id, asset_id, role, kind, resolved_version,
-          asset_version, mime_type, file_name, file_stem, byte_length, source_json,
-          resolved_request_json, metadata_json, order_index, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          asset_version, manifest_mime_type, manifest_file_name, mime_type, file_name,
+          file_stem, byte_length, source_json, resolved_request_json, metadata_json,
+          order_index, relative_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
 
       manifest.namespaces.forEach((namespace, namespaceOrder) => {
@@ -333,6 +334,8 @@ export class MediaCacheDatabase {
               asset.kind,
               asset.resolvedVersion,
               asset.version ?? null,
+              asset.mimeType ?? null,
+              asset.fileName ?? null,
               asset.mimeType ?? null,
               asset.normalizedFileName,
               asset.normalizedFileStem,
@@ -646,8 +649,8 @@ export class MediaCacheDatabase {
            assets.role AS asset_role,
            assets.kind AS asset_kind,
            assets.asset_version,
-           assets.mime_type AS asset_mime_type,
-           assets.file_name AS asset_file_name,
+           assets.manifest_mime_type AS asset_manifest_mime_type,
+           assets.manifest_file_name AS asset_manifest_file_name,
            assets.byte_length AS asset_byte_length,
            assets.source_json AS asset_source_json,
            assets.metadata_json AS asset_metadata_json
@@ -717,8 +720,8 @@ export class MediaCacheDatabase {
         role: row.asset_role,
         kind: row.asset_kind as MediaAssetDefinition["kind"],
         version: row.asset_version ?? undefined,
-        mimeType: row.asset_mime_type ?? undefined,
-        fileName: row.asset_file_name ?? undefined,
+        mimeType: row.asset_manifest_mime_type ?? undefined,
+        fileName: row.asset_manifest_file_name ?? undefined,
         byteLength: row.asset_byte_length ?? undefined,
         source: parseJsonWithSchema(
           row.asset_source_json,
@@ -972,6 +975,8 @@ export class MediaCacheDatabase {
         kind TEXT NOT NULL,
         resolved_version TEXT NOT NULL,
         asset_version TEXT,
+        manifest_mime_type TEXT,
+        manifest_file_name TEXT,
         mime_type TEXT,
         file_name TEXT NOT NULL,
         file_stem TEXT NOT NULL,
@@ -1033,6 +1038,30 @@ export class MediaCacheDatabase {
         UPDATE assets
         SET resolved_request_json = source_json
         WHERE resolved_request_json IS NULL
+      `);
+    }
+
+    const hasManifestMimeTypeColumn = assetColumns.some(
+      (column) => column.name === "manifest_mime_type",
+    );
+    if (!hasManifestMimeTypeColumn) {
+      this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_mime_type TEXT;`);
+      this.db.exec(`
+        UPDATE assets
+        SET manifest_mime_type = mime_type
+        WHERE manifest_mime_type IS NULL
+      `);
+    }
+
+    const hasManifestFileNameColumn = assetColumns.some(
+      (column) => column.name === "manifest_file_name",
+    );
+    if (!hasManifestFileNameColumn) {
+      this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
+      this.db.exec(`
+        UPDATE assets
+        SET manifest_file_name = file_name
+        WHERE manifest_file_name IS NULL
       `);
     }
 
