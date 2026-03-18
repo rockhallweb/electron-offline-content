@@ -143,6 +143,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
 });
 
 export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
+  deletionKey: z.string(),
   logicalKey: z.string(),
   relativePath: z.string(),
 });

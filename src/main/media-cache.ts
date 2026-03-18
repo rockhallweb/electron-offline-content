@@ -126,6 +126,7 @@ export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
   private readonly devPassthrough: boolean;
+  private activeManifest: NormalizedManifest | null = null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -453,6 +454,31 @@ export class MediaCache implements MediaCacheMain {
       const downloads: DownloadTarget[] = [];
 
       for (const row of stagedAssets) {
+        const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
+        const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
+        const activeRelativePath = activeRow?.relativePath ?? null;
+        const canReuseActiveBlob =
+          !this.devPassthrough &&
+          activeRelativePath !== null &&
+          existsSync(join(this.storageRoot!, activeRelativePath));
+
+        if (canReuseActiveBlob) {
+          const currentVersion = getResolvedVersionFromPath(activeRelativePath);
+          const nextVersion = manifestAsset.asset.resolvedVersion;
+          if (currentVersion === nextVersion) {
+            this.db!.setAssetDownloadState(
+              stagedGenerationId,
+              row.namespace,
+              row.itemId,
+              row.assetId,
+              activeRelativePath,
+              activeRow?.mimeType ?? null,
+            );
+            stats.skippedAssets += 1;
+            continue;
+          }
+        }
+
         const request = await this.resolveDownloadRequest(
           manifest,
           row.namespace,
@@ -470,28 +496,6 @@ export class MediaCache implements MediaCacheMain {
         if (this.devPassthrough) {
           stats.skippedAssets += 1;
           continue;
-        }
-
-        const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
-        const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
-        if (
-          activeRow?.relativePath &&
-          existsSync(join(this.storageRoot!, activeRow.relativePath))
-        ) {
-          const currentVersion = getResolvedVersionFromPath(activeRow.relativePath);
-          const nextVersion = manifestAsset.asset.resolvedVersion;
-          if (currentVersion === nextVersion) {
-            this.db!.setAssetDownloadState(
-              stagedGenerationId,
-              row.namespace,
-              row.itemId,
-              row.assetId,
-              activeRow.relativePath,
-              activeRow.mimeType,
-            );
-            stats.skippedAssets += 1;
-            continue;
-          }
         }
 
         downloads.push({
@@ -601,6 +605,7 @@ export class MediaCache implements MediaCacheMain {
 
       const summary = this.db!.completeSyncRun(runId, "success", this.deps.now(), stats);
       this.db!.pruneSyncHistory(this.options.syncHistoryLimit ?? DEFAULT_SYNC_HISTORY_LIMIT);
+      this.activeManifest = manifest;
       this.emitLog("info", "sync_completed", {
         run_id: runId,
         active_generation_id: stagedGenerationId,
@@ -668,7 +673,13 @@ export class MediaCache implements MediaCacheMain {
     context: { namespace: string; itemId: string; assetId: string },
   ): Promise<Response> {
     try {
-      const headers = new Headers(targetRequest.headers);
+      const resolvedRequest = await this.resolveProtocolRequest(
+        context.namespace,
+        context.itemId,
+        context.assetId,
+        targetRequest,
+      );
+      const headers = new Headers(resolvedRequest.headers);
       const range = request.headers.get("range");
       if (range) {
         headers.set("range", range);
@@ -676,7 +687,7 @@ export class MediaCache implements MediaCacheMain {
         headers.delete("range");
       }
 
-      const response = await this.deps.fetchImpl(targetRequest.url, {
+      const response = await this.deps.fetchImpl(resolvedRequest.url, {
         method: request.method,
         headers,
       });
@@ -718,6 +729,19 @@ export class MediaCache implements MediaCacheMain {
       item: context.item,
       asset: context.asset,
     });
+  }
+
+  private async resolveProtocolRequest(
+    namespaceKey: string,
+    itemId: string,
+    assetId: string,
+    persistedRequest: DownloadRequest,
+  ): Promise<DownloadRequest> {
+    if (!this.devPassthrough || !this.activeManifest) {
+      return persistedRequest;
+    }
+
+    return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
   }
 
   private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {
@@ -1072,7 +1096,7 @@ export class MediaCache implements MediaCacheMain {
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
 
-    this.db!.deletePendingDeletions(expired.map((item) => item.logicalKey));
+    this.db!.deletePendingDeletions(expired.map((item) => item.deletionKey));
     this.emitLog("debug", "assets_pruned", { pruned_count: expired.length });
   }
 

@@ -637,6 +637,27 @@ describe("media cache sync and queries", () => {
     expect(requestCounts["/main.mp4"]).toBe(2);
   });
 
+  it("skips request resolution when an unchanged cached blob can be reused", async () => {
+    const storageRoot = createStorageRoot();
+    let resolveCalls = 0;
+    const cache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => {
+        resolveCalls += 1;
+        return asset.source;
+      },
+    });
+
+    await cache.start();
+    expect(resolveCalls).toBe(4);
+
+    await cache.syncNow();
+    expect(resolveCalls).toBe(4);
+    expect(requestCounts["/main.mp4"]).toBe(1);
+  });
+
   it("reuses cached assets when stored relative paths use windows separators", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
@@ -1606,6 +1627,132 @@ describe("media cache sync and queries", () => {
     ).toBe(true);
   });
 
+  it("retains multiple obsolete blob versions until each expires", async () => {
+    let currentNow = 1_000;
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "retain-v1",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  byteLength: "video-one".length,
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        staleDeleteAfterMs: 1_000,
+        resolveManifest: () => manifests,
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await cache.start();
+
+    currentNow = 1_100;
+    manifests = {
+      snapshotId: "retain-v2",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "flower.mp4",
+                  byteLength: "flower-video".length,
+                  source: {
+                    url: `${baseUrl}/flower.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    await cache.syncNow();
+
+    currentNow = 1_200;
+    manifests = {
+      snapshotId: "retain-v3",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v3",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "resumable.mp4",
+                  byteLength: "resume-data".length,
+                  source: {
+                    url: `${baseUrl}/resumable.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    await cache.syncNow();
+
+    const v1Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
+    const v2Path = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v2", "flower.mp4"),
+    );
+    const v3Path = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v3", "resumable.mp4"),
+    );
+    expect(existsSync(v1Path)).toBe(true);
+    expect(existsSync(v2Path)).toBe(true);
+    expect(existsSync(v3Path)).toBe(true);
+
+    currentNow = 3_000;
+    await cache.syncNow();
+
+    expect(existsSync(v1Path)).toBe(false);
+    expect(existsSync(v2Path)).toBe(false);
+    expect(existsSync(v3Path)).toBe(true);
+  });
+
   it("uses response content type only as a mimeType fallback", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
@@ -1818,6 +1965,36 @@ describe("media cache sync and queries", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("auth-video");
     expect(requestAuthHeaders["/auth.mp4"]).toContain("passthrough-secret");
+  });
+
+  it("refreshes passthrough asset requests when the protocol fetches an asset", async () => {
+    const storageRoot = createStorageRoot();
+    let authHeader = "stale-secret";
+    let resolveCalls = 0;
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => {
+        resolveCalls += 1;
+        return {
+          url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+          headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
+        };
+      },
+    });
+
+    await cache.start();
+    expect(resolveCalls).toBe(4);
+
+    authHeader = "passthrough-secret";
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(resolveCalls).toBe(5);
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
   });
 
   it("propagates remote error responses in passthrough mode", async () => {

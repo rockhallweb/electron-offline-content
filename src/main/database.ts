@@ -60,6 +60,7 @@ export interface ActiveAssetRow {
 }
 
 export interface PendingDeletion {
+  deletionKey: string;
   logicalKey: string;
   relativePath: string;
 }
@@ -496,19 +497,10 @@ export class MediaCacheDatabase {
   }
 
   clearPendingDeletionsForGeneration(generationId: number): void {
-    const logicalKeys = parseWithSchema(
-      generationAssetKeyRowSchema.array(),
-      this.db
-        .prepare(
-          `SELECT namespace_key AS namespaceKey, item_id AS itemId, asset_id AS assetId
-           FROM assets
-           WHERE generation_id = ?`,
-        )
-        .all(generationId),
-      `generation ${generationId} deletion rows`,
-    ).map((row) => createLogicalKey(row.namespaceKey, row.itemId, row.assetId));
-
-    this.deletePendingDeletions(logicalKeys);
+    const activeRelativePaths = this.getGenerationAssets(generationId).flatMap((row) =>
+      row.relativePath ? [row.relativePath] : [],
+    );
+    this.deletePendingDeletionsByRelativePath(activeRelativePaths);
   }
 
   markPendingDeletion(
@@ -523,15 +515,25 @@ export class MediaCacheDatabase {
     this.db
       .prepare(
         `INSERT INTO pending_deletions (
-          logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(logical_key)
+          deletion_key, logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(deletion_key)
         DO UPDATE SET
+          logical_key = excluded.logical_key,
           relative_path = excluded.relative_path,
           generation_id = excluded.generation_id,
           delete_after_ms = excluded.delete_after_ms`,
       )
-      .run(logicalKey, namespace, itemId, assetId, relativePath, generationId, deleteAfterMs);
+      .run(
+        createPendingDeletionKey(logicalKey, relativePath),
+        logicalKey,
+        namespace,
+        itemId,
+        assetId,
+        relativePath,
+        generationId,
+        deleteAfterMs,
+      );
   }
 
   getExpiredPendingDeletions(now: number): PendingDeletion[] {
@@ -539,7 +541,7 @@ export class MediaCacheDatabase {
       pendingDeletionSchema.array(),
       this.db
         .prepare(
-          `SELECT logical_key AS logicalKey, relative_path AS relativePath
+          `SELECT deletion_key AS deletionKey, logical_key AS logicalKey, relative_path AS relativePath
            FROM pending_deletions
            WHERE delete_after_ms <= ?`,
         )
@@ -548,15 +550,26 @@ export class MediaCacheDatabase {
     );
   }
 
-  deletePendingDeletions(logicalKeys: string[]): void {
-    if (logicalKeys.length === 0) {
+  deletePendingDeletions(deletionKeys: string[]): void {
+    if (deletionKeys.length === 0) {
       return;
     }
 
-    const placeholders = logicalKeys.map(() => "?").join(", ");
+    const placeholders = deletionKeys.map(() => "?").join(", ");
     this.db
-      .prepare(`DELETE FROM pending_deletions WHERE logical_key IN (${placeholders})`)
-      .run(...logicalKeys);
+      .prepare(`DELETE FROM pending_deletions WHERE deletion_key IN (${placeholders})`)
+      .run(...deletionKeys);
+  }
+
+  deletePendingDeletionsByRelativePath(relativePaths: string[]): void {
+    if (relativePaths.length === 0) {
+      return;
+    }
+
+    const placeholders = relativePaths.map(() => "?").join(", ");
+    this.db
+      .prepare(`DELETE FROM pending_deletions WHERE relative_path IN (${placeholders})`)
+      .run(...relativePaths);
   }
 
   getProtocolAssetTarget(
@@ -839,7 +852,8 @@ export class MediaCacheDatabase {
       );
 
       CREATE TABLE IF NOT EXISTS pending_deletions (
-        logical_key TEXT PRIMARY KEY,
+        deletion_key TEXT PRIMARY KEY,
+        logical_key TEXT NOT NULL,
         namespace_key TEXT NOT NULL,
         item_id TEXT NOT NULL,
         asset_id TEXT NOT NULL,
@@ -880,6 +894,73 @@ export class MediaCacheDatabase {
         SET resolved_request_json = source_json
         WHERE resolved_request_json IS NULL
       `);
+    }
+
+    const pendingDeletionColumns = this.db
+      .prepare(`PRAGMA table_info(pending_deletions)`)
+      .all() as Array<{ name?: unknown }>;
+    const hasDeletionKeyColumn = pendingDeletionColumns.some(
+      (column) => column.name === "deletion_key",
+    );
+    if (!hasDeletionKeyColumn) {
+      const legacyRows = this.db.prepare(
+        `SELECT
+           logical_key AS logicalKey,
+           namespace_key AS namespaceKey,
+           item_id AS itemId,
+           asset_id AS assetId,
+           relative_path AS relativePath,
+           generation_id AS generationId,
+           delete_after_ms AS deleteAfterMs
+         FROM pending_deletions`,
+      ).all() as Array<{
+        logicalKey: string;
+        namespaceKey: string;
+        itemId: string;
+        assetId: string;
+        relativePath: string;
+        generationId: number;
+        deleteAfterMs: number;
+      }>;
+
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(`
+          CREATE TABLE pending_deletions_next (
+            deletion_key TEXT PRIMARY KEY,
+            logical_key TEXT NOT NULL,
+            namespace_key TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            asset_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            generation_id INTEGER NOT NULL,
+            delete_after_ms INTEGER NOT NULL
+          );
+        `);
+        const insertStmt = this.db.prepare(
+          `INSERT INTO pending_deletions_next (
+            deletion_key, logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const row of legacyRows) {
+          insertStmt.run(
+            createPendingDeletionKey(row.logicalKey, row.relativePath),
+            row.logicalKey,
+            row.namespaceKey,
+            row.itemId,
+            row.assetId,
+            row.relativePath,
+            row.generationId,
+            row.deleteAfterMs,
+          );
+        }
+        this.db.exec(`DROP TABLE pending_deletions;`);
+        this.db.exec(`ALTER TABLE pending_deletions_next RENAME TO pending_deletions;`);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
     }
   }
 }
@@ -938,6 +1019,10 @@ function buildMediaUrl(namespace: string, itemId: string, assetId: string): stri
 
 function createLogicalKey(...parts: string[]): string {
   return JSON.stringify(parts);
+}
+
+function createPendingDeletionKey(logicalKey: string, relativePath: string): string {
+  return JSON.stringify([logicalKey, relativePath]);
 }
 
 function parseLogicalItemKey(key: string): [string, string] {
