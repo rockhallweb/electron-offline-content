@@ -310,6 +310,7 @@ export class MediaCache implements MediaCacheMain {
         url: target.request.url,
       });
       return this.proxyRemoteAsset(request, target.request, target.mimeType, {
+        generationId: target.generationId,
         namespace,
         itemId,
         assetId,
@@ -578,6 +579,13 @@ export class MediaCache implements MediaCacheMain {
             relativePath,
             fallbackMimeType,
           );
+          this.db!.setAssetResolvedRequest(
+            stagedGenerationId,
+            download.namespace,
+            download.itemId,
+            download.assetId,
+            download.request,
+          );
           stats.downloadedAssets += 1;
           this.emitLog("debug", "asset_download_completed", {
             run_id: runId,
@@ -691,7 +699,7 @@ export class MediaCache implements MediaCacheMain {
     request: Request,
     targetRequest: DownloadRequest,
     fallbackMimeType: string | null,
-    context: { namespace: string; itemId: string; assetId: string },
+    context: { generationId: number; namespace: string; itemId: string; assetId: string },
   ): Promise<Response> {
     try {
       const resolvedRequest = await this.resolveProtocolRequest(
@@ -713,16 +721,13 @@ export class MediaCache implements MediaCacheMain {
         headers,
       });
       if (response.ok && this.devPassthrough) {
-        const activeGenerationId = this.db!.getActiveGenerationId();
-        if (activeGenerationId !== null) {
-          this.db!.setAssetResolvedRequest(
-            activeGenerationId,
-            context.namespace,
-            context.itemId,
-            context.assetId,
-            resolvedRequest,
-          );
-        }
+        this.db!.setAssetResolvedRequest(
+          context.generationId,
+          context.namespace,
+          context.itemId,
+          context.assetId,
+          resolvedRequest,
+        );
       }
       const responseHeaders = new Headers(response.headers);
       if (!responseHeaders.has("content-type") && fallbackMimeType) {

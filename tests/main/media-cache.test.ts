@@ -538,7 +538,7 @@ describe("media cache sync and queries", () => {
     }
   });
 
-  it("does not persist resolved passthrough auth requests during offline syncs", async () => {
+  it("persists resolved requests for downloaded snapshots", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
       storageRoot,
@@ -575,7 +575,10 @@ describe("media cache sync and queries", () => {
         (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
       );
     expect(JSON.parse(mainAsset!.resolvedRequestJson)).toEqual({
-      url: `${baseUrl}/main.mp4`,
+      url: `${baseUrl}/auth.mp4`,
+      headers: {
+        "x-media-auth": "passthrough-secret",
+      },
     });
   });
 
@@ -2394,6 +2397,102 @@ describe("media cache sync and queries", () => {
       "passthrough-secret",
       "passthrough-secret",
     ]);
+  });
+
+  it("persists refreshed passthrough requests back to the generation they came from", async () => {
+    const storageRoot = createStorageRoot();
+    let authHeader = "stale-secret";
+    let notifyFetchEntered!: () => void;
+    const fetchEntered = new Promise<void>((resolve) => {
+      notifyFetchEntered = resolve;
+    });
+    let releaseFetch!: () => void;
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const cache = new RawMediaCache(
+      {
+        storageRoot,
+        devPassthrough: true,
+        resolveManifest: () => manifests,
+        resolveAssetRequest: ({ asset }) => ({
+          url: asset.id === "main" ? "https://example.invalid/auth.mp4" : asset.source.url,
+          headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
+        }),
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          notifyFetchEntered();
+          await fetchGate;
+          return new Response("auth-video", {
+            status: new Headers(init?.headers).get("x-media-auth") ? 200 : 401,
+            headers: {
+              "content-type": "video/mp4",
+            },
+          });
+        },
+      },
+    );
+
+    await cache.start();
+
+    const db = (
+      cache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            resolvedRequestJson: string;
+          }>;
+          createStagedGeneration(manifest: ReturnType<typeof normalizeManifest>, now: number): number;
+          activateGeneration(generationId: number, now: number): number | null;
+        };
+      }
+    ).db;
+    const originalGenerationId = db.getActiveGenerationId()!;
+
+    authHeader = "passthrough-secret";
+    const handler = await createProtocolHandler(cache);
+    const responsePromise = handler(new Request("media://asset/nature/forest/main"));
+    await fetchEntered;
+
+    const replacementGenerationId = db.createStagedGeneration(
+      normalizeManifest({
+        ...manifests,
+        snapshotId: "replacement-generation",
+      }),
+      Date.now(),
+    );
+    db.activateGeneration(replacementGenerationId, Date.now());
+
+    releaseFetch();
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+
+    const originalAsset = db
+      .getGenerationAssets(originalGenerationId)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      );
+    const replacementAsset = db
+      .getGenerationAssets(replacementGenerationId)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      );
+
+    expect(JSON.parse(originalAsset!.resolvedRequestJson)).toEqual({
+      url: "https://example.invalid/auth.mp4",
+      headers: {
+        "x-media-auth": "passthrough-secret",
+      },
+    });
+    expect(JSON.parse(replacementAsset!.resolvedRequestJson)).toEqual({
+      url: `${baseUrl}/main.mp4`,
+    });
   });
 
   it("propagates remote error responses in passthrough mode", async () => {

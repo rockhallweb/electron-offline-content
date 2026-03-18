@@ -70,6 +70,7 @@ export interface PendingDeletion {
 }
 
 export interface ProtocolAssetTarget {
+  generationId: number;
   absolutePath: string | null;
   mimeType: string | null;
   request: DownloadRequest;
@@ -606,6 +607,7 @@ export class MediaCacheDatabase {
 
     const validatedRow = parseWithSchema(protocolAssetTargetRowSchema, row, "protocol asset row");
     return {
+      generationId: activeGeneration,
       absolutePath: validatedRow.relative_path ? join(this.root, validatedRow.relative_path) : null,
       mimeType: validatedRow.mime_type,
       request: parseJsonWithSchema(
