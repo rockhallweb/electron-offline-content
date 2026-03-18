@@ -161,6 +161,7 @@ describe("media cache sync and queries", () => {
     requestCounts = {};
     requestMethods = {};
     requestRanges = {};
+    requestAuthHeaders = {};
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
@@ -2643,6 +2644,43 @@ describe("media cache sync and queries", () => {
     expect(await response.text()).toBe("auth-video");
     expect(restartResolveCalls).toBe(0);
     expect(requestAuthHeaders["/auth.mp4"]?.at(-1)).toBe("passthrough-secret");
+  });
+
+  it("backfills null resolved requests when the column already exists", async () => {
+    const storageRoot = createStorageRoot();
+    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const db = (
+      cache as unknown as {
+        db: {
+          close(): void;
+        };
+      }
+    ).db;
+    db.close();
+
+    const legacyDb = new DatabaseSync(sqlitePath);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN resolved_request_json;`);
+    legacyDb.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
+    legacyDb.close();
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      resolveManifest: () => manifests,
+    });
+
+    await expect(restartedCache.start()).resolves.toBeUndefined();
+
+    const item = await restartedCache.getItem("nature", "forest");
+    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
   });
 
   it("falls back to the persisted request when passthrough refresh fails after restart", async () => {

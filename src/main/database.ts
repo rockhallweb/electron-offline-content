@@ -465,7 +465,7 @@ export class MediaCacheDatabase {
              assets.byte_length AS byteLength,
              assets.metadata_json AS assetMetadataJson,
              assets.relative_path AS relativePath,
-             assets.resolved_request_json AS resolvedRequestJson,
+             COALESCE(assets.resolved_request_json, assets.source_json) AS resolvedRequestJson,
              assets.file_stem AS fileStem
            FROM assets
            INNER JOIN items
@@ -600,7 +600,8 @@ export class MediaCacheDatabase {
 
     const row = this.db
       .prepare(
-        `SELECT relative_path, mime_type, resolved_request_json
+        `SELECT relative_path, mime_type,
+                COALESCE(resolved_request_json, source_json) AS resolved_request_json
          FROM assets
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
@@ -878,7 +879,7 @@ export class MediaCacheDatabase {
         assets.byte_length AS byteLength,
         assets.metadata_json AS assetMetadataJson,
         assets.relative_path AS relativePath,
-        assets.resolved_request_json AS resolvedRequestJson,
+        COALESCE(assets.resolved_request_json, assets.source_json) AS resolvedRequestJson,
         assets.file_stem AS fileStem
       FROM assets
       INNER JOIN items
@@ -1043,7 +1044,20 @@ export class MediaCacheDatabase {
       (column) => column.name === "resolved_request_json",
     );
     if (!hasResolvedRequestColumn) {
-      this.db.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
+        this.db.exec(`
+          UPDATE assets
+          SET resolved_request_json = source_json
+          WHERE resolved_request_json IS NULL
+        `);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    } else {
       this.db.exec(`
         UPDATE assets
         SET resolved_request_json = source_json
@@ -1062,40 +1076,47 @@ export class MediaCacheDatabase {
       (column) => column.name === "manifest_file_name",
     );
     if (!hasManifestFileNameColumn) {
-      this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
-      const legacyRows = this.db.prepare(
-        `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
-         FROM assets`,
-      ).all() as Array<{
-        generation_id: number;
-        namespace_key: string;
-        item_id: string;
-        asset_id: string;
-        file_name: string;
-        source_json: string;
-      }>;
-      const updateManifestFileName = this.db.prepare(
-        `UPDATE assets
-         SET manifest_file_name = ?
-         WHERE generation_id = ?
-           AND namespace_key = ?
-           AND item_id = ?
-           AND asset_id = ?`,
-      );
-
-      for (const row of legacyRows) {
-        const manifestFileName = inferLegacyManifestFileName(row.source_json, row.file_name);
-        if (manifestFileName === null) {
-          continue;
-        }
-
-        updateManifestFileName.run(
-          manifestFileName,
-          row.generation_id,
-          row.namespace_key,
-          row.item_id,
-          row.asset_id,
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
+        const legacyRows = this.db.prepare(
+          `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
+           FROM assets`,
+        ).all() as Array<{
+          generation_id: number;
+          namespace_key: string;
+          item_id: string;
+          asset_id: string;
+          file_name: string;
+          source_json: string;
+        }>;
+        const updateManifestFileName = this.db.prepare(
+          `UPDATE assets
+           SET manifest_file_name = ?
+           WHERE generation_id = ?
+             AND namespace_key = ?
+             AND item_id = ?
+             AND asset_id = ?`,
         );
+
+        for (const row of legacyRows) {
+          const manifestFileName = inferLegacyManifestFileName(row.source_json, row.file_name);
+          if (manifestFileName === null) {
+            continue;
+          }
+
+          updateManifestFileName.run(
+            manifestFileName,
+            row.generation_id,
+            row.namespace_key,
+            row.item_id,
+            row.asset_id,
+          );
+        }
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
       }
     }
 
@@ -1103,13 +1124,20 @@ export class MediaCacheDatabase {
       (column) => column.name === "has_precise_manifest_fields",
     );
     if (!hasPreciseManifestFieldsColumn) {
-      this.db.exec(
-        `ALTER TABLE assets ADD COLUMN has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1;`,
-      );
-      this.db.exec(`
-        UPDATE assets
-        SET has_precise_manifest_fields = 0
-      `);
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(
+          `ALTER TABLE assets ADD COLUMN has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1;`,
+        );
+        this.db.exec(`
+          UPDATE assets
+          SET has_precise_manifest_fields = 0
+        `);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
     }
 
     const pendingDeletionColumns = this.db
