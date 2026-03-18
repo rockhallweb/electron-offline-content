@@ -1915,6 +1915,19 @@ describe("media cache sync and queries", () => {
         cursor: invalidDecodedCursor,
       }),
     ).rejects.toThrow(DataValidationError);
+    await expect(
+      cache.listNamespace("nature", null as unknown as { limit?: number; cursor?: string }),
+    ).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
+    await expect(
+      cache.findByFileStem(
+        "main",
+        null as unknown as { limit?: number; cursor?: string; namespace?: string },
+      ),
+    ).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
 
     const handlers = await createIpcHandlers(cache);
     const db = (
@@ -1939,6 +1952,14 @@ describe("media cache sync and queries", () => {
     await expect(
       handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", { limit: -5 }),
     ).rejects.toThrow(DataValidationError);
+    await expect(
+      handlers.get(MEDIA_CACHE_IPC.listNamespace)!("nature", {
+        cursor: null,
+      } as unknown as { cursor?: string }),
+    ).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
+    dbCalled = false;
     expect(dbCalled).toBe(false);
   });
 
@@ -2002,6 +2023,43 @@ describe("media cache sync and queries", () => {
     await cache.start();
     const item = await cache.getItem("nature", "forest");
     expect(item?.assets[0]?.byteLength).toBe(12.5);
+  });
+
+  it("tolerates legacy item kinds in staged and active rows", async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "legacy-item-kind",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "legacy-video" as unknown as "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: { url: `${baseUrl}/main.mp4` },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    const item = (await cache.getItem("nature", "forest")) as { kind: string } | null;
+    expect(item?.kind).toBe("legacy-video");
   });
 });
 

@@ -19,7 +19,7 @@ import {
   generationAssetKeyRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
-  paginationInputSchema,
+  optionalPaginationInputSchema,
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
@@ -40,7 +40,7 @@ export interface ActiveAssetRow {
   namespaceOrder: number;
   itemId: string;
   itemVersion: string;
-  itemKind: ResolvedMediaContentItem["kind"];
+  itemKind: string;
   itemTitle: string | null;
   itemDescription: string | null;
   itemSummary: string | null;
@@ -106,7 +106,7 @@ export class MediaCacheDatabase {
   }
 
   saveStatus(status: MediaCacheStatus, now: number): void {
-    const validatedStatus = parseWithSchema(mediaCacheStatusSchema, status, "media cache status");
+    const statusJson = stringifyWithSchema(status, mediaCacheStatusSchema, "media cache status");
     this.db.exec("BEGIN");
     try {
       this.db
@@ -120,7 +120,7 @@ export class MediaCacheDatabase {
           `INSERT INTO status_snapshot (scope_type, scope_key, status_json, updated_at_ms)
            VALUES ('global', '*', ?, ?)`,
         )
-        .run(JSON.stringify(validatedStatus), now);
+        .run(statusJson, now);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -129,13 +129,13 @@ export class MediaCacheDatabase {
   }
 
   createSyncRun(now: number): number {
-    const stats = parseWithSchema(syncRunStatsSchema, emptyStats(), "sync run stats");
+    const statsJson = stringifyWithSchema(emptyStats(), syncRunStatsSchema, "sync run stats");
     const result = this.db
       .prepare(
         `INSERT INTO sync_runs (started_at_ms, status, stats_json)
          VALUES (?, 'running', ?)`,
       )
-      .run(now, JSON.stringify(stats));
+      .run(now, statsJson);
     return Number(result.lastInsertRowid);
   }
 
@@ -147,14 +147,14 @@ export class MediaCacheDatabase {
     errorCode: string | null = null,
     errorMessage: string | null = null,
   ): SyncRunSummary {
-    const validatedStats = parseWithSchema(syncRunStatsSchema, stats, "sync run stats");
+    const statsJson = stringifyWithSchema(stats, syncRunStatsSchema, "sync run stats");
     this.db
       .prepare(
         `UPDATE sync_runs
          SET finished_at_ms = ?, status = ?, error_code = ?, error_message = ?, stats_json = ?
          WHERE id = ?`,
       )
-      .run(now, status, errorCode, errorMessage, JSON.stringify(validatedStats), id);
+      .run(now, status, errorCode, errorMessage, statsJson, id);
 
     return this.getSyncRun(id)!;
   }
@@ -554,7 +554,7 @@ export class MediaCacheDatabase {
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
     const validatedPagination = parseWithSchema(
-      paginationInputSchema.optional(),
+      optionalPaginationInputSchema,
       pagination,
       "namespace pagination input",
     );
@@ -568,7 +568,7 @@ export class MediaCacheDatabase {
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
     const validatedPagination = parseWithSchema(
-      paginationInputSchema.optional(),
+      optionalPaginationInputSchema,
       pagination,
       "namespace tree pagination input",
     );
@@ -594,7 +594,7 @@ export class MediaCacheDatabase {
     }
 
     const validatedPagination = parseWithSchema(
-      paginationInputSchema.optional(),
+      optionalPaginationInputSchema,
       pagination,
       "file stem pagination input",
     );
@@ -849,7 +849,7 @@ function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] 
         namespace: row.namespace,
         id: row.itemId,
         version: row.itemVersion,
-        kind: row.itemKind,
+        kind: row.itemKind as ResolvedMediaContentItem["kind"],
         title: row.itemTitle ?? undefined,
         description: row.itemDescription ?? undefined,
         summary: row.itemSummary ?? undefined,

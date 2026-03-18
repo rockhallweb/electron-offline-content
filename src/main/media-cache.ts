@@ -40,8 +40,8 @@ import type {
   SyncProgress,
 } from "../shared/types.js";
 import {
-  findByFileStemOptionsSchema,
-  paginationInputSchema,
+  optionalFindByFileStemOptionsSchema,
+  optionalPaginationInputSchema,
   parseWithSchema,
   stringInputSchema,
 } from "../shared/validation.js";
@@ -187,7 +187,7 @@ export class MediaCache implements MediaCacheMain {
   async listNamespace(namespace: string, pagination?: PaginationInput) {
     const validatedNamespace = parseWithSchema(stringInputSchema, namespace, "namespace");
     const validatedPagination = parseWithSchema(
-      paginationInputSchema.optional(),
+      optionalPaginationInputSchema,
       pagination,
       "namespace pagination input",
     );
@@ -198,7 +198,7 @@ export class MediaCache implements MediaCacheMain {
   async listNamespaceTree(prefix: string, pagination?: PaginationInput) {
     const validatedPrefix = parseWithSchema(stringInputSchema, prefix, "namespace tree prefix");
     const validatedPagination = parseWithSchema(
-      paginationInputSchema.optional(),
+      optionalPaginationInputSchema,
       pagination,
       "namespace tree pagination input",
     );
@@ -209,7 +209,7 @@ export class MediaCache implements MediaCacheMain {
   async findByFileStem(stem: string, options?: PaginationInput & { namespace?: string }) {
     const validatedStem = parseWithSchema(stringInputSchema, stem, "file stem");
     const validatedOptions = parseWithSchema(
-      findByFileStemOptionsSchema.optional(),
+      optionalFindByFileStemOptionsSchema,
       options,
       "file stem search options",
     );

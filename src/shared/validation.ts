@@ -116,7 +116,9 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   namespaceOrder: nonNegativeIntegerSchema,
   itemId: z.string(),
   itemVersion: z.string(),
-  itemKind: mediaKindSchema,
+  // Stored item kinds must remain tolerant because older caches and JS callers can persist
+  // values outside the current MediaKind union before runtime validation was added.
+  itemKind: z.string(),
   itemTitle: z.string().nullable(),
   itemDescription: z.string().nullable(),
   itemSummary: z.string().nullable(),
@@ -148,14 +150,34 @@ export const fileStemRowSchema = z.object({
   assetId: z.string(),
 });
 
+const optionalPositiveIntegerSchema = z
+  .number()
+  .int()
+  .positive()
+  .nullish()
+  .transform((value) => value ?? undefined);
+
+const optionalStringSchema = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? undefined);
+
 export const paginationInputSchema = z.object({
-  limit: z.number().int().positive().optional(),
-  cursor: z.string().optional(),
+  limit: optionalPositiveIntegerSchema,
+  cursor: optionalStringSchema,
 });
 
 export const findByFileStemOptionsSchema = paginationInputSchema.extend({
-  namespace: z.string().optional(),
+  namespace: optionalStringSchema,
 });
+
+export const optionalPaginationInputSchema = paginationInputSchema
+  .nullish()
+  .transform((value) => value ?? undefined);
+
+export const optionalFindByFileStemOptionsSchema = findByFileStemOptionsSchema
+  .nullish()
+  .transform((value) => value ?? undefined);
 
 export const cursorPayloadSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -202,6 +224,8 @@ export function stringifyWithSchema<T>(
     throw new DataValidationError(`Invalid ${context}: value is not JSON serializable.`);
   }
 
+  // Validate the serialized JSON round-trip, but preserve the original JSON.stringify output so
+  // optional-field semantics stay intact (for example, undefined object properties are omitted).
   parseJsonWithSchema(rawJson, schema, context);
   return rawJson;
 }
