@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DataValidationError } from "../shared/errors.js";
 import type { ActiveAssetRow, PendingDeletion, SyncRunStats } from "../main/database.js";
 import type {
+  DownloadRequest,
   JsonValue,
   MediaCacheStatus,
   SerializedMediaCacheError,
@@ -81,6 +82,12 @@ export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
   updatedAt: nonNegativeIntegerSchema,
 });
 
+export const downloadRequestSchema: z.ZodType<DownloadRequest> = z.object({
+  url: z.string(),
+  method: z.literal("GET").optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
 export const statusSnapshotRowSchema = z.object({
   status_json: z.string(),
 });
@@ -131,6 +138,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   byteLength: nonNegativeNumberSchema.nullable(),
   assetMetadataJson: z.string(),
   relativePath: z.string().nullable(),
+  resolvedRequestJson: z.string(),
   fileStem: z.string(),
 });
 
@@ -141,6 +149,12 @@ export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
 
 export const assetPathRowSchema = z.object({
   relative_path: z.string().nullable(),
+});
+
+export const protocolAssetTargetRowSchema = z.object({
+  relative_path: z.string().nullable(),
+  mime_type: z.string().nullable(),
+  resolved_request_json: z.string(),
 });
 
 export const fileStemRowSchema = z.object({

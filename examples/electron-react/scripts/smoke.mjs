@@ -12,6 +12,7 @@ const sentinelPath = process.env.MEDIA_CACHE_SMOKE_SENTINEL ?? join(smokeRoot, "
 const profile = process.env.MEDIA_CACHE_EXAMPLE_PROFILE ?? "local";
 const logFormat = process.env.MEDIA_CACHE_LOG_FORMAT ?? "json";
 const logLevel = process.env.MEDIA_CACHE_LOG_LEVEL ?? "info";
+const devPassthrough = false;
 const runtimeConfigDir = join(exampleRoot, ".runtime");
 const runtimeConfigPath = join(runtimeConfigDir, "example-config.json");
 
@@ -19,7 +20,7 @@ await mkdir(rendererOutDir, { recursive: true });
 await mkdir(runtimeConfigDir, { recursive: true });
 await writeFile(
   runtimeConfigPath,
-  `${JSON.stringify({ profile, logFormat, logLevel }, null, 2)}\n`,
+  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough }, null, 2)}\n`,
 );
 
 await run(
@@ -88,6 +89,7 @@ await run("pnpm", electronArgs, exampleRoot, {
   MEDIA_CACHE_EXAMPLE_PROFILE: profile,
   MEDIA_CACHE_LOG_FORMAT: logFormat,
   MEDIA_CACHE_LOG_LEVEL: logLevel,
+  MEDIA_CACHE_DEV_PASSTHROUGH: "false",
 });
 
 await waitForFile(sentinelPath, 30_000);

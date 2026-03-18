@@ -18,6 +18,7 @@ The example app is the maintainer validation target. It uses Electron Forge, Rea
 - Strict all-or-nothing snapshot commits
 - Grace-period deletion for removed assets
 - Privileged `media://` protocol for committed local assets
+- Dev passthrough mode that keeps `media://` URLs stable while proxying remote assets on demand
 - Structured main-process log callback for forwarding cache events into `pino`, `logtape`, or a custom logger
 - Preload bridge and React hooks for renderer access
 
@@ -117,6 +118,8 @@ import {
 await registerMediaCacheProtocolSchemes();
 
 const mediaCache = createMediaCache({
+  // Defaults to true when NODE_ENV !== "production".
+  devPassthrough: false,
   logLevel: "info",
   onLog: (entry) => {
     console.log(entry);
@@ -156,6 +159,10 @@ await mediaCache.start();
 ```
 
 `onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
+
+`devPassthrough` is enabled by default whenever `NODE_ENV !== "production"` unless the consumer explicitly sets it. In passthrough mode, manifest metadata is still committed locally so the query APIs continue to work, but asset blobs are not downloaded; `media://` requests proxy the resolved remote asset on demand instead.
+
+The in-repo smoke and packed-smoke example runs explicitly force `devPassthrough: false` so CI still validates the offline cache path.
 
 ## Preload
 

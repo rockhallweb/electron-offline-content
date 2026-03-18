@@ -125,6 +125,7 @@ export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
 export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
+  private readonly devPassthrough: boolean;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -141,6 +142,7 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
+    this.devPassthrough = options.devPassthrough ?? process.env.NODE_ENV !== "production";
     this.status = {
       phase: "idle",
       activeGenerationId: null,
@@ -244,9 +246,9 @@ export class MediaCache implements MediaCacheMain {
       }
 
       const [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part));
-      const absolutePath = this.db!.getAssetAbsolutePath(namespace, itemId, assetId);
+      const target = this.db!.getProtocolAssetTarget(namespace, itemId, assetId);
 
-      if (!absolutePath || !existsSync(absolutePath)) {
+      if (!target) {
         this.emitLog("debug", "protocol_request_missing", {
           namespace,
           item_id: itemId,
@@ -256,14 +258,40 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      this.emitLog("debug", "protocol_request_resolved", {
+      if (target.absolutePath) {
+        if (!existsSync(target.absolutePath)) {
+          this.emitLog("debug", "protocol_request_missing", {
+            namespace,
+            item_id: itemId,
+            asset_id: assetId,
+            method: request.method,
+          });
+          return new Response("Not found", { status: 404 });
+        }
+
+        this.emitLog("debug", "protocol_request_local_resolved", {
+          namespace,
+          item_id: itemId,
+          asset_id: assetId,
+          method: request.method,
+          range: request.headers.get("range"),
+        });
+        return fetchFile(request, target.absolutePath);
+      }
+
+      this.emitLog("debug", "protocol_request_remote_resolved", {
         namespace,
         item_id: itemId,
         asset_id: assetId,
         method: request.method,
         range: request.headers.get("range"),
+        url: target.request.url,
       });
-      return fetchFile(request, absolutePath);
+      return this.proxyRemoteAsset(request, target.request, target.mimeType, {
+        namespace,
+        itemId,
+        assetId,
+      });
     });
 
     this.protocolRegistered = true;
@@ -353,6 +381,7 @@ export class MediaCache implements MediaCacheMain {
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
+      dev_passthrough_enabled: this.devPassthrough,
     });
   }
 
@@ -424,6 +453,25 @@ export class MediaCache implements MediaCacheMain {
       const downloads: DownloadTarget[] = [];
 
       for (const row of stagedAssets) {
+        const request = await this.resolveDownloadRequest(
+          manifest,
+          row.namespace,
+          row.itemId,
+          row.assetId,
+        );
+        this.db!.setAssetResolvedRequest(
+          stagedGenerationId,
+          row.namespace,
+          row.itemId,
+          row.assetId,
+          request,
+        );
+
+        if (this.devPassthrough) {
+          stats.skippedAssets += 1;
+          continue;
+        }
+
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
         const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
         if (
@@ -446,12 +494,6 @@ export class MediaCache implements MediaCacheMain {
           }
         }
 
-        const request = await this.resolveDownloadRequest(
-          manifest,
-          row.namespace,
-          row.itemId,
-          row.assetId,
-        );
         downloads.push({
           namespace: row.namespace,
           itemId: row.itemId,
@@ -468,61 +510,70 @@ export class MediaCache implements MediaCacheMain {
         total_assets: stagedAssets.length,
         download_count: downloads.length,
         skipped_assets: stats.skippedAssets,
+        dev_passthrough_enabled: this.devPassthrough,
       });
 
-      this.cleanupObsoletePartialDownloads(downloads);
       await this.pruneExpiredDeletions();
-      await this.enforceStorageLimits(downloads);
+      if (!this.devPassthrough) {
+        this.cleanupObsoletePartialDownloads(downloads);
+        await this.enforceStorageLimits(downloads);
 
-      this.updateProgress((progress) => ({
-        ...progress,
-        phase: "downloading",
-        totalAssets: stagedAssets.length,
-        completedAssets: stats.skippedAssets,
-        skippedAssets: stats.skippedAssets,
-      }));
-
-      for (const download of downloads) {
-        this.emitLog("debug", "asset_download_started", {
-          run_id: runId,
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
-          resolved_version: download.resolvedVersion,
-          url: download.request.url,
-        });
-        const { relativePath, fallbackMimeType } = await this.downloadAsset(
-          download,
-          (chunkBytes) => {
-            stats.bytesDownloaded += chunkBytes;
-            this.updateProgress((progress) => ({
-              ...progress,
-              bytesDownloaded: stats.bytesDownloaded,
-            }));
-          },
-        );
-        this.db!.setAssetDownloadState(
-          stagedGenerationId,
-          download.namespace,
-          download.itemId,
-          download.assetId,
-          relativePath,
-          fallbackMimeType,
-        );
-        stats.downloadedAssets += 1;
-        this.emitLog("debug", "asset_download_completed", {
-          run_id: runId,
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
-          relative_path: relativePath,
-        });
         this.updateProgress((progress) => ({
           ...progress,
-          completedAssets: stats.downloadedAssets + stats.skippedAssets,
-          downloadedAssets: stats.downloadedAssets,
+          phase: "downloading",
+          totalAssets: stagedAssets.length,
+          completedAssets: stats.skippedAssets,
           skippedAssets: stats.skippedAssets,
-          bytesDownloaded: stats.bytesDownloaded,
+        }));
+
+        for (const download of downloads) {
+          this.emitLog("debug", "asset_download_started", {
+            run_id: runId,
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            resolved_version: download.resolvedVersion,
+            url: download.request.url,
+          });
+          const { relativePath, fallbackMimeType } = await this.downloadAsset(
+            download,
+            (chunkBytes) => {
+              stats.bytesDownloaded += chunkBytes;
+              this.updateProgress((progress) => ({
+                ...progress,
+                bytesDownloaded: stats.bytesDownloaded,
+              }));
+            },
+          );
+          this.db!.setAssetDownloadState(
+            stagedGenerationId,
+            download.namespace,
+            download.itemId,
+            download.assetId,
+            relativePath,
+            fallbackMimeType,
+          );
+          stats.downloadedAssets += 1;
+          this.emitLog("debug", "asset_download_completed", {
+            run_id: runId,
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            relative_path: relativePath,
+          });
+          this.updateProgress((progress) => ({
+            ...progress,
+            completedAssets: stats.downloadedAssets + stats.skippedAssets,
+            downloadedAssets: stats.downloadedAssets,
+            skippedAssets: stats.skippedAssets,
+            bytesDownloaded: stats.bytesDownloaded,
+          }));
+        }
+      } else {
+        this.updateProgress((progress) => ({
+          ...progress,
+          completedAssets: stagedAssets.length,
+          skippedAssets: stagedAssets.length,
         }));
       }
 
@@ -607,6 +658,47 @@ export class MediaCache implements MediaCacheMain {
       if (this.options.onSyncFailure === "throw") {
         throw error;
       }
+    }
+  }
+
+  private async proxyRemoteAsset(
+    request: Request,
+    targetRequest: DownloadRequest,
+    fallbackMimeType: string | null,
+    context: { namespace: string; itemId: string; assetId: string },
+  ): Promise<Response> {
+    try {
+      const headers = new Headers(targetRequest.headers);
+      const range = request.headers.get("range");
+      if (range) {
+        headers.set("range", range);
+      } else {
+        headers.delete("range");
+      }
+
+      const response = await this.deps.fetchImpl(targetRequest.url, {
+        method: request.method,
+        headers,
+      });
+      const responseHeaders = new Headers(response.headers);
+      if (!responseHeaders.has("content-type") && fallbackMimeType) {
+        responseHeaders.set("content-type", fallbackMimeType);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    } catch (error) {
+      this.emitLog("warn", "protocol_request_remote_failed", {
+        namespace: context.namespace,
+        item_id: context.itemId,
+        asset_id: context.assetId,
+        method: request.method,
+        url: targetRequest.url,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+      return new Response("Bad Gateway", { status: 502 });
     }
   }
 
@@ -933,10 +1025,11 @@ export class MediaCache implements MediaCacheMain {
     stagedGenerationId: number,
   ): void {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
-    const nextAssets = new Set(
-      this.db!.getGenerationAssets(stagedGenerationId).map((row) =>
+    const nextAssets = new Map(
+      this.db!.getGenerationAssets(stagedGenerationId).map((row) => [
         logicalKey(row.namespace, row.itemId, row.assetId),
-      ),
+        row.relativePath,
+      ]),
     );
     const deleteAfterMs =
       this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
@@ -944,7 +1037,8 @@ export class MediaCache implements MediaCacheMain {
     let markedCount = 0;
     for (const row of previousAssets) {
       const key = logicalKey(row.namespace, row.itemId, row.assetId);
-      if (!nextAssets.has(key) && row.relativePath) {
+      const nextRelativePath = nextAssets.get(key);
+      if (row.relativePath && nextRelativePath !== row.relativePath) {
         this.db!.markPendingDeletion(
           key,
           row.namespace,

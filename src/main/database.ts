@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
 import type {
+  DownloadRequest,
   FileStemMatch,
   MediaCacheStatus,
   PaginationInput,
@@ -14,7 +15,7 @@ import type { NormalizedManifest } from "../shared/normalize.js";
 import {
   activeAssetRowSchema,
   activeGenerationRowSchema,
-  assetPathRowSchema,
+  downloadRequestSchema,
   fileStemRowSchema,
   generationAssetKeyRowSchema,
   jsonObjectSchema,
@@ -22,6 +23,7 @@ import {
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
+  protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
   stringRecordSchema,
   stringifyWithSchema,
@@ -53,12 +55,19 @@ export interface ActiveAssetRow {
   byteLength: number | null;
   assetMetadataJson: string;
   relativePath: string | null;
+  resolvedRequestJson: string;
   fileStem: string;
 }
 
 export interface PendingDeletion {
   logicalKey: string;
   relativePath: string;
+}
+
+export interface ProtocolAssetTarget {
+  absolutePath: string | null;
+  mimeType: string | null;
+  request: DownloadRequest;
 }
 
 export interface SyncRunStats {
@@ -262,8 +271,8 @@ export class MediaCacheDatabase {
         `INSERT INTO assets (
           generation_id, namespace_key, item_id, asset_id, role, kind, resolved_version,
           asset_version, mime_type, file_name, file_stem, byte_length, source_json,
-          metadata_json, order_index, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          resolved_request_json, metadata_json, order_index, relative_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
 
       manifest.namespaces.forEach((namespace, namespaceOrder) => {
@@ -317,6 +326,7 @@ export class MediaCacheDatabase {
               asset.normalizedFileStem,
               asset.byteLength ?? null,
               JSON.stringify(asset.source),
+              JSON.stringify(asset.source),
               stringifyWithSchema(
                 asset.metadata ?? {},
                 jsonObjectSchema,
@@ -368,6 +378,32 @@ export class MediaCacheDatabase {
       .run(relativePath, generationId, namespace, itemId, assetId);
   }
 
+  setAssetResolvedRequest(
+    generationId: number,
+    namespace: string,
+    itemId: string,
+    assetId: string,
+    request: DownloadRequest,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE assets
+         SET resolved_request_json = ?
+         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
+      )
+      .run(
+        stringifyWithSchema(
+          request,
+          downloadRequestSchema,
+          `resolved request for asset "${namespace}/${itemId}/${assetId}"`,
+        ),
+        generationId,
+        namespace,
+        itemId,
+        assetId,
+      );
+  }
+
   setAssetDownloadState(
     generationId: number,
     namespace: string,
@@ -412,6 +448,7 @@ export class MediaCacheDatabase {
              assets.byte_length AS byteLength,
              assets.metadata_json AS assetMetadataJson,
              assets.relative_path AS relativePath,
+             assets.resolved_request_json AS resolvedRequestJson,
              assets.file_stem AS fileStem
            FROM assets
            INNER JOIN items
@@ -522,7 +559,11 @@ export class MediaCacheDatabase {
       .run(...logicalKeys);
   }
 
-  getAssetAbsolutePath(namespace: string, itemId: string, assetId: string): string | null {
+  getProtocolAssetTarget(
+    namespace: string,
+    itemId: string,
+    assetId: string,
+  ): ProtocolAssetTarget | null {
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
       return null;
@@ -530,7 +571,7 @@ export class MediaCacheDatabase {
 
     const row = this.db
       .prepare(
-        `SELECT relative_path
+        `SELECT relative_path, mime_type, resolved_request_json
          FROM assets
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
@@ -540,12 +581,16 @@ export class MediaCacheDatabase {
       return null;
     }
 
-    const validatedRow = parseWithSchema(assetPathRowSchema, row, "asset path row");
-    if (!validatedRow.relative_path) {
-      return null;
-    }
-
-    return join(this.root, validatedRow.relative_path);
+    const validatedRow = parseWithSchema(protocolAssetTargetRowSchema, row, "protocol asset row");
+    return {
+      absolutePath: validatedRow.relative_path ? join(this.root, validatedRow.relative_path) : null,
+      mimeType: validatedRow.mime_type,
+      request: parseJsonWithSchema(
+        validatedRow.resolved_request_json,
+        downloadRequestSchema,
+        `resolved request for asset "${namespace}/${itemId}/${assetId}"`,
+      ),
+    };
   }
 
   listNamespace(
@@ -668,6 +713,7 @@ export class MediaCacheDatabase {
         assets.byte_length AS byteLength,
         assets.metadata_json AS assetMetadataJson,
         assets.relative_path AS relativePath,
+        assets.resolved_request_json AS resolvedRequestJson,
         assets.file_stem AS fileStem
       FROM assets
       INNER JOIN items
@@ -778,6 +824,7 @@ export class MediaCacheDatabase {
         file_stem TEXT NOT NULL,
         byte_length INTEGER,
         source_json TEXT NOT NULL,
+        resolved_request_json TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
         relative_path TEXT,
@@ -819,6 +866,21 @@ export class MediaCacheDatabase {
         PRIMARY KEY (scope_type, scope_key)
       );
     `);
+
+    const assetColumns = this.db
+      .prepare(`PRAGMA table_info(assets)`)
+      .all() as Array<{ name?: unknown }>;
+    const hasResolvedRequestColumn = assetColumns.some(
+      (column) => column.name === "resolved_request_json",
+    );
+    if (!hasResolvedRequestColumn) {
+      this.db.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
+      this.db.exec(`
+        UPDATE assets
+        SET resolved_request_json = source_json
+        WHERE resolved_request_json IS NULL
+      `);
+    }
   }
 }
 

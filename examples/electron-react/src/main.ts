@@ -17,6 +17,7 @@ type RuntimeConfig = {
   profile?: "local" | "nasa";
   logFormat?: LogFormat;
   logLevel?: LogLevel;
+  devPassthrough?: boolean;
 };
 
 const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -45,6 +46,10 @@ const selectedLogLevel =
   normalizeLogLevel(process.env.MEDIA_CACHE_LOG_LEVEL) ??
   normalizeLogLevel(readArgValue("media-cache-log-level")) ??
   "info";
+const selectedDevPassthrough =
+  runtimeConfig?.devPassthrough ??
+  normalizeBoolean(process.env.MEDIA_CACHE_DEV_PASSTHROUGH) ??
+  normalizeBoolean(readArgValue("media-cache-dev-passthrough"));
 const rendererUrl =
   process.env.MEDIA_CACHE_RENDERER_URL ?? readArgValue("media-cache-renderer-url");
 const rendererIndex =
@@ -66,8 +71,10 @@ logger.info("example_bootstrap_detected", {
   runtime_config_profile: runtimeConfig?.profile ?? null,
   runtime_config_log_format: runtimeConfig?.logFormat ?? null,
   runtime_config_log_level: runtimeConfig?.logLevel ?? null,
+  runtime_config_dev_passthrough: runtimeConfig?.devPassthrough ?? null,
   selected_log_format: selectedLogFormat,
   selected_log_level: selectedLogLevel,
+  selected_dev_passthrough: selectedDevPassthrough ?? null,
   renderer_url: rendererUrl ?? null,
   renderer_index: rendererIndex ?? null,
 });
@@ -117,6 +124,7 @@ async function bootstrap() {
 
   const mediaCache = createMediaCache({
     storageRoot,
+    devPassthrough: selectedDevPassthrough,
     logLevel: selectedLogLevel,
     onLog: (entry) => {
       logger.forward(entry);
@@ -125,6 +133,7 @@ async function bootstrap() {
   });
   logger.info("media_cache_created", {
     storage_root: storageRoot,
+    dev_passthrough: selectedDevPassthrough ?? null,
   });
 
   let mainWindow: BrowserWindow | null = null;
@@ -164,6 +173,7 @@ async function bootstrap() {
   logger.info("media_cache_sync_finished", {
     phase: postStartStatus.phase,
     active_generation_id: postStartStatus.activeGenerationId,
+    dev_passthrough: selectedDevPassthrough ?? null,
     run_id: postStartStatus.lastRun?.id ?? null,
     run_status: postStartStatus.lastRun?.status ?? null,
     downloaded_assets: postStartStatus.lastRun?.stats.downloadedAssets ?? null,
@@ -418,6 +428,16 @@ function normalizeLogFormat(value?: string): LogFormat | null {
     return value;
   }
   return null;
+}
+
+function normalizeBoolean(value?: string): boolean | undefined {
+  if (value === "true" || value === "1") {
+    return true;
+  }
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  return undefined;
 }
 
 function writeLog(
