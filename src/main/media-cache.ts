@@ -40,8 +40,10 @@ import type {
   SyncProgress,
 } from "../shared/types.js";
 import {
+  downloadRequestSchema,
   optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
+  parseJsonWithSchema,
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
@@ -487,19 +489,30 @@ export class MediaCache implements MediaCacheMain {
         if (canReuseActiveBlob) {
           const currentVersion = getResolvedVersionFromPath(activeRelativePath);
           const nextVersion = manifestAsset.asset.resolvedVersion;
-          if (currentVersion === nextVersion) {
-            this.db!.setAssetDownloadState(
-              stagedGenerationId,
-              row.namespace,
-              row.itemId,
-              row.assetId,
-              activeRelativePath,
-              activeRow?.mimeType ?? null,
-            );
-            stats.skippedAssets += 1;
-            continue;
-          }
+        if (currentVersion === nextVersion) {
+          this.db!.setAssetDownloadState(
+            stagedGenerationId,
+            row.namespace,
+            row.itemId,
+            row.assetId,
+            activeRelativePath,
+            activeRow?.mimeType ?? null,
+          );
+          this.db!.setAssetResolvedRequest(
+            stagedGenerationId,
+            row.namespace,
+            row.itemId,
+            row.assetId,
+            parseJsonWithSchema(
+              activeRow?.resolvedRequestJson ?? row.resolvedRequestJson,
+              downloadRequestSchema,
+              "reused asset resolved request",
+            ),
+          );
+          stats.skippedAssets += 1;
+          continue;
         }
+      }
 
         const request = await this.resolveDownloadRequest(
           manifest,

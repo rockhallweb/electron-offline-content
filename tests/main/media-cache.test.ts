@@ -582,6 +582,54 @@ describe("media cache sync and queries", () => {
     });
   });
 
+  it("preserves resolved requests when an unchanged blob is reused", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
+      }),
+    });
+
+    await cache.start();
+    const authRequestsAfterStart = requestCounts["/auth.mp4"] ?? 0;
+
+    await cache.syncNow();
+    expect(requestCounts["/auth.mp4"] ?? 0).toBe(authRequestsAfterStart);
+
+    const db = (
+      cache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            resolvedRequestJson: string;
+          }>;
+        };
+      }
+    ).db;
+    const activeGenerationId = db.getActiveGenerationId();
+    expect(activeGenerationId).not.toBeNull();
+
+    const mainAsset = db
+      .getGenerationAssets(activeGenerationId!)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      );
+    expect(JSON.parse(mainAsset!.resolvedRequestJson)).toEqual({
+      url: `${baseUrl}/auth.mp4`,
+      headers: {
+        "x-media-auth": "passthrough-secret",
+      },
+    });
+  });
+
   it("commits metadata without downloading assets when passthrough is enabled", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
