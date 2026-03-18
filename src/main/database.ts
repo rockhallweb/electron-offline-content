@@ -20,7 +20,6 @@ import {
   activeGenerationRowSchema,
   downloadRequestSchema,
   fileStemRowSchema,
-  generationAssetKeyRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
   parseJsonWithSchema,
