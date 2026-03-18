@@ -626,7 +626,7 @@ export class MediaCacheDatabase {
       return null;
     }
 
-    const row = this.db
+    const rows = this.db
       .prepare(
         `SELECT
            generation_namespaces.namespace_key,
@@ -657,68 +657,90 @@ export class MediaCacheDatabase {
          INNER JOIN generation_namespaces
            ON generation_namespaces.generation_id = assets.generation_id
           AND generation_namespaces.namespace_key = assets.namespace_key
-         WHERE assets.generation_id = ? AND assets.namespace_key = ? AND assets.item_id = ? AND assets.asset_id = ?`,
+         WHERE assets.generation_id = ? AND assets.namespace_key = ?
+         ORDER BY items.order_index, assets.order_index`,
       )
-      .get(activeGeneration, namespace, itemId, assetId);
+      .all(activeGeneration, namespace);
 
-    if (!row) {
+    if (rows.length === 0) {
       return null;
     }
 
-    const validatedRow = parseWithSchema(
-      protocolAssetResolveContextRowSchema,
-      row,
-      "protocol asset resolve context row",
+    const validatedRows = parseWithSchema(
+      protocolAssetResolveContextRowSchema.array(),
+      rows,
+      "protocol asset resolve context rows",
     );
-    return {
-      namespace: {
-        key: validatedRow.namespace_key,
-        label: validatedRow.namespace_label ?? undefined,
-        metadata: parseJsonWithSchema(
-          validatedRow.namespace_metadata_json,
-          jsonObjectSchema,
-          `metadata for namespace "${namespace}"`,
-        ),
-        items: [],
-      },
-      item: {
-        id: validatedRow.item_id,
-        version: validatedRow.item_version,
-        kind: validatedRow.item_kind as MediaContentDefinition["kind"],
-        title: validatedRow.item_title ?? undefined,
-        description: validatedRow.item_description ?? undefined,
-        summary: validatedRow.item_summary ?? undefined,
-        blobs: parseJsonWithSchema(
-          validatedRow.item_blobs_json,
-          stringRecordSchema,
-          `blobs for item "${namespace}/${itemId}"`,
-        ),
-        metadata: parseJsonWithSchema(
-          validatedRow.item_metadata_json,
-          jsonObjectSchema,
-          `metadata for item "${namespace}/${itemId}"`,
-        ),
-        assets: [],
-      },
-      asset: {
-        id: validatedRow.asset_id,
-        role: validatedRow.asset_role,
-        kind: validatedRow.asset_kind as MediaAssetDefinition["kind"],
-        version: validatedRow.asset_version ?? undefined,
-        mimeType: validatedRow.asset_mime_type ?? undefined,
-        fileName: validatedRow.asset_file_name ?? undefined,
-        byteLength: validatedRow.asset_byte_length ?? undefined,
+    const firstRow = validatedRows[0]!;
+    const namespaceDefinition: MediaNamespaceDefinition = {
+      key: firstRow.namespace_key,
+      label: firstRow.namespace_label ?? undefined,
+      metadata: parseJsonWithSchema(
+        firstRow.namespace_metadata_json,
+        jsonObjectSchema,
+        `metadata for namespace "${namespace}"`,
+      ),
+      items: [],
+    };
+    const itemsById = new Map<string, MediaContentDefinition>();
+
+    for (const row of validatedRows) {
+      let itemDefinition = itemsById.get(row.item_id);
+      if (!itemDefinition) {
+        itemDefinition = {
+          id: row.item_id,
+          version: row.item_version,
+          kind: row.item_kind as MediaContentDefinition["kind"],
+          title: row.item_title ?? undefined,
+          description: row.item_description ?? undefined,
+          summary: row.item_summary ?? undefined,
+          blobs: parseJsonWithSchema(
+            row.item_blobs_json,
+            stringRecordSchema,
+            `blobs for item "${namespace}/${row.item_id}"`,
+          ),
+          metadata: parseJsonWithSchema(
+            row.item_metadata_json,
+            jsonObjectSchema,
+            `metadata for item "${namespace}/${row.item_id}"`,
+          ),
+          assets: [],
+        };
+        itemsById.set(row.item_id, itemDefinition);
+        namespaceDefinition.items.push(itemDefinition);
+      }
+
+      itemDefinition.assets.push({
+        id: row.asset_id,
+        role: row.asset_role,
+        kind: row.asset_kind as MediaAssetDefinition["kind"],
+        version: row.asset_version ?? undefined,
+        mimeType: row.asset_mime_type ?? undefined,
+        fileName: row.asset_file_name ?? undefined,
+        byteLength: row.asset_byte_length ?? undefined,
         source: parseJsonWithSchema(
-          validatedRow.asset_source_json,
+          row.asset_source_json,
           downloadRequestSchema,
-          `source for asset "${namespace}/${itemId}/${assetId}"`,
+          `source for asset "${namespace}/${row.item_id}/${row.asset_id}"`,
         ),
         metadata: parseJsonWithSchema(
-          validatedRow.asset_metadata_json,
+          row.asset_metadata_json,
           jsonObjectSchema,
-          `metadata for asset "${namespace}/${itemId}/${assetId}"`,
+          `metadata for asset "${namespace}/${row.item_id}/${row.asset_id}"`,
         ),
-      },
+      });
+    }
+
+    const itemDefinition = itemsById.get(itemId);
+    const assetDefinition = itemDefinition?.assets.find((asset) => asset.id === assetId);
+    if (!itemDefinition || !assetDefinition) {
+      return null;
+    }
+
+    return {
+      namespace: namespaceDefinition,
+      item: itemDefinition,
+      asset: assetDefinition,
     };
   }
 

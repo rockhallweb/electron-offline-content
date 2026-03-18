@@ -518,8 +518,8 @@ export class MediaCache implements MediaCacheMain {
       });
 
       await this.pruneExpiredDeletions();
+      this.cleanupObsoletePartialDownloads(downloads);
       if (!this.devPassthrough) {
-        this.cleanupObsoletePartialDownloads(downloads);
         await this.enforceStorageLimits(downloads);
 
         this.updateProgress((progress) => ({

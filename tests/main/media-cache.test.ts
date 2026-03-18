@@ -1455,6 +1455,26 @@ describe("media cache sync and queries", () => {
     ).toBe(true);
   });
 
+  it("cleans up obsolete partial files while passthrough mode is enabled", async () => {
+    const storageRoot = createStorageRoot();
+    const obsoletePartialPath = join(
+      storageRoot,
+      partialPathFor("nature", "forest", "main", "stale-version", "main.mp4"),
+    );
+    mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
+    writeFileSync(obsoletePartialPath, "stale-bytes");
+
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(existsSync(obsoletePartialPath)).toBe(false);
+  });
+
   it("classifies wrapped ENOSPC download failures as storage limit errors", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache(
@@ -2063,6 +2083,108 @@ describe("media cache sync and queries", () => {
         url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
         headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
       }),
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
+  it("rebuilds full resolveAssetRequest context after restart", async () => {
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "restart-context",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  source: {
+                    url: `${baseUrl}/auth.mp4`,
+                  },
+                },
+                {
+                  id: "poster",
+                  role: "poster",
+                  kind: "poster",
+                  fileName: "poster.jpg",
+                  source: {
+                    url: `${baseUrl}/poster.jpg`,
+                  },
+                },
+              ],
+            },
+            {
+              id: "meadow",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "flower.mp4",
+                  source: {
+                    url: `${baseUrl}/flower.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const resolveAssetRequest = ({
+      namespace,
+      item,
+      asset,
+    }: {
+      namespace: { items: Array<{ id: string }> };
+      item: { id: string; assets: Array<{ role: string }> };
+      asset: { source: { url: string } };
+    }) => {
+      const hasSiblingItem = namespace.items.some((entry) => entry.id === "meadow");
+      const hasPosterAsset = item.assets.some((entry) => entry.role === "poster");
+      return {
+        url: item.id === "forest" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers:
+          item.id === "forest" && hasSiblingItem && hasPosterAsset
+            ? { "x-media-auth": "passthrough-secret" }
+            : undefined,
+      };
+    };
+
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest,
+    });
+
+    await initialCache.start();
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest,
     });
 
     await restartedCache.start();
