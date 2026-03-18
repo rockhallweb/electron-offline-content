@@ -14,6 +14,7 @@ export default defineConfig([
       "shared/pagination": "src/shared/pagination.ts",
       "shared/stem": "src/shared/stem.ts",
       "shared/types": "src/shared/types.ts",
+      "internal/validation": "src/internal/validation.ts",
     },
     clean: true,
     dts: true,

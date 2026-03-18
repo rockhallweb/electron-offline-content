@@ -25,6 +25,7 @@ export type {
   SyncRunSummary,
 } from "../shared/types.js";
 export {
+  DataValidationError,
   ManifestValidationError,
   MediaCacheError,
   StorageLimitError,
