@@ -421,37 +421,31 @@ describe("media cache sync and queries", () => {
     expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
   });
 
-  it("enables passthrough by default when NODE_ENV is not production", async () => {
+  it("enables passthrough by default when NODE_ENV is explicitly non-production", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
 
     try {
-      for (const value of ["test", undefined] as const) {
-        requestCounts = {};
-        if (value === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = value;
-        }
+      requestCounts = {};
+      process.env.NODE_ENV = "test";
 
-        const cache = new RawMediaCache({
-          storageRoot: createStorageRoot(),
-          onSyncFailure: "throw",
-          resolveManifest: () => manifests,
-        });
+      const cache = new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        onSyncFailure: "throw",
+        resolveManifest: () => manifests,
+      });
 
-        await cache.start();
+      await cache.start();
 
-        expect(requestCounts["/main.mp4"]).toBeUndefined();
-        expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
-          "media://asset/nature/forest/main",
-        );
-        expect((await cache.getStatus()).lastRun?.stats).toEqual({
-          totalAssets: 4,
-          downloadedAssets: 0,
-          skippedAssets: 4,
-          bytesDownloaded: 0,
-        });
-      }
+      expect(requestCounts["/main.mp4"]).toBeUndefined();
+      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+        "media://asset/nature/forest/main",
+      );
+      expect((await cache.getStatus()).lastRun?.stats).toEqual({
+        totalAssets: 4,
+        downloadedAssets: 0,
+        skippedAssets: 4,
+        bytesDownloaded: 0,
+      });
     } finally {
       if (originalNodeEnv === undefined) {
         delete process.env.NODE_ENV;
@@ -466,6 +460,30 @@ describe("media cache sync and queries", () => {
 
     try {
       process.env.NODE_ENV = "production";
+      const cache = new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        onSyncFailure: "throw",
+        resolveManifest: () => manifests,
+      });
+
+      await cache.start();
+
+      expect(requestCounts["/main.mp4"]).toBe(1);
+      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    }
+  });
+
+  it("disables passthrough by default when NODE_ENV is unset", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    try {
+      delete process.env.NODE_ENV;
       const cache = new RawMediaCache({
         storageRoot: createStorageRoot(),
         onSyncFailure: "throw",
@@ -2014,6 +2032,38 @@ describe("media cache sync and queries", () => {
     expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
+  it("falls back to remote proxy when a cached blob is missing in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const offlineCache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+
+    const blobPath = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
+    rmSync(blobPath, { force: true });
+
+    requestCounts = {};
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+    });
+
+    await passthroughCache.start();
+
+    const handler = await createProtocolHandler(passthroughCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("video-one");
+    expect(requestCounts["/main.mp4"]).toBe(1);
+  });
+
   it("proxies HEAD and range requests in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
@@ -2299,6 +2349,51 @@ describe("media cache sync and queries", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("auth-video");
     expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
+  it("persists refreshed passthrough requests after a successful proxy fetch", async () => {
+    const storageRoot = createStorageRoot();
+    let authHeader = "stale-secret";
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
+      }),
+    });
+
+    await cache.start();
+
+    authHeader = "passthrough-secret";
+    const liveHandler = await createProtocolHandler(cache);
+    const liveResponse = await liveHandler(new Request("media://asset/nature/forest/main"));
+    expect(liveResponse.status).toBe(200);
+    expect(await liveResponse.text()).toBe("auth-video");
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest: () => {
+        throw new Error("signer unavailable");
+      },
+    });
+
+    await restartedCache.start();
+
+    const restartedHandler = await createProtocolHandler(restartedCache);
+    const restartedResponse = await restartedHandler(new Request("media://asset/nature/forest/main"));
+
+    expect(restartedResponse.status).toBe(200);
+    expect(await restartedResponse.text()).toBe("auth-video");
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual([
+      "passthrough-secret",
+      "passthrough-secret",
+    ]);
   });
 
   it("propagates remote error responses in passthrough mode", async () => {

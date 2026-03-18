@@ -143,7 +143,9 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
-    this.devPassthrough = options.devPassthrough ?? process.env.NODE_ENV !== "production";
+    this.devPassthrough =
+      options.devPassthrough ??
+      (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== "production");
     this.status = {
       phase: "idle",
       activeGenerationId: null,
@@ -261,23 +263,32 @@ export class MediaCache implements MediaCacheMain {
 
       if (target.absolutePath) {
         if (!existsSync(target.absolutePath)) {
-          this.emitLog("debug", "protocol_request_missing", {
+          if (!this.devPassthrough) {
+            this.emitLog("debug", "protocol_request_missing", {
+              namespace,
+              item_id: itemId,
+              asset_id: assetId,
+              method: request.method,
+            });
+            return new Response("Not found", { status: 404 });
+          }
+
+          this.emitLog("debug", "protocol_request_local_missing", {
             namespace,
             item_id: itemId,
             asset_id: assetId,
             method: request.method,
           });
-          return new Response("Not found", { status: 404 });
+        } else {
+          this.emitLog("debug", "protocol_request_local_resolved", {
+            namespace,
+            item_id: itemId,
+            asset_id: assetId,
+            method: request.method,
+            range: request.headers.get("range"),
+          });
+          return fetchFile(request, target.absolutePath);
         }
-
-        this.emitLog("debug", "protocol_request_local_resolved", {
-          namespace,
-          item_id: itemId,
-          asset_id: assetId,
-          method: request.method,
-          range: request.headers.get("range"),
-        });
-        return fetchFile(request, target.absolutePath);
       }
 
       if (!this.devPassthrough) {
@@ -701,6 +712,18 @@ export class MediaCache implements MediaCacheMain {
         method: resolvedRequest.method ?? "GET",
         headers,
       });
+      if (response.ok && this.devPassthrough) {
+        const activeGenerationId = this.db!.getActiveGenerationId();
+        if (activeGenerationId !== null) {
+          this.db!.setAssetResolvedRequest(
+            activeGenerationId,
+            context.namespace,
+            context.itemId,
+            context.assetId,
+            resolvedRequest,
+          );
+        }
+      }
       const responseHeaders = new Headers(response.headers);
       if (!responseHeaders.has("content-type") && fallbackMimeType) {
         responseHeaders.set("content-type", fallbackMimeType);
