@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import {
   MediaCache as RawMediaCache,
   createMediaCache as createRawMediaCache,
@@ -32,6 +33,9 @@ import type {
   MediaCacheLogEvent,
   JsonValue,
 } from "../../src/shared/types.js";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 class MediaCache extends RawMediaCache {
   constructor(
@@ -2414,6 +2418,102 @@ describe("media cache sync and queries", () => {
     });
 
     await initialCache.start();
+
+    const restartedCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+      resolveAssetRequest,
+    });
+
+    await restartedCache.start();
+
+    const handler = await createProtocolHandler(restartedCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
+  });
+
+  it("preserves omitted manifest fileName and mimeType when migrating an existing cache", async () => {
+    const storageRoot = createStorageRoot();
+    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
+    const manifestWithoutExplicitAssetFields: ManifestInput = {
+      snapshotId: "legacy-implicit-asset-fields",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const initialCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: false,
+      resolveManifest: () => manifestWithoutExplicitAssetFields,
+    });
+
+    await initialCache.start();
+
+    const initialDb = (
+      initialCache as unknown as {
+        db: {
+          getActiveGenerationId(): number | null;
+          getGenerationAssets(generationId: number): Array<{
+            namespace: string;
+            itemId: string;
+            assetId: string;
+            relativePath: string | null;
+          }>;
+          close(): void;
+        };
+      }
+    ).db;
+    const activeGenerationId = initialDb.getActiveGenerationId()!;
+    const mainAsset = initialDb
+      .getGenerationAssets(activeGenerationId)
+      .find(
+        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
+      )!;
+    const cachedFilePath = join(storageRoot, mainAsset.relativePath!);
+    rmSync(cachedFilePath);
+    initialDb.close();
+
+    const legacyDb = new DatabaseSync(sqlitePath);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_mime_type;`);
+    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_file_name;`);
+    legacyDb.close();
+
+    const resolveAssetRequest = ({ asset }: { asset: MediaAssetDefinition }) => ({
+      url:
+        asset.fileName === undefined && asset.mimeType === undefined
+          ? `${baseUrl}/auth.mp4`
+          : asset.source.url,
+      headers:
+        asset.fileName === undefined && asset.mimeType === undefined
+          ? { "x-media-auth": "passthrough-secret" }
+          : undefined,
+    });
 
     const restartedCache = new RawMediaCache({
       storageRoot,

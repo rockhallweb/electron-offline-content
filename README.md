@@ -118,7 +118,7 @@ import {
 await registerMediaCacheProtocolSchemes();
 
 const mediaCache = createMediaCache({
-  // Defaults to true when NODE_ENV !== "production".
+  // Defaults to true only when NODE_ENV is set and not "production".
   devPassthrough: false,
   logLevel: "info",
   onLog: (entry) => {
@@ -160,7 +160,7 @@ await mediaCache.start();
 
 `onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
 
-`devPassthrough` is enabled by default whenever `NODE_ENV !== "production"` unless the consumer explicitly sets it. In passthrough mode, manifest metadata is still committed locally so the query APIs continue to work, but asset blobs are not downloaded; `media://` requests proxy the resolved remote asset on demand instead.
+`devPassthrough` is enabled by default whenever `NODE_ENV` is set to a non-`"production"` value unless the consumer explicitly sets it. If `NODE_ENV` is unset, passthrough stays disabled by default. In passthrough mode, manifest metadata is still committed locally so the query APIs continue to work, but asset blobs are not downloaded; `media://` requests proxy the resolved remote asset on demand instead.
 
 The in-repo smoke and packed-smoke example runs explicitly force `devPassthrough: false` so CI still validates the offline cache path.
 

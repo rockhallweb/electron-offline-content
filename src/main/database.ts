@@ -1046,11 +1046,6 @@ export class MediaCacheDatabase {
     );
     if (!hasManifestMimeTypeColumn) {
       this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_mime_type TEXT;`);
-      this.db.exec(`
-        UPDATE assets
-        SET manifest_mime_type = mime_type
-        WHERE manifest_mime_type IS NULL
-      `);
     }
 
     const hasManifestFileNameColumn = assetColumns.some(
@@ -1058,11 +1053,40 @@ export class MediaCacheDatabase {
     );
     if (!hasManifestFileNameColumn) {
       this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
-      this.db.exec(`
-        UPDATE assets
-        SET manifest_file_name = file_name
-        WHERE manifest_file_name IS NULL
-      `);
+      const legacyRows = this.db.prepare(
+        `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
+         FROM assets`,
+      ).all() as Array<{
+        generation_id: number;
+        namespace_key: string;
+        item_id: string;
+        asset_id: string;
+        file_name: string;
+        source_json: string;
+      }>;
+      const updateManifestFileName = this.db.prepare(
+        `UPDATE assets
+         SET manifest_file_name = ?
+         WHERE generation_id = ?
+           AND namespace_key = ?
+           AND item_id = ?
+           AND asset_id = ?`,
+      );
+
+      for (const row of legacyRows) {
+        const manifestFileName = inferLegacyManifestFileName(row.source_json, row.file_name);
+        if (manifestFileName === null) {
+          continue;
+        }
+
+        updateManifestFileName.run(
+          manifestFileName,
+          row.generation_id,
+          row.namespace_key,
+          row.item_id,
+          row.asset_id,
+        );
+      }
     }
 
     const pendingDeletionColumns = this.db
@@ -1131,6 +1155,27 @@ export class MediaCacheDatabase {
         throw error;
       }
     }
+  }
+}
+
+function inferLegacyManifestFileName(sourceJson: string, fileName: string): string | null {
+  try {
+    const source = parseJsonWithSchema(
+      sourceJson,
+      downloadRequestSchema,
+      "legacy asset source",
+    );
+    const parsed = new URL(source.url);
+    const path = parsed.pathname ?? "";
+    const segments = path.split("/").filter(Boolean);
+    const candidate = segments.at(-1);
+    if (!candidate) {
+      return fileName;
+    }
+
+    return decodeURIComponent(candidate) === fileName ? null : fileName;
+  } catch {
+    return fileName;
   }
 }
 
