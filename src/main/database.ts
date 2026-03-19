@@ -1036,9 +1036,9 @@ export class MediaCacheDatabase {
       );
     `);
 
-    const assetColumns = this.db
-      .prepare(`PRAGMA table_info(assets)`)
-      .all() as Array<{ name?: unknown }>;
+    const assetColumns = this.db.prepare(`PRAGMA table_info(assets)`).all() as Array<{
+      name?: unknown;
+    }>;
     const hasResolvedRequestColumn = assetColumns.some(
       (column) => column.name === "resolved_request_json",
     );
@@ -1078,10 +1078,12 @@ export class MediaCacheDatabase {
       this.db.exec("BEGIN");
       try {
         this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
-        const legacyRows = this.db.prepare(
-          `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
+        const legacyRows = this.db
+          .prepare(
+            `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
            FROM assets`,
-        ).all() as Array<{
+          )
+          .all() as Array<{
           generation_id: number;
           namespace_key: string;
           item_id: string;
@@ -1146,8 +1148,9 @@ export class MediaCacheDatabase {
       (column) => column.name === "deletion_key",
     );
     if (!hasDeletionKeyColumn) {
-      const legacyRows = this.db.prepare(
-        `SELECT
+      const legacyRows = this.db
+        .prepare(
+          `SELECT
            logical_key AS logicalKey,
            namespace_key AS namespaceKey,
            item_id AS itemId,
@@ -1156,7 +1159,8 @@ export class MediaCacheDatabase {
            generation_id AS generationId,
            delete_after_ms AS deleteAfterMs
          FROM pending_deletions`,
-      ).all() as Array<{
+        )
+        .all() as Array<{
         logicalKey: string;
         namespaceKey: string;
         itemId: string;
@@ -1210,11 +1214,7 @@ export class MediaCacheDatabase {
 
 function inferLegacyManifestFileName(sourceJson: string, fileName: string): string | null {
   try {
-    const source = parseJsonWithSchema(
-      sourceJson,
-      downloadRequestSchema,
-      "legacy asset source",
-    );
+    const source = parseJsonWithSchema(sourceJson, downloadRequestSchema, "legacy asset source");
     const parsed = new URL(source.url);
     const path = parsed.pathname ?? "";
     const segments = path.split("/").filter(Boolean);

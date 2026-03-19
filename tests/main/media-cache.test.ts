@@ -1883,10 +1883,7 @@ describe("media cache sync and queries", () => {
     await cache.syncNow();
 
     const v1Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
-    const v2Path = join(
-      storageRoot,
-      blobPathFor("nature", "forest", "main", "v2", "flower.mp4"),
-    );
+    const v2Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "flower.mp4"));
     const v3Path = join(
       storageRoot,
       blobPathFor("nature", "forest", "main", "v3", "resumable.mp4"),
@@ -2753,14 +2750,13 @@ describe("media cache sync and queries", () => {
     await restartedCache.start();
 
     const restartedHandler = await createProtocolHandler(restartedCache);
-    const restartedResponse = await restartedHandler(new Request("media://asset/nature/forest/main"));
+    const restartedResponse = await restartedHandler(
+      new Request("media://asset/nature/forest/main"),
+    );
 
     expect(restartedResponse.status).toBe(200);
     expect(await restartedResponse.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual([
-      "passthrough-secret",
-      "passthrough-secret",
-    ]);
+    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret", "passthrough-secret"]);
   });
 
   it("persists refreshed passthrough requests back to the generation they came from", async () => {
@@ -2810,7 +2806,10 @@ describe("media cache sync and queries", () => {
             assetId: string;
             resolvedRequestJson: string;
           }>;
-          createStagedGeneration(manifest: ReturnType<typeof normalizeManifest>, now: number): number;
+          createStagedGeneration(
+            manifest: ReturnType<typeof normalizeManifest>,
+            now: number,
+          ): number;
           activateGeneration(generationId: number, now: number): number | null;
         };
       }
