@@ -2178,6 +2178,46 @@ describe("media cache sync and queries", () => {
     expect(requestMethods["/method-bound.mp4"]).toEqual(["GET"]);
   });
 
+  it("cancels upstream passthrough bodies for HEAD responses", async () => {
+    const storageRoot = createStorageRoot();
+    let cancelCalled = false;
+    const cache = new RawMediaCache(
+      {
+        storageRoot,
+        devPassthrough: true,
+        resolveManifest: () => manifests,
+      },
+      {
+        fetchImpl: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              cancel() {
+                cancelCalled = true;
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "video/mp4",
+              },
+            },
+          ),
+      },
+    );
+
+    await cache.start();
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(
+      new Request("media://asset/nature/forest/main", {
+        method: "HEAD",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("");
+    expect(cancelCalled).toBe(true);
+  });
+
   it("forwards resolved request headers in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({

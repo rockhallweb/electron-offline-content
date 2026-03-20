@@ -742,6 +742,9 @@ export class MediaCache implements MediaCacheMain {
           resolvedRequest,
         );
       }
+      if (request.method === "HEAD" && response.body) {
+        await response.body.cancel();
+      }
       const responseHeaders = new Headers(response.headers);
       if (!responseHeaders.has("content-type") && fallbackMimeType) {
         responseHeaders.set("content-type", fallbackMimeType);
