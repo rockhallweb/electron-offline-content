@@ -2307,6 +2307,124 @@ describe("media cache sync and queries", () => {
     expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
   });
 
+  it("refreshes protocol requests against the target generation when in-memory manifest state is stale", async () => {
+    const storageRoot = createStorageRoot();
+    const manifestV1 = normalizeManifest({
+      snapshotId: "stale-manifest-v1",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const manifestV2 = normalizeManifest({
+      snapshotId: "stale-manifest-v2",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const protocolFetches: Array<{ url: string; authHeader: string }> = [];
+    let currentManifest = manifestV1;
+
+    const cache = new RawMediaCache(
+      {
+        storageRoot,
+        devPassthrough: true,
+        resolveManifest: () => currentManifest,
+        resolveAssetRequest: ({ item }) => ({
+          url: `${baseUrl}/auth.mp4`,
+          headers: {
+            "x-media-auth": item.version === "v2" ? "passthrough-secret" : "stale-secret",
+          },
+        }),
+      },
+      {
+        fetchImpl: async (input, init) => {
+          protocolFetches.push({
+            url:
+              typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
+            authHeader: new Headers(init?.headers).get("x-media-auth") ?? "",
+          });
+          return new Response("auth-video", {
+            status: 200,
+            headers: {
+              "content-type": "video/mp4",
+            },
+          });
+        },
+      },
+    );
+
+    await cache.start();
+    const cacheInternals = cache as unknown as {
+      activeManifest: ReturnType<typeof normalizeManifest> | null;
+      activeManifestGenerationId?: number | null;
+      db: {
+        getActiveGenerationId(): number | null;
+      };
+    };
+    const generation1 = cacheInternals.db.getActiveGenerationId();
+    expect(generation1).not.toBeNull();
+
+    currentManifest = manifestV2;
+    await cache.syncNow();
+
+    const generation2 = cacheInternals.db.getActiveGenerationId();
+    expect(generation2).not.toBeNull();
+    expect(generation2).not.toBe(generation1);
+
+    cacheInternals.activeManifest = manifestV1;
+    cacheInternals.activeManifestGenerationId = generation1;
+
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(protocolFetches.at(-1)).toEqual({
+      url: `${baseUrl}/auth.mp4`,
+      authHeader: "passthrough-secret",
+    });
+  });
+
   it("rebuilds full resolveAssetRequest context after restart", async () => {
     const storageRoot = createStorageRoot();
     manifests = {

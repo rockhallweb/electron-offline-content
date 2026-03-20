@@ -624,15 +624,11 @@ export class MediaCacheDatabase {
   }
 
   getProtocolAssetResolveContext(
+    generationId: number,
     namespace: string,
     itemId: string,
     assetId: string,
   ): ProtocolAssetResolveContext | null {
-    const activeGeneration = this.getActiveGenerationId();
-    if (!activeGeneration) {
-      return null;
-    }
-
     const rows = this.db
       .prepare(
         `SELECT
@@ -668,7 +664,7 @@ export class MediaCacheDatabase {
          WHERE assets.generation_id = ? AND assets.namespace_key = ?
          ORDER BY items.order_index, assets.order_index`,
       )
-      .all(activeGeneration, namespace);
+      .all(generationId, namespace);
 
     if (rows.length === 0) {
       return null;

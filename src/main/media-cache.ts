@@ -129,6 +129,7 @@ export class MediaCache implements MediaCacheMain {
   private readonly deps: RuntimeDependencies;
   private readonly devPassthrough: boolean;
   private activeManifest: NormalizedManifest | null = null;
+  private activeManifestGenerationId: number | null = null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -629,6 +630,8 @@ export class MediaCache implements MediaCacheMain {
       }));
 
       const previousGenerationId = this.db!.activateGeneration(stagedGenerationId, this.deps.now());
+      this.activeManifest = manifest;
+      this.activeManifestGenerationId = stagedGenerationId;
       this.db!.clearPendingDeletionsForGeneration(stagedGenerationId);
       if (previousGenerationId) {
         this.markRemovedAssetsForDeletion(previousGenerationId, stagedGenerationId);
@@ -647,7 +650,6 @@ export class MediaCache implements MediaCacheMain {
 
       const summary = this.db!.completeSyncRun(runId, "success", this.deps.now(), stats);
       this.db!.pruneSyncHistory(this.options.syncHistoryLimit ?? DEFAULT_SYNC_HISTORY_LIMIT);
-      this.activeManifest = manifest;
       this.emitLog("info", "sync_completed", {
         run_id: runId,
         active_generation_id: stagedGenerationId,
@@ -716,6 +718,7 @@ export class MediaCache implements MediaCacheMain {
   ): Promise<Response> {
     try {
       const resolvedRequest = await this.resolveProtocolRequest(
+        context.generationId,
         context.namespace,
         context.itemId,
         context.assetId,
@@ -786,6 +789,7 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async resolveProtocolRequest(
+    generationId: number,
     namespaceKey: string,
     itemId: string,
     assetId: string,
@@ -796,11 +800,16 @@ export class MediaCache implements MediaCacheMain {
     }
 
     try {
-      if (this.activeManifest) {
+      if (this.activeManifest && this.activeManifestGenerationId === generationId) {
         return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
       }
 
-      const context = this.db!.getProtocolAssetResolveContext(namespaceKey, itemId, assetId);
+      const context = this.db!.getProtocolAssetResolveContext(
+        generationId,
+        namespaceKey,
+        itemId,
+        assetId,
+      );
       if (!context || !context.hasPreciseManifestFields) {
         return persistedRequest;
       }
