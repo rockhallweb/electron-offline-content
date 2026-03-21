@@ -740,6 +740,91 @@ describe("media cache sync and queries", () => {
     expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
   });
 
+  it("does not carry forward learned mimeType across a version change in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const initialManifest: ManifestInput = {
+      snapshotId: "mime-version-initial",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => initialManifest,
+    });
+
+    await offlineCache.start();
+    expect((await offlineCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe("video/mp4");
+
+    const passthroughManifest: ManifestInput = {
+      snapshotId: "mime-version-passthrough",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "image",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "image",
+                  fileName: "poster.jpg",
+                  source: {
+                    url: `${baseUrl}/poster.jpg`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => passthroughManifest,
+    });
+
+    await passthroughCache.start();
+
+    expect(
+      (await passthroughCache.getItem("nature", "forest"))?.assets[0]?.mimeType,
+    ).toBeUndefined();
+
+    const handler = await createProtocolHandler(passthroughCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("poster");
+    expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe(
+      "image/jpeg",
+    );
+  });
+
   it("prunes stale local blobs when an existing cache switches to passthrough", async () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({

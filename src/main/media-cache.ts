@@ -530,7 +530,11 @@ export class MediaCache implements MediaCacheMain {
             row.assetId,
             request,
           );
-          if (activeRow?.mimeType) {
+          if (
+            activeRow?.mimeType &&
+            activeRelativePath !== null &&
+            getResolvedVersionFromPath(activeRelativePath) === manifestAsset.asset.resolvedVersion
+          ) {
             this.db!.setAssetMimeType(
               stagedGenerationId,
               row.namespace,
