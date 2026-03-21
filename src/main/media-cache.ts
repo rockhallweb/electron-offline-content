@@ -530,6 +530,15 @@ export class MediaCache implements MediaCacheMain {
             row.assetId,
             request,
           );
+          if (activeRow?.mimeType) {
+            this.db!.setAssetMimeType(
+              stagedGenerationId,
+              row.namespace,
+              row.itemId,
+              row.assetId,
+              activeRow.mimeType,
+            );
+          }
           stats.skippedAssets += 1;
           continue;
         }

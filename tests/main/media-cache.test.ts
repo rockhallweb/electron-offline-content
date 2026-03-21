@@ -691,6 +691,55 @@ describe("media cache sync and queries", () => {
     expect((await cache.getItem("nature", "forest"))?.version).toBe("v2");
   });
 
+  it("preserves learned mimeType when switching an existing cache to passthrough", async () => {
+    const storageRoot = createStorageRoot();
+    const manifestWithoutExplicitMimeType: ManifestInput = {
+      snapshotId: "mime-carry-forward",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifestWithoutExplicitMimeType,
+    });
+
+    await offlineCache.start();
+    expect((await offlineCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe("video/mp4");
+
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifestWithoutExplicitMimeType,
+    });
+
+    await passthroughCache.start();
+
+    const item = await passthroughCache.getItem("nature", "forest");
+    expect(item?.assets[0]?.mimeType).toBe("video/mp4");
+    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
+  });
+
   it("prunes stale local blobs when an existing cache switches to passthrough", async () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({
