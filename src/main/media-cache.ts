@@ -40,10 +40,8 @@ import type {
   SyncProgress,
 } from "../shared/types.js";
 import {
-  downloadRequestSchema,
   optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
-  parseJsonWithSchema,
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
@@ -128,8 +126,7 @@ export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
   private readonly devPassthrough: boolean;
-  private activeManifest: NormalizedManifest | null = null;
-  private activeManifestGenerationId: number | null = null;
+  private readonly assetBaseUrlOrigin: string | null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -146,6 +143,7 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
+    this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
     this.devPassthrough =
       options.devPassthrough ??
       (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== "production");
@@ -264,37 +262,7 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      if (target.absolutePath && !this.devPassthrough) {
-        if (!existsSync(target.absolutePath)) {
-          this.emitLog("debug", "protocol_request_missing", {
-            namespace,
-            item_id: itemId,
-            asset_id: assetId,
-            method: request.method,
-          });
-          return new Response("Not found", { status: 404 });
-        }
-
-        this.emitLog("debug", "protocol_request_local_resolved", {
-          namespace,
-          item_id: itemId,
-          asset_id: assetId,
-          method: request.method,
-          range: request.headers.get("range"),
-        });
-        return fetchFile(request, target.absolutePath);
-      }
-
-      if (target.absolutePath && this.devPassthrough && !existsSync(target.absolutePath)) {
-        this.emitLog("debug", "protocol_request_local_missing", {
-          namespace,
-          item_id: itemId,
-          asset_id: assetId,
-          method: request.method,
-        });
-      }
-
-      if (!this.devPassthrough) {
+      if (!target.absolutePath || !existsSync(target.absolutePath)) {
         this.emitLog("debug", "protocol_request_missing", {
           namespace,
           item_id: itemId,
@@ -304,20 +272,14 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      this.emitLog("debug", "protocol_request_remote_resolved", {
+      this.emitLog("debug", "protocol_request_local_resolved", {
         namespace,
         item_id: itemId,
         asset_id: assetId,
         method: request.method,
         range: request.headers.get("range"),
-        url: target.request.url,
       });
-      return this.proxyRemoteAsset(request, target.request, target.mimeType, {
-        generationId: target.generationId,
-        namespace,
-        itemId,
-        assetId,
-      });
+      return fetchFile(request, target.absolutePath);
     });
 
     this.protocolRegistered = true;
@@ -377,38 +339,64 @@ export class MediaCache implements MediaCacheMain {
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 
-    this.db = new MediaCacheDatabase(this.storageRoot);
+    this.db = new MediaCacheDatabase(this.storageRoot, {
+      devPassthrough: this.devPassthrough,
+      assetBaseUrlOrigin: this.assetBaseUrlOrigin,
+    });
+    if (this.devPassthrough) {
+      this.prepareDevRuntimeState();
+    }
     let storedStatus: MediaCacheStatus | null = null;
-    try {
-      storedStatus = this.db.loadStatus();
-    } catch (error) {
-      if (!(error instanceof DataValidationError)) {
-        throw error;
-      }
+    let activeGenerationId: number | null = null;
+    if (!this.devPassthrough) {
+      try {
+        storedStatus = this.db.loadStatus();
+      } catch (error) {
+        if (!(error instanceof DataValidationError)) {
+          throw error;
+        }
 
-      this.emitLog("warn", "status_snapshot_invalid", {
-        error_code: error.code,
-        error_message: error.message,
-      });
+        this.emitLog("warn", "status_snapshot_invalid", {
+          error_code: error.code,
+          error_message: error.message,
+        });
+      }
+      activeGenerationId = this.db.getActiveGenerationId();
+      if (storedStatus) {
+        this.status = storedStatus;
+      } else if (activeGenerationId !== null) {
+        this.status = {
+          ...this.status,
+          phase: "ready",
+          activeGenerationId,
+          progress: null,
+          error: null,
+        };
+      }
+      this.status.activeGenerationId = activeGenerationId;
     }
-    const activeGenerationId = this.db.getActiveGenerationId();
-    if (storedStatus) {
-      this.status = storedStatus;
-    } else if (activeGenerationId !== null) {
-      this.status = {
-        ...this.status,
-        phase: "ready",
-        activeGenerationId,
-        progress: null,
-        error: null,
-      };
-    }
-    this.status.activeGenerationId = activeGenerationId;
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
       dev_passthrough_enabled: this.devPassthrough,
     });
+  }
+
+  private prepareDevRuntimeState(): void {
+    this.db!.clearAllState();
+    rmSync(join(this.storageRoot!, "blobs"), { recursive: true, force: true });
+    rmSync(join(this.storageRoot!, "temp"), { recursive: true, force: true });
+    mkdirSync(join(this.storageRoot!, "blobs"), { recursive: true });
+    mkdirSync(join(this.storageRoot!, "temp"), { recursive: true });
+    this.status = {
+      ...this.status,
+      phase: "idle",
+      activeGenerationId: null,
+      progress: null,
+      lastRun: null,
+      error: null,
+      updatedAt: this.deps.now(),
+    };
   }
 
   private async runSync(): Promise<void> {
@@ -486,6 +474,11 @@ export class MediaCache implements MediaCacheMain {
         const canReuseActiveBlob =
           activeRelativePath !== null && existsSync(join(this.storageRoot!, activeRelativePath));
 
+        if (this.devPassthrough) {
+          stats.skippedAssets += 1;
+          continue;
+        }
+
         if (!this.devPassthrough && canReuseActiveBlob) {
           const currentVersion = getResolvedVersionFromPath(activeRelativePath);
           if (currentVersion === nextVersion) {
@@ -496,17 +489,6 @@ export class MediaCache implements MediaCacheMain {
               row.assetId,
               activeRelativePath,
               activeRow?.mimeType ?? null,
-            );
-            this.db!.setAssetResolvedRequest(
-              stagedGenerationId,
-              row.namespace,
-              row.itemId,
-              row.assetId,
-              parseJsonWithSchema(
-                activeRow?.resolvedRequestJson ?? row.resolvedRequestJson,
-                downloadRequestSchema,
-                "reused asset resolved request",
-              ),
             );
             stats.skippedAssets += 1;
             continue;
@@ -519,32 +501,6 @@ export class MediaCache implements MediaCacheMain {
           row.itemId,
           row.assetId,
         );
-
-        if (this.devPassthrough) {
-          this.db!.setAssetResolvedRequest(
-            stagedGenerationId,
-            row.namespace,
-            row.itemId,
-            row.assetId,
-            request,
-          );
-          if (
-            canReuseActiveBlob &&
-            activeRelativePath !== null &&
-            getResolvedVersionFromPath(activeRelativePath) === nextVersion
-          ) {
-            this.db!.setAssetDownloadState(
-              stagedGenerationId,
-              row.namespace,
-              row.itemId,
-              row.assetId,
-              activeRelativePath,
-              activeRow?.mimeType ?? null,
-            );
-          }
-          stats.skippedAssets += 1;
-          continue;
-        }
 
         downloads.push({
           namespace: row.namespace,
@@ -605,13 +561,6 @@ export class MediaCache implements MediaCacheMain {
             relativePath,
             fallbackMimeType,
           );
-          this.db!.setAssetResolvedRequest(
-            stagedGenerationId,
-            download.namespace,
-            download.itemId,
-            download.assetId,
-            download.request,
-          );
           stats.downloadedAssets += 1;
           this.emitLog("debug", "asset_download_completed", {
             run_id: runId,
@@ -642,8 +591,6 @@ export class MediaCache implements MediaCacheMain {
       }));
 
       const previousGenerationId = this.db!.activateGeneration(stagedGenerationId, this.deps.now());
-      this.activeManifest = manifest;
-      this.activeManifestGenerationId = stagedGenerationId;
       this.db!.clearPendingDeletionsForGeneration(stagedGenerationId);
       if (previousGenerationId) {
         this.markRemovedAssetsForDeletion(previousGenerationId, stagedGenerationId);
@@ -705,7 +652,7 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateStatus({
         phase:
-          this.options.onSyncFailure === "throw"
+          this.devPassthrough || this.options.onSyncFailure === "throw"
             ? "error"
             : this.db!.getActiveGenerationId()
               ? "ready"
@@ -716,79 +663,9 @@ export class MediaCache implements MediaCacheMain {
         error: serialized,
       });
 
-      if (this.options.onSyncFailure === "throw") {
+      if (this.devPassthrough || this.options.onSyncFailure === "throw") {
         throw error;
       }
-    }
-  }
-
-  private async proxyRemoteAsset(
-    request: Request,
-    targetRequest: DownloadRequest,
-    fallbackMimeType: string | null,
-    context: { generationId: number; namespace: string; itemId: string; assetId: string },
-  ): Promise<Response> {
-    try {
-      const resolvedRequest = await this.resolveProtocolRequest(
-        context.generationId,
-        context.namespace,
-        context.itemId,
-        context.assetId,
-        targetRequest,
-      );
-      const headers = new Headers(resolvedRequest.headers);
-      const range = request.headers.get("range");
-      if (range) {
-        headers.set("range", range);
-      } else {
-        headers.delete("range");
-      }
-
-      const response = await this.deps.fetchImpl(resolvedRequest.url, {
-        method: resolvedRequest.method ?? "GET",
-        headers,
-      });
-      if (response.ok && this.devPassthrough) {
-        const learnedMimeType = normalizeResponseMimeType(response.headers.get("content-type"));
-        this.db!.setAssetResolvedRequest(
-          context.generationId,
-          context.namespace,
-          context.itemId,
-          context.assetId,
-          resolvedRequest,
-        );
-        if (learnedMimeType) {
-          this.db!.setAssetMimeType(
-            context.generationId,
-            context.namespace,
-            context.itemId,
-            context.assetId,
-            learnedMimeType,
-          );
-        }
-      }
-      if (request.method === "HEAD" && response.body) {
-        await response.body.cancel();
-      }
-      const responseHeaders = new Headers(response.headers);
-      if (!responseHeaders.has("content-type") && fallbackMimeType) {
-        responseHeaders.set("content-type", fallbackMimeType);
-      }
-      return new Response(request.method === "HEAD" ? null : response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeaders,
-      });
-    } catch (error) {
-      this.emitLog("warn", "protocol_request_remote_failed", {
-        namespace: context.namespace,
-        item_id: context.itemId,
-        asset_id: context.assetId,
-        method: request.method,
-        url: targetRequest.url,
-        error_message: error instanceof Error ? error.message : String(error),
-      });
-      return new Response("Bad Gateway", { status: 502 });
     }
   }
 
@@ -808,45 +685,6 @@ export class MediaCache implements MediaCacheMain {
       item: context.item,
       asset: context.asset,
     });
-  }
-
-  private async resolveProtocolRequest(
-    generationId: number,
-    namespaceKey: string,
-    itemId: string,
-    assetId: string,
-    persistedRequest: DownloadRequest,
-  ): Promise<DownloadRequest> {
-    if (!this.devPassthrough || !this.options.resolveAssetRequest) {
-      return persistedRequest;
-    }
-
-    try {
-      if (this.activeManifest && this.activeManifestGenerationId === generationId) {
-        return this.resolveDownloadRequest(this.activeManifest, namespaceKey, itemId, assetId);
-      }
-
-      const context = this.db!.getProtocolAssetResolveContext(
-        generationId,
-        namespaceKey,
-        itemId,
-        assetId,
-      );
-      if (!context || !context.hasPreciseManifestFields) {
-        return persistedRequest;
-      }
-
-      return this.options.resolveAssetRequest(context);
-    } catch (error) {
-      this.emitLog("warn", "protocol_request_refresh_failed", {
-        namespace: namespaceKey,
-        item_id: itemId,
-        asset_id: assetId,
-        url: persistedRequest.url,
-        error_message: error instanceof Error ? error.message : String(error),
-      });
-      return persistedRequest;
-    }
   }
 
   private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {
@@ -1285,6 +1123,25 @@ function normalizeStorageRoot(storageRoot: string | undefined): string | null {
   }
 
   return storageRoot.trim().length > 0 ? storageRoot : null;
+}
+
+function normalizeAssetBaseUrl(assetBaseUrl: string | undefined): string | null {
+  if (!assetBaseUrl) {
+    return null;
+  }
+
+  const parsed = new URL(assetBaseUrl);
+  if (parsed.username || parsed.password) {
+    throw new Error("assetBaseUrl must not include credentials.");
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("assetBaseUrl must not include a query string or hash fragment.");
+  }
+  if (parsed.pathname !== "/" && parsed.pathname !== "") {
+    throw new Error("assetBaseUrl must be an origin without a path.");
+  }
+
+  return parsed.origin;
 }
 
 function pruneEmptyParents(pathToFile: string, storageRoot: string): void {

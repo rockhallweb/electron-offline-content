@@ -20,7 +20,7 @@ await mkdir(rendererOutDir, { recursive: true });
 await mkdir(runtimeConfigDir, { recursive: true });
 await writeFile(
   runtimeConfigPath,
-  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough }, null, 2)}\n`,
+  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough, assetBaseUrl: undefined }, null, 2)}\n`,
 );
 
 await run(

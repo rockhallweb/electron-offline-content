@@ -14,7 +14,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 import {
   MediaCache as RawMediaCache,
   createMediaCache as createRawMediaCache,
@@ -33,9 +32,6 @@ import type {
   MediaCacheLogEvent,
   JsonValue,
 } from "../../src/shared/types.js";
-
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 class MediaCache extends RawMediaCache {
   constructor(
@@ -442,9 +438,7 @@ describe("media cache sync and queries", () => {
       await cache.start();
 
       expect(requestCounts["/main.mp4"]).toBeUndefined();
-      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
-        "media://asset/nature/forest/main",
-      );
+      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
       expect((await cache.getStatus()).lastRun?.stats).toEqual({
         totalAssets: 4,
         downloadedAssets: 0,
@@ -543,98 +537,6 @@ describe("media cache sync and queries", () => {
     }
   });
 
-  it("persists resolved requests for downloaded snapshots", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      onSyncFailure: "throw",
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
-      }),
-    });
-
-    await cache.start();
-
-    const db = (
-      cache as unknown as {
-        db: {
-          getActiveGenerationId(): number | null;
-          getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            resolvedRequestJson: string;
-          }>;
-        };
-      }
-    ).db;
-    const activeGenerationId = db.getActiveGenerationId();
-    expect(activeGenerationId).not.toBeNull();
-
-    const mainAsset = db
-      .getGenerationAssets(activeGenerationId!)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      );
-    expect(JSON.parse(mainAsset!.resolvedRequestJson)).toEqual({
-      url: `${baseUrl}/auth.mp4`,
-      headers: {
-        "x-media-auth": "passthrough-secret",
-      },
-    });
-  });
-
-  it("preserves resolved requests when an unchanged blob is reused", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      onSyncFailure: "throw",
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
-      }),
-    });
-
-    await cache.start();
-    const authRequestsAfterStart = requestCounts["/auth.mp4"] ?? 0;
-
-    await cache.syncNow();
-    expect(requestCounts["/auth.mp4"] ?? 0).toBe(authRequestsAfterStart);
-
-    const db = (
-      cache as unknown as {
-        db: {
-          getActiveGenerationId(): number | null;
-          getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            resolvedRequestJson: string;
-          }>;
-        };
-      }
-    ).db;
-    const activeGenerationId = db.getActiveGenerationId();
-    expect(activeGenerationId).not.toBeNull();
-
-    const mainAsset = db
-      .getGenerationAssets(activeGenerationId!)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      );
-    expect(JSON.parse(mainAsset!.resolvedRequestJson)).toEqual({
-      url: `${baseUrl}/auth.mp4`,
-      headers: {
-        "x-media-auth": "passthrough-secret",
-      },
-    });
-  });
-
   it("commits metadata without downloading assets when passthrough is enabled", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
@@ -650,7 +552,7 @@ describe("media cache sync and queries", () => {
     expect(requestCounts["/poster.jpg"]).toBeUndefined();
 
     const item = await cache.getItem("nature", "forest");
-    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
+    expect(item?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
     expect((await cache.getStatus()).lastRun?.stats).toEqual({
       totalAssets: 4,
       downloadedAssets: 0,
@@ -689,12 +591,13 @@ describe("media cache sync and queries", () => {
 
     expect(requestCounts["/main.mp4"]).toBeUndefined();
     expect((await cache.getItem("nature", "forest"))?.version).toBe("v2");
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
   });
 
-  it("preserves learned mimeType when switching an existing cache to passthrough", async () => {
+  it("uses assetBaseUrl as an origin override in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
-    const manifestWithoutExplicitMimeType: ManifestInput = {
-      snapshotId: "mime-carry-forward",
+    const manifestWithQuerySource: ManifestInput = {
+      snapshotId: "asset-base-url",
       namespaces: [
         {
           key: "nature",
@@ -709,7 +612,7 @@ describe("media cache sync and queries", () => {
                   role: "primary",
                   kind: "video",
                   source: {
-                    url: `${baseUrl}/main.mp4`,
+                    url: `${baseUrl}/main.mp4?token=abc123`,
                   },
                 },
               ],
@@ -719,117 +622,43 @@ describe("media cache sync and queries", () => {
       ],
     };
 
-    const offlineCache = createMediaCache({
-      storageRoot,
-      resolveManifest: () => manifestWithoutExplicitMimeType,
-    });
-
-    await offlineCache.start();
-    expect((await offlineCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe("video/mp4");
-
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifestWithoutExplicitMimeType,
+      assetBaseUrl: "https://assets.example.test",
+      resolveManifest: () => manifestWithQuerySource,
     });
 
     await passthroughCache.start();
 
     const item = await passthroughCache.getItem("nature", "forest");
-    expect(item?.assets[0]?.mimeType).toBe("video/mp4");
-    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
+    expect(item?.assets[0]?.url).toBe("https://assets.example.test/main.mp4?token=abc123");
   });
 
-  it("does not carry forward learned mimeType across a version change in passthrough mode", async () => {
+  it("does not call resolveAssetRequest in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
-    const initialManifest: ManifestInput = {
-      snapshotId: "mime-version-initial",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const offlineCache = createMediaCache({
-      storageRoot,
-      resolveManifest: () => initialManifest,
-    });
-
-    await offlineCache.start();
-    expect((await offlineCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe("video/mp4");
-
-    const passthroughManifest: ManifestInput = {
-      snapshotId: "mime-version-passthrough",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "image",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "image",
-                  fileName: "poster.jpg",
-                  source: {
-                    url: `${baseUrl}/poster.jpg`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const passthroughCache = new RawMediaCache({
+    let resolveCalls = 0;
+    const cache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => passthroughManifest,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: () => {
+        resolveCalls += 1;
+        return {
+          url: `${baseUrl}/auth.mp4`,
+        };
+      },
     });
 
-    await passthroughCache.start();
-
-    expect(
-      (await passthroughCache.getItem("nature", "forest"))?.assets[0]?.mimeType,
-    ).toBeUndefined();
-
-    const handler = await createProtocolHandler(passthroughCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("poster");
-    expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.mimeType).toBe(
-      "image/jpeg",
-    );
+    await cache.start();
+    expect(resolveCalls).toBe(0);
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
   });
 
-  it("prunes stale local blobs when an existing cache switches to passthrough", async () => {
+  it("clears prior local state on passthrough startup", async () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({
       storageRoot,
-      staleDeleteAfterMs: 0,
       resolveManifest: () => manifests,
     });
 
@@ -840,49 +669,22 @@ describe("media cache sync and queries", () => {
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
-    manifests = {
-      snapshotId: "passthrough-prunes-obsolete-v2",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "image",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "image",
-                  fileName: "poster.jpg",
-                  source: {
-                    url: `${baseUrl}/poster.jpg`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      staleDeleteAfterMs: 0,
       resolveManifest: () => manifests,
     });
 
     await passthroughCache.start();
 
     expect(existsSync(committedBlobPath)).toBe(false);
+    expect((await passthroughCache.getStatus()).activeGenerationId).not.toBeNull();
     expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
-      "media://asset/nature/forest/main",
+      `${baseUrl}/main.mp4`,
     );
   });
 
-  it("preserves same-version blob paths through passthrough so offline mode can reuse them", async () => {
+  it("fails fast in passthrough mode when manifest resolution fails", async () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({
       storageRoot,
@@ -896,30 +698,17 @@ describe("media cache sync and queries", () => {
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
-    requestCounts = {};
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifests,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
     });
 
-    await passthroughCache.start();
-
-    expect(existsSync(committedBlobPath)).toBe(true);
-    expect(requestCounts["/main.mp4"]).toBeUndefined();
-
-    requestCounts = {};
-    const offlineAgainCache = createMediaCache({
-      storageRoot,
-      resolveManifest: () => manifests,
-    });
-
-    await offlineAgainCache.start();
-
-    expect(requestCounts["/main.mp4"]).toBeUndefined();
-    expect((await offlineAgainCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
-      "media://asset/nature/forest/main",
-    );
+    await expect(passthroughCache.start()).rejects.toThrow("manifest unavailable");
+    expect((await passthroughCache.getStatus()).activeGenerationId).toBeNull();
+    expect(existsSync(committedBlobPath)).toBe(false);
   });
 
   it("skips unchanged downloads and redownloads when the version changes", async () => {
@@ -2238,7 +2027,7 @@ describe("media cache sync and queries", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("proxies remote assets through the media protocol in passthrough mode", async () => {
+  it("returns 404 for passthrough assets over media:// because dev mode uses direct asset URLs", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
       storageRoot,
@@ -2250,1097 +2039,33 @@ describe("media cache sync and queries", () => {
     expect(requestCounts["/main.mp4"]).toBeUndefined();
 
     const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("video/mp4");
-    expect(await response.text()).toBe("video-one");
-    expect(requestCounts["/main.mp4"]).toBe(1);
-  });
-
-  it("prefers remote proxying over stale local blobs while passthrough is enabled", async () => {
-    const storageRoot = createStorageRoot();
-    const offlineCache = createMediaCache({
-      storageRoot,
-      resolveManifest: () => manifests,
-    });
-
-    await offlineCache.start();
-    const committedBlobPath = join(
-      storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
-    );
-    expect(existsSync(committedBlobPath)).toBe(true);
-
-    requestCounts = {};
-    requestAuthHeaders = {};
-    const passthroughCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
-      }),
-    });
-
-    await passthroughCache.start();
-
-    const handler = await createProtocolHandler(passthroughCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestCounts["/main.mp4"]).toBeUndefined();
-    expect(requestAuthHeaders["/auth.mp4"]).toContain("passthrough-secret");
-  });
-
-  it("does not proxy blob-less snapshots after passthrough is turned off", async () => {
-    const storageRoot = createStorageRoot();
-    const passthroughCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-    });
-
-    await passthroughCache.start();
-
-    requestCounts = {};
-    const offlineCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-    });
-
-    await offlineCache.start();
-
-    const handler = await createProtocolHandler(offlineCache);
     const response = await handler(new Request("media://asset/nature/forest/main"));
 
     expect(response.status).toBe(404);
     expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
-  it("falls back to remote proxy when a cached blob is missing in passthrough mode", async () => {
-    const storageRoot = createStorageRoot();
-    const offlineCache = createMediaCache({
-      storageRoot,
-      onSyncFailure: "throw",
-      resolveManifest: () => manifests,
-    });
-
-    await offlineCache.start();
-
-    const blobPath = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
-    rmSync(blobPath, { force: true });
-
-    requestCounts = {};
-    const passthroughCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-    });
-
-    await passthroughCache.start();
-
-    const handler = await createProtocolHandler(passthroughCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("video-one");
-    expect(requestCounts["/main.mp4"]).toBe(1);
-  });
-
-  it("proxies HEAD and range requests in passthrough mode", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/resumable.mp4` : asset.source.url,
-      }),
-    });
-
-    await cache.start();
-    const handler = await createProtocolHandler(cache);
-
-    const headResponse = await handler(
-      new Request("media://asset/nature/forest/main", {
-        method: "HEAD",
-      }),
-    );
-    expect(headResponse.status).toBe(200);
-    expect(headResponse.headers.get("content-type")).toBe("video/mp4");
-    expect(await headResponse.text()).toBe("");
-
-    const rangeResponse = await handler(
-      new Request("media://asset/nature/forest/main", {
-        headers: {
-          range: "bytes=5-",
-        },
-      }),
-    );
-    expect(rangeResponse.status).toBe(206);
-    expect(rangeResponse.headers.get("content-range")).toBe("bytes 5-10/11");
-    expect(await rangeResponse.text()).toBe("e-data");
-    expect(requestRanges["/resumable.mp4"]).toContain("bytes=5-");
-  });
-
-  it("proxies passthrough HEAD requests upstream with the resolved GET method", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/method-bound.mp4` : asset.source.url,
-        method: "GET",
-      }),
-    });
-
-    await cache.start();
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(
-      new Request("media://asset/nature/forest/main", {
-        method: "HEAD",
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("");
-    expect(requestMethods["/method-bound.mp4"]).toEqual(["GET"]);
-  });
-
-  it("cancels upstream passthrough bodies for HEAD responses", async () => {
-    const storageRoot = createStorageRoot();
-    let cancelCalled = false;
-    const cache = new RawMediaCache(
-      {
-        storageRoot,
+  it("rejects invalid assetBaseUrl values", () => {
+    const create = (assetBaseUrl: string) => () =>
+      new RawMediaCache({
+        storageRoot: createStorageRoot(),
         devPassthrough: true,
+        assetBaseUrl,
         resolveManifest: () => manifests,
-      },
-      {
-        fetchImpl: async () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              cancel() {
-                cancelCalled = true;
-              },
-            }),
-            {
-              status: 200,
-              headers: {
-                "content-type": "video/mp4",
-              },
-            },
-          ),
-      },
+      });
+
+    expect(create("https://user:pass@example.test")).toThrow(
+      "assetBaseUrl must not include credentials.",
     );
-
-    await cache.start();
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(
-      new Request("media://asset/nature/forest/main", {
-        method: "HEAD",
-      }),
+    expect(create("https://assets.example.test/path")).toThrow(
+      "assetBaseUrl must be an origin without a path.",
     );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("");
-    expect(cancelCalled).toBe(true);
-  });
-
-  it("forwards resolved request headers in passthrough mode", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
-      }),
-    });
-
-    await cache.start();
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toContain("passthrough-secret");
-  });
-
-  it("persists learned mimeType after a successful passthrough fetch", async () => {
-    const storageRoot = createStorageRoot();
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => ({
-        snapshotId: "passthrough-mime-learning",
-        namespaces: [
-          {
-            key: "nature",
-            items: [
-              {
-                id: "fallback",
-                version: "v1",
-                kind: "video",
-                assets: [
-                  {
-                    id: "main",
-                    role: "primary",
-                    kind: "video",
-                    fileName: "mime-fallback.bin",
-                    source: {
-                      url: `${baseUrl}/mime-fallback.bin`,
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      }),
-    });
-
-    await cache.start();
-    expect((await cache.getItem("nature", "fallback"))?.assets[0]?.mimeType).toBeUndefined();
-
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/fallback/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("mime-fallback");
-    expect((await cache.getItem("nature", "fallback"))?.assets[0]?.mimeType).toBe(
-      "video/quicktime",
+    expect(create("https://assets.example.test?token=abc")).toThrow(
+      "assetBaseUrl must not include a query string or hash fragment.",
     );
-  });
-
-  it("refreshes passthrough asset requests when the protocol fetches an asset", async () => {
-    const storageRoot = createStorageRoot();
-    let authHeader = "stale-secret";
-    let resolveCalls = 0;
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => {
-        resolveCalls += 1;
-        return {
-          url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-          headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
-        };
-      },
-    });
-
-    await cache.start();
-    expect(resolveCalls).toBe(4);
-
-    authHeader = "passthrough-secret";
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(resolveCalls).toBe(5);
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
-  });
-
-  it("refreshes passthrough asset requests after restart when serving the last snapshot", async () => {
-    const storageRoot = createStorageRoot();
-    let authHeader = "stale-secret";
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
-      }),
-    });
-
-    await initialCache.start();
-
-    authHeader = "passthrough-secret";
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
-      }),
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
-  });
-
-  it("refreshes protocol requests against the target generation when in-memory manifest state is stale", async () => {
-    const storageRoot = createStorageRoot();
-    const manifestV1 = normalizeManifest({
-      snapshotId: "stale-manifest-v1",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    });
-    const manifestV2 = normalizeManifest({
-      snapshotId: "stale-manifest-v2",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    });
-    const protocolFetches: Array<{ url: string; authHeader: string }> = [];
-    let currentManifest = manifestV1;
-
-    const cache = new RawMediaCache(
-      {
-        storageRoot,
-        devPassthrough: true,
-        resolveManifest: () => currentManifest,
-        resolveAssetRequest: ({ item }) => ({
-          url: `${baseUrl}/auth.mp4`,
-          headers: {
-            "x-media-auth": item.version === "v2" ? "passthrough-secret" : "stale-secret",
-          },
-        }),
-      },
-      {
-        fetchImpl: async (input, init) => {
-          protocolFetches.push({
-            url:
-              typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
-            authHeader: new Headers(init?.headers).get("x-media-auth") ?? "",
-          });
-          return new Response("auth-video", {
-            status: 200,
-            headers: {
-              "content-type": "video/mp4",
-            },
-          });
-        },
-      },
+    expect(create("https://assets.example.test#hash")).toThrow(
+      "assetBaseUrl must not include a query string or hash fragment.",
     );
-
-    await cache.start();
-    const cacheInternals = cache as unknown as {
-      activeManifest: ReturnType<typeof normalizeManifest> | null;
-      activeManifestGenerationId?: number | null;
-      db: {
-        getActiveGenerationId(): number | null;
-      };
-    };
-    const generation1 = cacheInternals.db.getActiveGenerationId();
-    expect(generation1).not.toBeNull();
-
-    currentManifest = manifestV2;
-    await cache.syncNow();
-
-    const generation2 = cacheInternals.db.getActiveGenerationId();
-    expect(generation2).not.toBeNull();
-    expect(generation2).not.toBe(generation1);
-
-    cacheInternals.activeManifest = manifestV1;
-    cacheInternals.activeManifestGenerationId = generation1;
-
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(protocolFetches.at(-1)).toEqual({
-      url: `${baseUrl}/auth.mp4`,
-      authHeader: "passthrough-secret",
-    });
-  });
-
-  it("rebuilds full resolveAssetRequest context after restart", async () => {
-    const storageRoot = createStorageRoot();
-    manifests = {
-      snapshotId: "restart-context",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  source: {
-                    url: `${baseUrl}/auth.mp4`,
-                  },
-                },
-                {
-                  id: "poster",
-                  role: "poster",
-                  kind: "poster",
-                  fileName: "poster.jpg",
-                  source: {
-                    url: `${baseUrl}/poster.jpg`,
-                  },
-                },
-              ],
-            },
-            {
-              id: "meadow",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "flower.mp4",
-                  source: {
-                    url: `${baseUrl}/flower.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const resolveAssetRequest = ({
-      namespace,
-      item,
-      asset,
-    }: {
-      namespace: { items: Array<{ id: string }> };
-      item: { id: string; assets: Array<{ role: string }> };
-      asset: { source: { url: string } };
-    }) => {
-      const hasSiblingItem = namespace.items.some((entry) => entry.id === "meadow");
-      const hasPosterAsset = item.assets.some((entry) => entry.role === "poster");
-      return {
-        url: item.id === "forest" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers:
-          item.id === "forest" && hasSiblingItem && hasPosterAsset
-            ? { "x-media-auth": "passthrough-secret" }
-            : undefined,
-      };
-    };
-
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest,
-    });
-
-    await initialCache.start();
-
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest,
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
-  });
-
-  it("preserves original manifest fileName and mimeType when rebuilding resolveAssetRequest context after restart", async () => {
-    const storageRoot = createStorageRoot();
-    const manifestWithoutExplicitAssetFields: ManifestInput = {
-      snapshotId: "implicit-asset-fields",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const resolveAssetRequest = ({ asset }: { asset: MediaAssetDefinition }) => ({
-      url:
-        asset.fileName === undefined && asset.mimeType === undefined
-          ? `${baseUrl}/auth.mp4`
-          : asset.source.url,
-      headers:
-        asset.fileName === undefined && asset.mimeType === undefined
-          ? { "x-media-auth": "passthrough-secret" }
-          : undefined,
-    });
-
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifestWithoutExplicitAssetFields,
-      resolveAssetRequest,
-    });
-
-    await initialCache.start();
-
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest,
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
-  });
-
-  it("preserves omitted manifest fileName and mimeType when migrating an existing cache", async () => {
-    const storageRoot = createStorageRoot();
-    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
-    const manifestWithoutExplicitAssetFields: ManifestInput = {
-      snapshotId: "legacy-implicit-asset-fields",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      resolveManifest: () => manifestWithoutExplicitAssetFields,
-      resolveAssetRequest: ({ asset }) => ({
-        url:
-          asset.fileName === undefined && asset.mimeType === undefined
-            ? `${baseUrl}/auth.mp4`
-            : asset.source.url,
-        headers:
-          asset.fileName === undefined && asset.mimeType === undefined
-            ? { "x-media-auth": "passthrough-secret" }
-            : undefined,
-      }),
-    });
-
-    await initialCache.start();
-
-    const initialDb = (
-      initialCache as unknown as {
-        db: {
-          getActiveGenerationId(): number | null;
-          getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            relativePath: string | null;
-          }>;
-          close(): void;
-        };
-      }
-    ).db;
-    const activeGenerationId = initialDb.getActiveGenerationId()!;
-    const mainAsset = initialDb
-      .getGenerationAssets(activeGenerationId)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      )!;
-    const cachedFilePath = join(storageRoot, mainAsset.relativePath!);
-    rmSync(cachedFilePath);
-    initialDb.close();
-
-    const legacyDb = new DatabaseSync(sqlitePath);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_mime_type;`);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_file_name;`);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN has_precise_manifest_fields;`);
-    legacyDb.close();
-
-    let restartResolveCalls = 0;
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest: () => {
-        restartResolveCalls += 1;
-        return {
-          url: `${baseUrl}/main.mp4`,
-        };
-      },
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(restartResolveCalls).toBe(0);
-    expect(requestAuthHeaders["/auth.mp4"]?.at(-1)).toBe("passthrough-secret");
-  });
-
-  it("uses persisted requests for migrated caches when explicit manifest asset fields may be lossy", async () => {
-    const storageRoot = createStorageRoot();
-    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
-    const manifestWithExplicitAssetFields: ManifestInput = {
-      snapshotId: "legacy-explicit-asset-fields",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  mimeType: "video/mp4",
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      resolveManifest: () => manifestWithExplicitAssetFields,
-      resolveAssetRequest: ({ asset }) => ({
-        url:
-          asset.fileName === "main.mp4" && asset.mimeType === "video/mp4"
-            ? `${baseUrl}/auth.mp4`
-            : asset.source.url,
-        headers:
-          asset.fileName === "main.mp4" && asset.mimeType === "video/mp4"
-            ? { "x-media-auth": "passthrough-secret" }
-            : undefined,
-      }),
-    });
-
-    await initialCache.start();
-
-    const initialDb = (
-      initialCache as unknown as {
-        db: {
-          getActiveGenerationId(): number | null;
-          getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            relativePath: string | null;
-          }>;
-          close(): void;
-        };
-      }
-    ).db;
-    const activeGenerationId = initialDb.getActiveGenerationId()!;
-    const mainAsset = initialDb
-      .getGenerationAssets(activeGenerationId)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      )!;
-    rmSync(join(storageRoot, mainAsset.relativePath!));
-    initialDb.close();
-
-    const legacyDb = new DatabaseSync(sqlitePath);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_mime_type;`);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN manifest_file_name;`);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN has_precise_manifest_fields;`);
-    legacyDb.close();
-
-    let restartResolveCalls = 0;
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest: () => {
-        restartResolveCalls += 1;
-        return {
-          url: `${baseUrl}/main.mp4`,
-        };
-      },
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(restartResolveCalls).toBe(0);
-    expect(requestAuthHeaders["/auth.mp4"]?.at(-1)).toBe("passthrough-secret");
-  });
-
-  it("backfills null resolved requests when the column already exists", async () => {
-    const storageRoot = createStorageRoot();
-    const sqlitePath = join(storageRoot, "sqlite", "media-cache.db");
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      resolveManifest: () => manifests,
-    });
-
-    await cache.start();
-
-    const db = (
-      cache as unknown as {
-        db: {
-          close(): void;
-        };
-      }
-    ).db;
-    db.close();
-
-    const legacyDb = new DatabaseSync(sqlitePath);
-    legacyDb.exec(`ALTER TABLE assets DROP COLUMN resolved_request_json;`);
-    legacyDb.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
-    legacyDb.close();
-
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: false,
-      resolveManifest: () => manifests,
-    });
-
-    await expect(restartedCache.start()).resolves.toBeUndefined();
-
-    const item = await restartedCache.getItem("nature", "forest");
-    expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
-  });
-
-  it("falls back to the persisted request when passthrough refresh fails after restart", async () => {
-    const storageRoot = createStorageRoot();
-    const initialCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
-      }),
-    });
-
-    await initialCache.start();
-
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest: () => {
-        throw new Error("signer unavailable");
-      },
-    });
-
-    await restartedCache.start();
-
-    const handler = await createProtocolHandler(restartedCache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret"]);
-  });
-
-  it("persists refreshed passthrough requests after a successful proxy fetch", async () => {
-    const storageRoot = createStorageRoot();
-    let authHeader = "stale-secret";
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-      resolveAssetRequest: ({ asset }) => ({
-        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
-        headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
-      }),
-    });
-
-    await cache.start();
-
-    authHeader = "passthrough-secret";
-    const liveHandler = await createProtocolHandler(cache);
-    const liveResponse = await liveHandler(new Request("media://asset/nature/forest/main"));
-    expect(liveResponse.status).toBe(200);
-    expect(await liveResponse.text()).toBe("auth-video");
-
-    const restartedCache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => {
-        throw new Error("manifest unavailable");
-      },
-      resolveAssetRequest: () => {
-        throw new Error("signer unavailable");
-      },
-    });
-
-    await restartedCache.start();
-
-    const restartedHandler = await createProtocolHandler(restartedCache);
-    const restartedResponse = await restartedHandler(
-      new Request("media://asset/nature/forest/main"),
-    );
-
-    expect(restartedResponse.status).toBe(200);
-    expect(await restartedResponse.text()).toBe("auth-video");
-    expect(requestAuthHeaders["/auth.mp4"]).toEqual(["passthrough-secret", "passthrough-secret"]);
-  });
-
-  it("persists refreshed passthrough requests back to the generation they came from", async () => {
-    const storageRoot = createStorageRoot();
-    let authHeader = "stale-secret";
-    let notifyFetchEntered!: () => void;
-    const fetchEntered = new Promise<void>((resolve) => {
-      notifyFetchEntered = resolve;
-    });
-    let releaseFetch!: () => void;
-    const fetchGate = new Promise<void>((resolve) => {
-      releaseFetch = resolve;
-    });
-    const cache = new RawMediaCache(
-      {
-        storageRoot,
-        devPassthrough: true,
-        resolveManifest: () => manifests,
-        resolveAssetRequest: ({ asset }) => ({
-          url: asset.id === "main" ? "https://example.invalid/auth.mp4" : asset.source.url,
-          headers: asset.id === "main" ? { "x-media-auth": authHeader } : undefined,
-        }),
-      },
-      {
-        fetchImpl: async (_url, init) => {
-          notifyFetchEntered();
-          await fetchGate;
-          return new Response("auth-video", {
-            status: new Headers(init?.headers).get("x-media-auth") ? 200 : 401,
-            headers: {
-              "content-type": "video/mp4",
-            },
-          });
-        },
-      },
-    );
-
-    await cache.start();
-
-    const db = (
-      cache as unknown as {
-        db: {
-          getActiveGenerationId(): number | null;
-          getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
-            resolvedRequestJson: string;
-          }>;
-          createStagedGeneration(
-            manifest: ReturnType<typeof normalizeManifest>,
-            now: number,
-          ): number;
-          activateGeneration(generationId: number, now: number): number | null;
-        };
-      }
-    ).db;
-    const originalGenerationId = db.getActiveGenerationId()!;
-
-    authHeader = "passthrough-secret";
-    const handler = await createProtocolHandler(cache);
-    const responsePromise = handler(new Request("media://asset/nature/forest/main"));
-    await fetchEntered;
-
-    const replacementGenerationId = db.createStagedGeneration(
-      normalizeManifest({
-        ...manifests,
-        snapshotId: "replacement-generation",
-      }),
-      Date.now(),
-    );
-    db.activateGeneration(replacementGenerationId, Date.now());
-
-    releaseFetch();
-    const response = await responsePromise;
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("auth-video");
-
-    const originalAsset = db
-      .getGenerationAssets(originalGenerationId)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      );
-    const replacementAsset = db
-      .getGenerationAssets(replacementGenerationId)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      );
-
-    expect(JSON.parse(originalAsset!.resolvedRequestJson)).toEqual({
-      url: "https://example.invalid/auth.mp4",
-      headers: {
-        "x-media-auth": "passthrough-secret",
-      },
-    });
-    expect(JSON.parse(replacementAsset!.resolvedRequestJson)).toEqual({
-      url: `${baseUrl}/main.mp4`,
-    });
-  });
-
-  it("propagates remote error responses in passthrough mode", async () => {
-    const storageRoot = createStorageRoot();
-    manifests = {
-      snapshotId: "passthrough-broken",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "broken.mp4",
-                  source: {
-                    url: `${baseUrl}/broken.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifests,
-    });
-
-    await cache.start();
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
-
-    expect(response.status).toBe(500);
-    expect(await response.text()).toBe("broken");
   });
 
   it("serves byte ranges for committed video assets", async () => {

@@ -3,12 +3,8 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
 import type {
-  DownloadRequest,
   FileStemMatch,
-  MediaAssetDefinition,
   MediaCacheStatus,
-  MediaContentDefinition,
-  MediaNamespaceDefinition,
   PaginationInput,
   PaginationResult,
   ResolvedMediaContentItem,
@@ -25,7 +21,6 @@ import {
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
-  protocolAssetResolveContextRowSchema,
   protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
   stringRecordSchema,
@@ -58,7 +53,7 @@ export interface ActiveAssetRow {
   byteLength: number | null;
   assetMetadataJson: string;
   relativePath: string | null;
-  resolvedRequestJson: string;
+  sourceJson: string;
   fileStem: string;
 }
 
@@ -69,17 +64,7 @@ export interface PendingDeletion {
 }
 
 export interface ProtocolAssetTarget {
-  generationId: number;
   absolutePath: string | null;
-  mimeType: string | null;
-  request: DownloadRequest;
-}
-
-export interface ProtocolAssetResolveContext {
-  hasPreciseManifestFields: boolean;
-  namespace: MediaNamespaceDefinition;
-  item: MediaContentDefinition;
-  asset: MediaAssetDefinition;
 }
 
 export interface SyncRunStats {
@@ -92,7 +77,13 @@ export interface SyncRunStats {
 export class MediaCacheDatabase {
   private readonly db: import("node:sqlite").DatabaseSync;
 
-  constructor(private readonly root: string) {
+  constructor(
+    private readonly root: string,
+    private readonly options: {
+      devPassthrough: boolean;
+      assetBaseUrlOrigin: string | null;
+    },
+  ) {
     const sqliteDir = join(root, "sqlite");
     mkdirSync(sqliteDir, { recursive: true });
     this.db = new DatabaseSync(join(sqliteDir, "media-cache.db"));
@@ -103,6 +94,24 @@ export class MediaCacheDatabase {
 
   close(): void {
     this.db.close();
+  }
+
+  clearAllState(): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM pending_deletions`).run();
+      this.db.prepare(`DELETE FROM active_generation`).run();
+      this.db.prepare(`DELETE FROM assets`).run();
+      this.db.prepare(`DELETE FROM items`).run();
+      this.db.prepare(`DELETE FROM generation_namespaces`).run();
+      this.db.prepare(`DELETE FROM generations`).run();
+      this.db.prepare(`DELETE FROM sync_runs`).run();
+      this.db.prepare(`DELETE FROM status_snapshot`).run();
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   loadStatus(): MediaCacheStatus | null {
@@ -394,32 +403,6 @@ export class MediaCacheDatabase {
       .run(relativePath, generationId, namespace, itemId, assetId);
   }
 
-  setAssetResolvedRequest(
-    generationId: number,
-    namespace: string,
-    itemId: string,
-    assetId: string,
-    request: DownloadRequest,
-  ): void {
-    this.db
-      .prepare(
-        `UPDATE assets
-         SET resolved_request_json = ?
-         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
-      )
-      .run(
-        stringifyWithSchema(
-          request,
-          downloadRequestSchema,
-          `resolved request for asset "${namespace}/${itemId}/${assetId}"`,
-        ),
-        generationId,
-        namespace,
-        itemId,
-        assetId,
-      );
-  }
-
   setAssetMimeType(
     generationId: number,
     namespace: string,
@@ -480,7 +463,7 @@ export class MediaCacheDatabase {
              assets.byte_length AS byteLength,
              assets.metadata_json AS assetMetadataJson,
              assets.relative_path AS relativePath,
-             COALESCE(assets.resolved_request_json, assets.source_json) AS resolvedRequestJson,
+             assets.source_json AS sourceJson,
              assets.file_stem AS fileStem
            FROM assets
            INNER JOIN items
@@ -615,8 +598,7 @@ export class MediaCacheDatabase {
 
     const row = this.db
       .prepare(
-        `SELECT relative_path, mime_type,
-                COALESCE(resolved_request_json, source_json) AS resolved_request_json
+        `SELECT relative_path
          FROM assets
          WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
       )
@@ -628,145 +610,7 @@ export class MediaCacheDatabase {
 
     const validatedRow = parseWithSchema(protocolAssetTargetRowSchema, row, "protocol asset row");
     return {
-      generationId: activeGeneration,
       absolutePath: validatedRow.relative_path ? join(this.root, validatedRow.relative_path) : null,
-      mimeType: validatedRow.mime_type,
-      request: parseJsonWithSchema(
-        validatedRow.resolved_request_json,
-        downloadRequestSchema,
-        `resolved request for asset "${namespace}/${itemId}/${assetId}"`,
-      ),
-    };
-  }
-
-  getProtocolAssetResolveContext(
-    generationId: number,
-    namespace: string,
-    itemId: string,
-    assetId: string,
-  ): ProtocolAssetResolveContext | null {
-    const rows = this.db
-      .prepare(
-        `SELECT
-           generation_namespaces.namespace_key,
-           generation_namespaces.label AS namespace_label,
-           generation_namespaces.metadata_json AS namespace_metadata_json,
-           items.item_id,
-           items.version AS item_version,
-           items.kind AS item_kind,
-           items.title AS item_title,
-           items.description AS item_description,
-           items.summary AS item_summary,
-           items.blobs_json AS item_blobs_json,
-           items.metadata_json AS item_metadata_json,
-           assets.asset_id,
-           assets.role AS asset_role,
-           assets.kind AS asset_kind,
-           assets.asset_version,
-           assets.manifest_mime_type AS asset_manifest_mime_type,
-           assets.manifest_file_name AS asset_manifest_file_name,
-           assets.has_precise_manifest_fields AS asset_has_precise_manifest_fields,
-           assets.byte_length AS asset_byte_length,
-           assets.source_json AS asset_source_json,
-           assets.metadata_json AS asset_metadata_json
-         FROM assets
-         INNER JOIN items
-           ON items.generation_id = assets.generation_id
-          AND items.namespace_key = assets.namespace_key
-          AND items.item_id = assets.item_id
-         INNER JOIN generation_namespaces
-           ON generation_namespaces.generation_id = assets.generation_id
-          AND generation_namespaces.namespace_key = assets.namespace_key
-         WHERE assets.generation_id = ? AND assets.namespace_key = ?
-         ORDER BY items.order_index, assets.order_index`,
-      )
-      .all(generationId, namespace);
-
-    if (rows.length === 0) {
-      return null;
-    }
-
-    const validatedRows = parseWithSchema(
-      protocolAssetResolveContextRowSchema.array(),
-      rows,
-      "protocol asset resolve context rows",
-    );
-    const firstRow = validatedRows[0]!;
-    const namespaceDefinition: MediaNamespaceDefinition = {
-      key: firstRow.namespace_key,
-      label: firstRow.namespace_label ?? undefined,
-      metadata: parseJsonWithSchema(
-        firstRow.namespace_metadata_json,
-        jsonObjectSchema,
-        `metadata for namespace "${namespace}"`,
-      ),
-      items: [],
-    };
-    const itemsById = new Map<string, MediaContentDefinition>();
-
-    for (const row of validatedRows) {
-      let itemDefinition = itemsById.get(row.item_id);
-      if (!itemDefinition) {
-        itemDefinition = {
-          id: row.item_id,
-          version: row.item_version,
-          kind: row.item_kind as MediaContentDefinition["kind"],
-          title: row.item_title ?? undefined,
-          description: row.item_description ?? undefined,
-          summary: row.item_summary ?? undefined,
-          blobs: parseJsonWithSchema(
-            row.item_blobs_json,
-            stringRecordSchema,
-            `blobs for item "${namespace}/${row.item_id}"`,
-          ),
-          metadata: parseJsonWithSchema(
-            row.item_metadata_json,
-            jsonObjectSchema,
-            `metadata for item "${namespace}/${row.item_id}"`,
-          ),
-          assets: [],
-        };
-        itemsById.set(row.item_id, itemDefinition);
-        namespaceDefinition.items.push(itemDefinition);
-      }
-
-      itemDefinition.assets.push({
-        id: row.asset_id,
-        role: row.asset_role,
-        kind: row.asset_kind as MediaAssetDefinition["kind"],
-        version: row.asset_version ?? undefined,
-        mimeType: row.asset_manifest_mime_type ?? undefined,
-        fileName: row.asset_manifest_file_name ?? undefined,
-        byteLength: row.asset_byte_length ?? undefined,
-        source: parseJsonWithSchema(
-          row.asset_source_json,
-          downloadRequestSchema,
-          `source for asset "${namespace}/${row.item_id}/${row.asset_id}"`,
-        ),
-        metadata: parseJsonWithSchema(
-          row.asset_metadata_json,
-          jsonObjectSchema,
-          `metadata for asset "${namespace}/${row.item_id}/${row.asset_id}"`,
-        ),
-      });
-    }
-
-    const itemDefinition = itemsById.get(itemId);
-    const assetDefinition = itemDefinition?.assets.find((asset) => asset.id === assetId);
-    if (!itemDefinition || !assetDefinition) {
-      return null;
-    }
-
-    return {
-      hasPreciseManifestFields: validatedRows.some(
-        (row) =>
-          row.item_id === itemId &&
-          row.asset_id === assetId &&
-          row.asset_has_precise_manifest_fields === 1,
-      ),
-      namespace: namespaceDefinition,
-      item: itemDefinition,
-      asset: assetDefinition,
     };
   }
 
@@ -776,7 +620,7 @@ export class MediaCacheDatabase {
   ): PaginationResult<ResolvedMediaContentItem> {
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("exact", namespace);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(this.buildResolvedItems(rows), pagination);
   }
 
   listNamespaceTree(
@@ -785,12 +629,12 @@ export class MediaCacheDatabase {
   ): PaginationResult<ResolvedMediaContentItem> {
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("tree", prefix);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(this.buildResolvedItems(rows), pagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
     const rows = this.getResolvedRows("item", namespace, id);
-    const items = buildResolvedItems(rows);
+    const items = this.buildResolvedItems(rows);
     return items[0] ?? null;
   }
 
@@ -890,7 +734,7 @@ export class MediaCacheDatabase {
         assets.byte_length AS byteLength,
         assets.metadata_json AS assetMetadataJson,
         assets.relative_path AS relativePath,
-        COALESCE(assets.resolved_request_json, assets.source_json) AS resolvedRequestJson,
+        assets.source_json AS sourceJson,
         assets.file_stem AS fileStem
       FROM assets
       INNER JOIN items
@@ -945,6 +789,60 @@ export class MediaCacheDatabase {
         .all(activeGeneration, namespace, itemId),
       `resolved asset rows for item "${namespace}/${itemId}"`,
     );
+  }
+
+  private buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] {
+    const items = new Map<string, ResolvedMediaContentItem>();
+
+    for (const row of rows) {
+      const key = `${row.namespace}|${row.itemId}`;
+      let item = items.get(key);
+      if (!item) {
+        item = {
+          namespace: row.namespace,
+          id: row.itemId,
+          version: row.itemVersion,
+          kind: row.itemKind as ResolvedMediaContentItem["kind"],
+          title: row.itemTitle ?? undefined,
+          description: row.itemDescription ?? undefined,
+          summary: row.itemSummary ?? undefined,
+          blobs: parseJsonWithSchema(
+            row.itemBlobsJson,
+            stringRecordSchema,
+            `item blobs for "${row.namespace}/${row.itemId}"`,
+          ),
+          metadata: parseJsonWithSchema(
+            row.itemMetadataJson,
+            jsonObjectSchema,
+            `item metadata for "${row.namespace}/${row.itemId}"`,
+          ),
+          assets: [],
+        };
+        items.set(key, item);
+      }
+
+      item.assets.push({
+        id: row.assetId,
+        role: row.assetRole,
+        kind: row.assetKind,
+        mimeType: row.mimeType ?? undefined,
+        byteLength: row.byteLength ?? undefined,
+        url: this.options.devPassthrough
+          ? resolveAssetBaseUrl(
+              row.sourceJson,
+              this.options.assetBaseUrlOrigin,
+              `asset source for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+            )
+          : buildMediaUrl(row.namespace, row.itemId, row.assetId),
+        metadata: parseJsonWithSchema(
+          row.assetMetadataJson,
+          jsonObjectSchema,
+          `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+        ),
+      });
+    }
+
+    return [...items.values()];
   }
 
   private migrate(): void {
@@ -1241,56 +1139,26 @@ function inferLegacyManifestFileName(sourceJson: string, fileName: string): stri
   }
 }
 
-function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] {
-  const items = new Map<string, ResolvedMediaContentItem>();
-
-  for (const row of rows) {
-    const key = `${row.namespace}|${row.itemId}`;
-    let item = items.get(key);
-    if (!item) {
-      item = {
-        namespace: row.namespace,
-        id: row.itemId,
-        version: row.itemVersion,
-        kind: row.itemKind as ResolvedMediaContentItem["kind"],
-        title: row.itemTitle ?? undefined,
-        description: row.itemDescription ?? undefined,
-        summary: row.itemSummary ?? undefined,
-        blobs: parseJsonWithSchema(
-          row.itemBlobsJson,
-          stringRecordSchema,
-          `item blobs for "${row.namespace}/${row.itemId}"`,
-        ),
-        metadata: parseJsonWithSchema(
-          row.itemMetadataJson,
-          jsonObjectSchema,
-          `item metadata for "${row.namespace}/${row.itemId}"`,
-        ),
-        assets: [],
-      };
-      items.set(key, item);
-    }
-
-    item.assets.push({
-      id: row.assetId,
-      role: row.assetRole,
-      kind: row.assetKind,
-      mimeType: row.mimeType ?? undefined,
-      byteLength: row.byteLength ?? undefined,
-      url: buildMediaUrl(row.namespace, row.itemId, row.assetId),
-      metadata: parseJsonWithSchema(
-        row.assetMetadataJson,
-        jsonObjectSchema,
-        `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
-      ),
-    });
-  }
-
-  return [...items.values()];
-}
-
 function buildMediaUrl(namespace: string, itemId: string, assetId: string): string {
   return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
+}
+
+function resolveAssetBaseUrl(
+  sourceJson: string,
+  assetBaseUrlOrigin: string | null,
+  contextLabel: string,
+): string {
+  const source = parseJsonWithSchema(sourceJson, downloadRequestSchema, contextLabel);
+  if (!assetBaseUrlOrigin) {
+    return source.url;
+  }
+
+  const origin = new URL(assetBaseUrlOrigin);
+  const resolved = new URL(source.url);
+  resolved.protocol = origin.protocol;
+  resolved.hostname = origin.hostname;
+  resolved.port = origin.port;
+  return resolved.toString();
 }
 
 function createLogicalKey(...parts: string[]): string {

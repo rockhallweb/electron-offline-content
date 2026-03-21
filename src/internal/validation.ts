@@ -138,7 +138,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   byteLength: nonNegativeNumberSchema.nullable(),
   assetMetadataJson: z.string(),
   relativePath: z.string().nullable(),
-  resolvedRequestJson: z.string(),
+  sourceJson: z.string(),
   fileStem: z.string(),
 });
 
@@ -154,32 +154,6 @@ export const assetPathRowSchema = z.object({
 
 export const protocolAssetTargetRowSchema = z.object({
   relative_path: z.string().nullable(),
-  mime_type: z.string().nullable(),
-  resolved_request_json: z.string(),
-});
-
-export const protocolAssetResolveContextRowSchema = z.object({
-  namespace_key: z.string(),
-  namespace_label: z.string().nullable(),
-  namespace_metadata_json: z.string(),
-  item_id: z.string(),
-  item_version: z.string(),
-  item_kind: z.string(),
-  item_title: z.string().nullable(),
-  item_description: z.string().nullable(),
-  item_summary: z.string().nullable(),
-  item_blobs_json: z.string(),
-  item_metadata_json: z.string(),
-  asset_id: z.string(),
-  asset_role: z.string(),
-  asset_kind: z.string(),
-  asset_version: z.string().nullable(),
-  asset_manifest_mime_type: z.string().nullable(),
-  asset_manifest_file_name: z.string().nullable(),
-  asset_has_precise_manifest_fields: z.union([z.literal(0), z.literal(1)]),
-  asset_byte_length: nonNegativeNumberSchema.nullable(),
-  asset_source_json: z.string(),
-  asset_metadata_json: z.string(),
 });
 
 export const fileStemRowSchema = z.object({

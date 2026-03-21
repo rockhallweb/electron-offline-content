@@ -18,7 +18,7 @@ The example app is the maintainer validation target. It uses Electron Forge, Rea
 - Strict all-or-nothing snapshot commits
 - Grace-period deletion for removed assets
 - Privileged `media://` protocol for committed local assets
-- Dev passthrough mode that keeps `media://` URLs stable while proxying remote assets on demand
+- Dev passthrough mode that returns direct remote asset URLs for local development
 - Structured main-process log callback for forwarding cache events into `pino`, `logtape`, or a custom logger
 - Preload bridge and React hooks for renderer access
 
@@ -101,12 +101,13 @@ The example UI exercises:
 - namespace subtree listing
 - item lookup by `(namespace, id)`
 - exact file-stem lookup
-- local image and video rendering from `media://` URLs
+- local image and video rendering from `media://` URLs in offline mode
+- direct remote asset URLs in dev passthrough mode
 
 ## Main process
 
-Call the scheme registration helper before app readiness, then create the cache, register
-the protocol and IPC, and start the initial sync.
+In offline mode, register the `media://` scheme before app readiness. In dev passthrough mode,
+the renderer uses direct remote asset URLs instead.
 
 ```ts
 import { app } from "electron";
@@ -115,11 +116,17 @@ import {
   registerMediaCacheProtocolSchemes,
 } from "@rockhallweb/electron-offline-content/main";
 
-await registerMediaCacheProtocolSchemes();
+const devPassthrough = process.env.NODE_ENV === "development";
+
+if (!devPassthrough) {
+  await registerMediaCacheProtocolSchemes();
+}
 
 const mediaCache = createMediaCache({
   // Defaults to true only when NODE_ENV is set and not "production".
-  devPassthrough: false,
+  devPassthrough,
+  // Optional dev-only origin override for public assets.
+  assetBaseUrl: "https://cdn.example.com",
   logLevel: "info",
   onLog: (entry) => {
     console.log(entry);
@@ -153,14 +160,28 @@ const mediaCache = createMediaCache({
 });
 
 await app.whenReady();
-await mediaCache.registerProtocol();
+if (!devPassthrough) {
+  await mediaCache.registerProtocol();
+}
 await mediaCache.attachIpc();
 await mediaCache.start();
 ```
 
 `onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
 
-`devPassthrough` is enabled by default whenever `NODE_ENV` is set to a non-`"production"` value unless the consumer explicitly sets it. If `NODE_ENV` is unset, passthrough stays disabled by default. In passthrough mode, manifest metadata is still committed locally so the query APIs continue to work, but asset blobs are not downloaded; `media://` requests proxy the resolved remote asset on demand instead.
+`devPassthrough` is enabled by default whenever `NODE_ENV` is set to a non-`"production"` value unless the consumer explicitly sets it. If `NODE_ENV` is unset, passthrough stays disabled by default.
+
+In passthrough mode:
+
+- manifest metadata is still committed locally so the query APIs continue to work
+- asset blobs are not downloaded
+- `ResolvedMediaAsset.url` is a direct remote URL derived from the manifest asset source
+- `media://asset/...` remains an offline-mode contract only
+- startup is fail-fast and does not reuse a previously committed snapshot after restart
+
+`assetBaseUrl` is an optional origin override for dev mode. It replaces only the origin of each manifest asset URL and preserves the original path and query string. For v1, it must be an origin only: no path, query string, hash fragment, or credentials.
+
+Dev passthrough in v1 is intentionally limited to public assets. Assets that require signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode yet.
 
 The in-repo smoke and packed-smoke example runs explicitly force `devPassthrough: false` so CI still validates the offline cache path.
 

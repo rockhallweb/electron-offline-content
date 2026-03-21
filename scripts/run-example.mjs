@@ -17,12 +17,13 @@ const profile = process.env.MEDIA_CACHE_EXAMPLE_PROFILE ?? "local";
 const logFormat = process.env.MEDIA_CACHE_LOG_FORMAT ?? (isSmoke ? "json" : "pretty");
 const logLevel = process.env.MEDIA_CACHE_LOG_LEVEL ?? "info";
 const devPassthrough = isSmoke ? false : undefined;
+const assetBaseUrl = isSmoke ? undefined : process.env.MEDIA_CACHE_ASSET_BASE_URL;
 const runtimeConfigDir = join(exampleDir, ".runtime");
 const runtimeConfigPath = join(runtimeConfigDir, "example-config.json");
 await mkdir(runtimeConfigDir, { recursive: true });
 await writeFile(
   runtimeConfigPath,
-  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough }, null, 2)}\n`,
+  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough, assetBaseUrl }, null, 2)}\n`,
 );
 const args = isSmoke
   ? ["run", "smoke"]

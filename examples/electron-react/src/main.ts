@@ -18,6 +18,7 @@ type RuntimeConfig = {
   logFormat?: LogFormat;
   logLevel?: LogLevel;
   devPassthrough?: boolean;
+  assetBaseUrl?: string;
 };
 
 const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -50,6 +51,13 @@ const selectedDevPassthrough =
   runtimeConfig?.devPassthrough ??
   normalizeBoolean(process.env.MEDIA_CACHE_DEV_PASSTHROUGH) ??
   normalizeBoolean(readArgValue("media-cache-dev-passthrough"));
+const selectedAssetBaseUrl =
+  runtimeConfig?.assetBaseUrl ??
+  readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ??
+  readArgValue("media-cache-asset-base-url");
+const effectiveDevPassthrough =
+  selectedDevPassthrough ??
+  (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== "production");
 const rendererUrl =
   process.env.MEDIA_CACHE_RENDERER_URL ?? readArgValue("media-cache-renderer-url");
 const rendererIndex =
@@ -72,9 +80,12 @@ logger.info("example_bootstrap_detected", {
   runtime_config_log_format: runtimeConfig?.logFormat ?? null,
   runtime_config_log_level: runtimeConfig?.logLevel ?? null,
   runtime_config_dev_passthrough: runtimeConfig?.devPassthrough ?? null,
+  runtime_config_asset_base_url: runtimeConfig?.assetBaseUrl ?? null,
   selected_log_format: selectedLogFormat,
   selected_log_level: selectedLogLevel,
   selected_dev_passthrough: selectedDevPassthrough ?? null,
+  effective_dev_passthrough: effectiveDevPassthrough,
+  selected_asset_base_url: selectedAssetBaseUrl ?? null,
   renderer_url: rendererUrl ?? null,
   renderer_index: rendererIndex ?? null,
 });
@@ -97,9 +108,15 @@ void bootstrap().catch((error) => {
 async function bootstrap() {
   traceSmoke("bootstrap:start");
   logger.info("bootstrap_started", {});
-  await registerMediaCacheProtocolSchemes();
-  traceSmoke("bootstrap:registered-schemes");
-  logger.debug("protocol_schemes_registered", {});
+  if (!effectiveDevPassthrough) {
+    await registerMediaCacheProtocolSchemes();
+    traceSmoke("bootstrap:registered-schemes");
+    logger.debug("protocol_schemes_registered", {});
+  } else {
+    logger.info("direct_dev_asset_urls_enabled", {
+      asset_base_url: selectedAssetBaseUrl ?? null,
+    });
+  }
 
   const profileName = selectedProfile === "nasa" ? "nasa" : "local";
   const exampleProfile = await createExampleProfile(profileName);
@@ -125,6 +142,7 @@ async function bootstrap() {
   const mediaCache = createMediaCache({
     storageRoot,
     devPassthrough: selectedDevPassthrough,
+    assetBaseUrl: selectedAssetBaseUrl,
     logLevel: selectedLogLevel,
     onLog: (entry) => {
       logger.forward(entry);
@@ -134,6 +152,8 @@ async function bootstrap() {
   logger.info("media_cache_created", {
     storage_root: storageRoot,
     dev_passthrough: selectedDevPassthrough ?? null,
+    effective_dev_passthrough: effectiveDevPassthrough,
+    asset_base_url: selectedAssetBaseUrl ?? null,
   });
 
   let mainWindow: BrowserWindow | null = null;
@@ -160,9 +180,13 @@ async function bootstrap() {
   await app.whenReady();
   traceSmoke("bootstrap:app-ready");
   logger.info("app_ready", { app_name: app.getName() });
-  await mediaCache.registerProtocol();
-  traceSmoke("bootstrap:protocol-registered");
-  logger.info("media_protocol_registered", {});
+  if (!effectiveDevPassthrough) {
+    await mediaCache.registerProtocol();
+    traceSmoke("bootstrap:protocol-registered");
+    logger.info("media_protocol_registered", {});
+  } else {
+    logger.info("media_protocol_skipped_for_dev_passthrough", {});
+  }
   await mediaCache.attachIpc();
   traceSmoke("bootstrap:ipc-attached");
   logger.info("media_cache_ipc_attached", {});
