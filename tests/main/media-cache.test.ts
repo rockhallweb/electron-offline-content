@@ -2288,6 +2288,52 @@ describe("media cache sync and queries", () => {
     expect(requestAuthHeaders["/auth.mp4"]).toContain("passthrough-secret");
   });
 
+  it("persists learned mimeType after a successful passthrough fetch", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => ({
+        snapshotId: "passthrough-mime-learning",
+        namespaces: [
+          {
+            key: "nature",
+            items: [
+              {
+                id: "fallback",
+                version: "v1",
+                kind: "video",
+                assets: [
+                  {
+                    id: "main",
+                    role: "primary",
+                    kind: "video",
+                    fileName: "mime-fallback.bin",
+                    source: {
+                      url: `${baseUrl}/mime-fallback.bin`,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await cache.start();
+    expect((await cache.getItem("nature", "fallback"))?.assets[0]?.mimeType).toBeUndefined();
+
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(new Request("media://asset/nature/fallback/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("mime-fallback");
+    expect((await cache.getItem("nature", "fallback"))?.assets[0]?.mimeType).toBe(
+      "video/quicktime",
+    );
+  });
+
   it("refreshes passthrough asset requests when the protocol fetches an asset", async () => {
     const storageRoot = createStorageRoot();
     let authHeader = "stale-secret";

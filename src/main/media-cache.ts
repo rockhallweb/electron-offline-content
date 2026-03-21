@@ -746,6 +746,7 @@ export class MediaCache implements MediaCacheMain {
         headers,
       });
       if (response.ok && this.devPassthrough) {
+        const learnedMimeType = normalizeResponseMimeType(response.headers.get("content-type"));
         this.db!.setAssetResolvedRequest(
           context.generationId,
           context.namespace,
@@ -753,6 +754,15 @@ export class MediaCache implements MediaCacheMain {
           context.assetId,
           resolvedRequest,
         );
+        if (learnedMimeType) {
+          this.db!.setAssetMimeType(
+            context.generationId,
+            context.namespace,
+            context.itemId,
+            context.assetId,
+            learnedMimeType,
+          );
+        }
       }
       if (request.method === "HEAD" && response.body) {
         await response.body.cancel();
