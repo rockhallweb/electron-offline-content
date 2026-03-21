@@ -116,14 +116,14 @@ import {
   registerMediaCacheProtocolSchemes,
 } from "@rockhallweb/electron-offline-content/main";
 
-const devPassthrough = process.env.NODE_ENV === "development";
+const devPassthrough = process.env.MEDIA_CACHE_DEV_PASSTHROUGH === "true";
 
 if (!devPassthrough) {
   await registerMediaCacheProtocolSchemes();
 }
 
 const mediaCache = createMediaCache({
-  // Defaults to true only when NODE_ENV is set and not "production".
+  // Explicit opt-in. Keep this off unless your dev assets are publicly reachable by URL.
   devPassthrough,
   // Optional dev-only origin override for public assets.
   assetBaseUrl: "https://cdn.example.com",
@@ -169,7 +169,7 @@ await mediaCache.start();
 
 `onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
 
-`devPassthrough` is enabled by default whenever `NODE_ENV` is set to a non-`"production"` value unless the consumer explicitly sets it. If `NODE_ENV` is unset, passthrough stays disabled by default.
+`devPassthrough` is explicit opt-in and stays disabled unless the consumer sets it to `true`.
 
 In passthrough mode:
 

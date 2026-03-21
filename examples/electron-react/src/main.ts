@@ -55,9 +55,7 @@ const selectedAssetBaseUrl =
   runtimeConfig?.assetBaseUrl ??
   readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ??
   readArgValue("media-cache-asset-base-url");
-const effectiveDevPassthrough =
-  selectedDevPassthrough ??
-  (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== "production");
+const effectiveDevPassthrough = selectedDevPassthrough ?? false;
 const rendererUrl =
   process.env.MEDIA_CACHE_RENDERER_URL ?? readArgValue("media-cache-renderer-url");
 const rendererIndex =

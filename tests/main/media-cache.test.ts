@@ -422,7 +422,7 @@ describe("media cache sync and queries", () => {
     expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
   });
 
-  it("enables passthrough by default when NODE_ENV is explicitly non-production", async () => {
+  it("disables passthrough by default when NODE_ENV is explicitly non-production", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
 
     try {
@@ -437,14 +437,11 @@ describe("media cache sync and queries", () => {
 
       await cache.start();
 
-      expect(requestCounts["/main.mp4"]).toBeUndefined();
-      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
-      expect((await cache.getStatus()).lastRun?.stats).toEqual({
-        totalAssets: 4,
-        downloadedAssets: 0,
-        skippedAssets: 4,
-        bytesDownloaded: 0,
-      });
+      expect(requestCounts["/main.mp4"]).toBe(1);
+      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+        "media://asset/nature/forest/main",
+      );
+      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
     } finally {
       if (originalNodeEnv === undefined) {
         delete process.env.NODE_ENV;
@@ -502,7 +499,7 @@ describe("media cache sync and queries", () => {
     }
   });
 
-  it("lets explicit devPassthrough override the NODE_ENV default", async () => {
+  it("lets explicit devPassthrough override the default", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
 
     try {

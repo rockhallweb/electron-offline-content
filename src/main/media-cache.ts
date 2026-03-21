@@ -144,9 +144,7 @@ export class MediaCache implements MediaCacheMain {
       sleep: deps?.sleep ?? sleep,
     };
     this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
-    this.devPassthrough =
-      options.devPassthrough ??
-      (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== "production");
+    this.devPassthrough = options.devPassthrough ?? false;
     this.status = {
       phase: "idle",
       activeGenerationId: null,
