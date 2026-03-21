@@ -840,6 +840,33 @@ describe("media cache sync and queries", () => {
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
+    manifests = {
+      snapshotId: "passthrough-prunes-obsolete-v2",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "image",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "image",
+                  fileName: "poster.jpg",
+                  source: {
+                    url: `${baseUrl}/poster.jpg`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
@@ -851,6 +878,46 @@ describe("media cache sync and queries", () => {
 
     expect(existsSync(committedBlobPath)).toBe(false);
     expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+      "media://asset/nature/forest/main",
+    );
+  });
+
+  it("preserves same-version blob paths through passthrough so offline mode can reuse them", async () => {
+    const storageRoot = createStorageRoot();
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+    const committedBlobPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
+    );
+    expect(existsSync(committedBlobPath)).toBe(true);
+
+    requestCounts = {};
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await passthroughCache.start();
+
+    expect(existsSync(committedBlobPath)).toBe(true);
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+
+    requestCounts = {};
+    const offlineAgainCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await offlineAgainCache.start();
+
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+    expect((await offlineAgainCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
       "media://asset/nature/forest/main",
     );
   });
@@ -2189,6 +2256,43 @@ describe("media cache sync and queries", () => {
     expect(response.headers.get("content-type")).toBe("video/mp4");
     expect(await response.text()).toBe("video-one");
     expect(requestCounts["/main.mp4"]).toBe(1);
+  });
+
+  it("prefers remote proxying over stale local blobs while passthrough is enabled", async () => {
+    const storageRoot = createStorageRoot();
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+    const committedBlobPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
+    );
+    expect(existsSync(committedBlobPath)).toBe(true);
+
+    requestCounts = {};
+    requestAuthHeaders = {};
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => ({
+        url: asset.id === "main" ? `${baseUrl}/auth.mp4` : asset.source.url,
+        headers: asset.id === "main" ? { "x-media-auth": "passthrough-secret" } : undefined,
+      }),
+    });
+
+    await passthroughCache.start();
+
+    const handler = await createProtocolHandler(passthroughCache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("auth-video");
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+    expect(requestAuthHeaders["/auth.mp4"]).toContain("passthrough-secret");
   });
 
   it("does not proxy blob-less snapshots after passthrough is turned off", async () => {

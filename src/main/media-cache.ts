@@ -264,34 +264,34 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      if (target.absolutePath) {
+      if (target.absolutePath && !this.devPassthrough) {
         if (!existsSync(target.absolutePath)) {
-          if (!this.devPassthrough) {
-            this.emitLog("debug", "protocol_request_missing", {
-              namespace,
-              item_id: itemId,
-              asset_id: assetId,
-              method: request.method,
-            });
-            return new Response("Not found", { status: 404 });
-          }
-
-          this.emitLog("debug", "protocol_request_local_missing", {
+          this.emitLog("debug", "protocol_request_missing", {
             namespace,
             item_id: itemId,
             asset_id: assetId,
             method: request.method,
           });
-        } else {
-          this.emitLog("debug", "protocol_request_local_resolved", {
-            namespace,
-            item_id: itemId,
-            asset_id: assetId,
-            method: request.method,
-            range: request.headers.get("range"),
-          });
-          return fetchFile(request, target.absolutePath);
+          return new Response("Not found", { status: 404 });
         }
+
+        this.emitLog("debug", "protocol_request_local_resolved", {
+          namespace,
+          item_id: itemId,
+          asset_id: assetId,
+          method: request.method,
+          range: request.headers.get("range"),
+        });
+        return fetchFile(request, target.absolutePath);
+      }
+
+      if (target.absolutePath && this.devPassthrough && !existsSync(target.absolutePath)) {
+        this.emitLog("debug", "protocol_request_local_missing", {
+          namespace,
+          item_id: itemId,
+          asset_id: assetId,
+          method: request.method,
+        });
       }
 
       if (!this.devPassthrough) {
@@ -482,14 +482,12 @@ export class MediaCache implements MediaCacheMain {
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
         const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
         const activeRelativePath = activeRow?.relativePath ?? null;
+        const nextVersion = manifestAsset.asset.resolvedVersion;
         const canReuseActiveBlob =
-          !this.devPassthrough &&
-          activeRelativePath !== null &&
-          existsSync(join(this.storageRoot!, activeRelativePath));
+          activeRelativePath !== null && existsSync(join(this.storageRoot!, activeRelativePath));
 
-        if (canReuseActiveBlob) {
+        if (!this.devPassthrough && canReuseActiveBlob) {
           const currentVersion = getResolvedVersionFromPath(activeRelativePath);
-          const nextVersion = manifestAsset.asset.resolvedVersion;
           if (currentVersion === nextVersion) {
             this.db!.setAssetDownloadState(
               stagedGenerationId,
@@ -531,16 +529,17 @@ export class MediaCache implements MediaCacheMain {
             request,
           );
           if (
-            activeRow?.mimeType &&
+            canReuseActiveBlob &&
             activeRelativePath !== null &&
-            getResolvedVersionFromPath(activeRelativePath) === manifestAsset.asset.resolvedVersion
+            getResolvedVersionFromPath(activeRelativePath) === nextVersion
           ) {
-            this.db!.setAssetMimeType(
+            this.db!.setAssetDownloadState(
               stagedGenerationId,
               row.namespace,
               row.itemId,
               row.assetId,
-              activeRow.mimeType,
+              activeRelativePath,
+              activeRow?.mimeType ?? null,
             );
           }
           stats.skippedAssets += 1;
