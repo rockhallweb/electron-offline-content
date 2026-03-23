@@ -46,6 +46,7 @@ import {
   stringInputSchema,
 } from "../internal/validation.js";
 import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
+import { warnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -144,9 +145,17 @@ export class MediaCache implements MediaCacheMain {
       sleep: deps?.sleep ?? sleep,
     };
     this.devPassthrough = options.devPassthrough ?? false;
-    this.assetBaseUrlOrigin = this.devPassthrough
-      ? normalizeAssetBaseUrl(options.assetBaseUrl)
-      : null;
+    if (this.devPassthrough) {
+      this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
+    } else {
+      if (options.assetBaseUrl) {
+        throw new Error(
+          "assetBaseUrl has no effect when devPassthrough is false. " +
+            "Set devPassthrough: true or remove assetBaseUrl.",
+        );
+      }
+      this.assetBaseUrlOrigin = null;
+    }
     this.status = {
       phase: "idle",
       activeGenerationId: null,
@@ -342,6 +351,16 @@ export class MediaCache implements MediaCacheMain {
     this.db = new MediaCacheDatabase(this.storageRoot, {
       devPassthrough: this.devPassthrough,
       assetBaseUrlOrigin: this.assetBaseUrlOrigin,
+      onWarn: (contextLabel, err) => {
+        if (this.options.onLog) {
+          this.emitLog("warn", "resolve_asset_base_url_fallback", {
+            context_label: contextLabel,
+            error: err != null ? String(err) : undefined,
+          });
+        } else {
+          warnResolveAssetBaseUrlFallback(contextLabel, err);
+        }
+      },
     });
     if (this.devPassthrough) {
       this.prepareDevRuntimeState();

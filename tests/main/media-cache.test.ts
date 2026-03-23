@@ -1970,6 +1970,18 @@ describe("media cache sync and queries", () => {
     expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
+  it("throws when assetBaseUrl is set without devPassthrough", () => {
+    expect(
+      () =>
+        new RawMediaCache({
+          storageRoot: createStorageRoot(),
+          devPassthrough: false,
+          assetBaseUrl: "https://cdn.example.com",
+          resolveManifest: () => manifests,
+        }),
+    ).toThrow("assetBaseUrl has no effect when devPassthrough is false");
+  });
+
   it("rejects invalid assetBaseUrl values", () => {
     const create = (assetBaseUrl: string) => () =>
       new RawMediaCache({

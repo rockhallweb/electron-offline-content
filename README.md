@@ -125,8 +125,8 @@ if (!devPassthrough) {
 const mediaCache = createMediaCache({
   // Explicit opt-in. Keep this off unless your dev assets are publicly reachable by URL.
   devPassthrough,
-  // Optional dev-only origin override for public assets.
-  assetBaseUrl: "https://cdn.example.com",
+  // Optional dev-only origin override for public assets. Only used when devPassthrough is true.
+  assetBaseUrl: devPassthrough ? "https://cdn.example.com" : undefined,
   logLevel: "info",
   onLog: (entry) => {
     console.log(entry);
@@ -167,7 +167,7 @@ await mediaCache.attachIpc();
 await mediaCache.start();
 ```
 
-`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library.
+`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library. Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields).
 
 `devPassthrough` is explicit opt-in and stays disabled unless the consumer sets it to `true`.
 

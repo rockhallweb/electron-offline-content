@@ -29,6 +29,7 @@ import {
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
+import { warnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -82,6 +83,7 @@ export class MediaCacheDatabase {
     private readonly options: {
       devPassthrough: boolean;
       assetBaseUrlOrigin: string | null;
+      onWarn?: (contextLabel: string, err: unknown) => void;
     },
   ) {
     const sqliteDir = join(root, "sqlite");
@@ -350,6 +352,9 @@ export class MediaCacheDatabase {
               asset.normalizedFileStem,
               asset.byteLength ?? null,
               JSON.stringify(asset.source),
+              // resolved_request_json is initialised to source_json; reserved for a future
+              // feature that will persist the resolveAssetRequest() result for reuse across
+              // sync generations without re-invoking the callback.
               JSON.stringify(asset.source),
               stringifyWithSchema(
                 asset.metadata ?? {},
@@ -816,6 +821,7 @@ export class MediaCacheDatabase {
               row.sourceJson,
               this.options.assetBaseUrlOrigin,
               `asset source for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+              this.options.onWarn,
             )
           : buildMediaUrl(row.namespace, row.itemId, row.assetId),
         metadata: parseJsonWithSchema(
@@ -1150,6 +1156,7 @@ function resolveAssetBaseUrl(
   sourceJson: string,
   assetBaseUrlOrigin: string | null,
   contextLabel: string,
+  onWarn?: (contextLabel: string, err: unknown) => void,
 ): string {
   const source = parseJsonWithSchema(sourceJson, downloadRequestSchema, contextLabel);
   if (!assetBaseUrlOrigin) {
@@ -1163,7 +1170,12 @@ function resolveAssetBaseUrl(
     resolved.hostname = origin.hostname;
     resolved.port = origin.port;
     return resolved.toString();
-  } catch {
+  } catch (err) {
+    if (onWarn) {
+      onWarn(contextLabel, err);
+    } else {
+      warnResolveAssetBaseUrlFallback(contextLabel, err);
+    }
     return source.url;
   }
 }
