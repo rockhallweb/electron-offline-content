@@ -978,7 +978,14 @@ export class MediaCacheDatabase {
       (column) => column.name === "manifest_mime_type",
     );
     if (!hasManifestMimeTypeColumn) {
-      this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_mime_type TEXT;`);
+      this.db.exec("BEGIN");
+      try {
+        this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_mime_type TEXT;`);
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
     }
 
     const hasManifestFileNameColumn = assetColumns.some(
@@ -1130,9 +1137,14 @@ function inferLegacyManifestFileName(sourceJson: string, fileName: string): stri
     const segments = path.split("/").filter(Boolean);
     const candidate = segments.at(-1);
     if (!candidate) {
+      // No path segment means we cannot prove file_name was derived from the URL, so preserve the
+      // stored value as the safest backfill for the explicit manifest filename column.
       return fileName;
     }
 
+    // Legacy caches only stored the normalized file_name. If it still matches the source URL path,
+    // the manifest likely omitted fileName and we should keep manifest_file_name unset. Otherwise
+    // treat the stored file_name as an explicit manifest value and backfill it.
     return decodeURIComponent(candidate) === fileName ? null : fileName;
   } catch {
     return fileName;

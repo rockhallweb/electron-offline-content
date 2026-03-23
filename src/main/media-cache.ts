@@ -477,7 +477,7 @@ export class MediaCache implements MediaCacheMain {
           continue;
         }
 
-        if (!this.devPassthrough && canReuseActiveBlob) {
+        if (canReuseActiveBlob) {
           const currentVersion = getResolvedVersionFromPath(activeRelativePath);
           if (currentVersion === nextVersion) {
             this.db!.setAssetDownloadState(
