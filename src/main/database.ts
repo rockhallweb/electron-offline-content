@@ -951,11 +951,16 @@ export class MediaCacheDatabase {
         throw error;
       }
     } else {
-      this.db.exec(`
-        UPDATE assets
-        SET resolved_request_json = source_json
-        WHERE resolved_request_json IS NULL
-      `);
+      const nullCount = (
+        this.db.prepare(`SELECT COUNT(*) AS n FROM assets WHERE resolved_request_json IS NULL`).get() as { n: number }
+      ).n;
+      if (nullCount > 0) {
+        this.db.exec(`
+          UPDATE assets
+          SET resolved_request_json = source_json
+          WHERE resolved_request_json IS NULL
+        `);
+      }
     }
 
     const hasManifestMimeTypeColumn = assetColumns.some(
@@ -1149,12 +1154,16 @@ function resolveAssetBaseUrl(
     return source.url;
   }
 
-  const origin = new URL(assetBaseUrlOrigin);
-  const resolved = new URL(source.url);
-  resolved.protocol = origin.protocol;
-  resolved.hostname = origin.hostname;
-  resolved.port = origin.port;
-  return resolved.toString();
+  try {
+    const origin = new URL(assetBaseUrlOrigin);
+    const resolved = new URL(source.url);
+    resolved.protocol = origin.protocol;
+    resolved.hostname = origin.hostname;
+    resolved.port = origin.port;
+    return resolved.toString();
+  } catch {
+    return source.url;
+  }
 }
 
 function createLogicalKey(...parts: string[]): string {

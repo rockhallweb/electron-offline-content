@@ -440,38 +440,26 @@ describe("media cache sync and queries", () => {
   });
 
   it("lets explicit devPassthrough override the default", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
+    const passthroughCache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: true,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
 
-    try {
-      process.env.NODE_ENV = "production";
-      const passthroughCache = new RawMediaCache({
-        storageRoot: createStorageRoot(),
-        devPassthrough: true,
-        onSyncFailure: "throw",
-        resolveManifest: () => manifests,
-      });
+    await passthroughCache.start();
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
 
-      await passthroughCache.start();
-      expect(requestCounts["/main.mp4"]).toBeUndefined();
+    requestCounts = {};
+    const offlineCache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: false,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
 
-      requestCounts = {};
-      process.env.NODE_ENV = "test";
-      const offlineCache = new RawMediaCache({
-        storageRoot: createStorageRoot(),
-        devPassthrough: false,
-        onSyncFailure: "throw",
-        resolveManifest: () => manifests,
-      });
-
-      await offlineCache.start();
-      expect(requestCounts["/main.mp4"]).toBe(1);
-    } finally {
-      if (originalNodeEnv === undefined) {
-        delete process.env.NODE_ENV;
-      } else {
-        process.env.NODE_ENV = originalNodeEnv;
-      }
-    }
+    await offlineCache.start();
+    expect(requestCounts["/main.mp4"]).toBe(1);
   });
 
   it("commits metadata without downloading assets when passthrough is enabled", async () => {

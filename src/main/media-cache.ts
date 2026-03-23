@@ -143,8 +143,8 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
-    this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
     this.devPassthrough = options.devPassthrough ?? false;
+    this.assetBaseUrlOrigin = this.devPassthrough ? normalizeAssetBaseUrl(options.assetBaseUrl) : null;
     this.status = {
       phase: "idle",
       activeGenerationId: null,
