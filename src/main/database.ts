@@ -952,7 +952,9 @@ export class MediaCacheDatabase {
       }
     } else {
       const nullCount = (
-        this.db.prepare(`SELECT COUNT(*) AS n FROM assets WHERE resolved_request_json IS NULL`).get() as { n: number }
+        this.db
+          .prepare(`SELECT COUNT(*) AS n FROM assets WHERE resolved_request_json IS NULL`)
+          .get() as { n: number }
       ).n;
       if (nullCount > 0) {
         this.db.exec(`
