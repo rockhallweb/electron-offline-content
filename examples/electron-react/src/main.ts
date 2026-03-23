@@ -139,7 +139,7 @@ async function bootstrap() {
 
   const mediaCache = createMediaCache({
     storageRoot,
-    devPassthrough: selectedDevPassthrough,
+    devPassthrough: effectiveDevPassthrough,
     assetBaseUrl: selectedAssetBaseUrl,
     logLevel: selectedLogLevel,
     onLog: (entry) => {

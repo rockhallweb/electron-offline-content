@@ -77,6 +77,7 @@ export interface SyncRunStats {
 
 export class MediaCacheDatabase {
   private readonly db: import("node:sqlite").DatabaseSync;
+  private closed = false;
 
   constructor(
     private readonly root: string,
@@ -95,10 +96,21 @@ export class MediaCacheDatabase {
   }
 
   close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
     this.db.close();
   }
 
+  private assertNotClosed(): void {
+    if (this.closed) {
+      throw new Error("MediaCacheDatabase is closed");
+    }
+  }
+
   clearAllState(): void {
+    this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM pending_deletions`).run();
@@ -117,6 +129,7 @@ export class MediaCacheDatabase {
   }
 
   loadStatus(): MediaCacheStatus | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT status_json
@@ -137,6 +150,7 @@ export class MediaCacheDatabase {
   }
 
   saveStatus(status: MediaCacheStatus, now: number): void {
+    this.assertNotClosed();
     const statusJson = stringifyWithSchema(status, mediaCacheStatusSchema, "media cache status");
     this.db.exec("BEGIN");
     try {
@@ -160,6 +174,7 @@ export class MediaCacheDatabase {
   }
 
   createSyncRun(now: number): number {
+    this.assertNotClosed();
     const statsJson = stringifyWithSchema(emptyStats(), syncRunStatsSchema, "sync run stats");
     const result = this.db
       .prepare(
@@ -178,6 +193,7 @@ export class MediaCacheDatabase {
     errorCode: string | null = null,
     errorMessage: string | null = null,
   ): SyncRunSummary {
+    this.assertNotClosed();
     const statsJson = stringifyWithSchema(stats, syncRunStatsSchema, "sync run stats");
     this.db
       .prepare(
@@ -191,6 +207,7 @@ export class MediaCacheDatabase {
   }
 
   getSyncRun(id: number): SyncRunSummary | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT id, started_at_ms, finished_at_ms, status, error_code, error_message, stats_json
@@ -220,28 +237,41 @@ export class MediaCacheDatabase {
   }
 
   pruneSyncHistory(limit: number): void {
-    const rows = parseWithSchema(
-      syncRunIdRowSchema.array(),
-      this.db
-        .prepare(
-          `SELECT id
-           FROM sync_runs
-           ORDER BY started_at_ms DESC
-           LIMIT -1 OFFSET ?`,
-        )
-        .all(limit),
-      "sync run history rows",
-    );
-    if (rows.length === 0) {
+    this.assertNotClosed();
+    if (limit < 1) {
       return;
     }
+    this.db.exec("BEGIN");
+    try {
+      const rows = parseWithSchema(
+        syncRunIdRowSchema.array(),
+        this.db
+          .prepare(
+            `SELECT id
+             FROM sync_runs
+             ORDER BY started_at_ms DESC
+             LIMIT -1 OFFSET ?`,
+          )
+          .all(limit),
+        "sync run history rows",
+      );
+      if (rows.length === 0) {
+        this.db.exec("COMMIT");
+        return;
+      }
 
-    const ids = rows.map((row) => row.id);
-    const placeholders = ids.map(() => "?").join(", ");
-    this.db.prepare(`DELETE FROM sync_runs WHERE id IN (${placeholders})`).run(...ids);
+      const ids = rows.map((row) => row.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      this.db.prepare(`DELETE FROM sync_runs WHERE id IN (${placeholders})`).run(...ids);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   getActiveGenerationId(): number | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT generation_id
@@ -255,6 +285,7 @@ export class MediaCacheDatabase {
   }
 
   createStagedGeneration(manifest: NormalizedManifest, now: number): number {
+    this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       const generationInsert = this.db
@@ -377,6 +408,7 @@ export class MediaCacheDatabase {
   }
 
   deleteGeneration(generationId: number): void {
+    this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM assets WHERE generation_id = ?`).run(generationId);
@@ -399,6 +431,7 @@ export class MediaCacheDatabase {
     assetId: string,
     relativePath: string,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `UPDATE assets
@@ -416,6 +449,7 @@ export class MediaCacheDatabase {
     relativePath: string,
     fallbackMimeType: string | null,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `UPDATE assets
@@ -428,6 +462,7 @@ export class MediaCacheDatabase {
   }
 
   getGenerationAssets(generationId: number): ActiveAssetRow[] {
+    this.assertNotClosed();
     return parseWithSchema(
       activeAssetRowSchema.array(),
       this.db
@@ -471,6 +506,7 @@ export class MediaCacheDatabase {
   }
 
   activateGeneration(generationId: number, now: number): number | null {
+    this.assertNotClosed();
     const previousActive = this.getActiveGenerationId();
 
     this.db.exec("BEGIN");
@@ -500,6 +536,7 @@ export class MediaCacheDatabase {
   }
 
   clearPendingDeletionsForGeneration(generationId: number): void {
+    this.assertNotClosed();
     const activeRelativePaths = this.getGenerationAssets(generationId).flatMap((row) =>
       row.relativePath ? [row.relativePath] : [],
     );
@@ -515,6 +552,7 @@ export class MediaCacheDatabase {
     generationId: number,
     deleteAfterMs: number,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `INSERT INTO pending_deletions (
@@ -540,6 +578,7 @@ export class MediaCacheDatabase {
   }
 
   getExpiredPendingDeletions(now: number): PendingDeletion[] {
+    this.assertNotClosed();
     return parseWithSchema(
       pendingDeletionSchema.array(),
       this.db
@@ -554,6 +593,7 @@ export class MediaCacheDatabase {
   }
 
   deletePendingDeletions(deletionKeys: string[]): void {
+    this.assertNotClosed();
     if (deletionKeys.length === 0) {
       return;
     }
@@ -565,6 +605,7 @@ export class MediaCacheDatabase {
   }
 
   deletePendingDeletionsByRelativePath(relativePaths: string[]): void {
+    this.assertNotClosed();
     if (relativePaths.length === 0) {
       return;
     }
@@ -580,6 +621,7 @@ export class MediaCacheDatabase {
     itemId: string,
     assetId: string,
   ): ProtocolAssetTarget | null {
+    this.assertNotClosed();
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
       return null;
@@ -607,6 +649,7 @@ export class MediaCacheDatabase {
     namespace: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("exact", namespace);
     return paginateArray(this.buildResolvedItems(rows), pagination);
@@ -616,12 +659,14 @@ export class MediaCacheDatabase {
     prefix: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("tree", prefix);
     return paginateArray(this.buildResolvedItems(rows), pagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
+    this.assertNotClosed();
     const rows = this.getResolvedRows("item", namespace, id);
     const items = this.buildResolvedItems(rows);
     return items[0] ?? null;
@@ -632,6 +677,7 @@ export class MediaCacheDatabase {
     namespace: string | undefined,
     pagination?: PaginationInput,
   ): PaginationResult<FileStemMatch> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
 
     const activeGeneration = this.getActiveGenerationId();
@@ -935,216 +981,6 @@ export class MediaCacheDatabase {
         PRIMARY KEY (scope_type, scope_key)
       );
     `);
-
-    const assetColumns = this.db.prepare(`PRAGMA table_info(assets)`).all() as Array<{
-      name?: unknown;
-    }>;
-    const hasResolvedRequestColumn = assetColumns.some(
-      (column) => column.name === "resolved_request_json",
-    );
-    if (!hasResolvedRequestColumn) {
-      this.db.exec("BEGIN");
-      try {
-        this.db.exec(`ALTER TABLE assets ADD COLUMN resolved_request_json TEXT;`);
-        this.db.exec(`
-          UPDATE assets
-          SET resolved_request_json = source_json
-          WHERE resolved_request_json IS NULL
-        `);
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-    } else {
-      const nullCount = (
-        this.db
-          .prepare(`SELECT COUNT(*) AS n FROM assets WHERE resolved_request_json IS NULL`)
-          .get() as { n: number }
-      ).n;
-      if (nullCount > 0) {
-        this.db.exec(`
-          UPDATE assets
-          SET resolved_request_json = source_json
-          WHERE resolved_request_json IS NULL
-        `);
-      }
-    }
-
-    const hasManifestMimeTypeColumn = assetColumns.some(
-      (column) => column.name === "manifest_mime_type",
-    );
-    if (!hasManifestMimeTypeColumn) {
-      this.db.exec("BEGIN");
-      try {
-        this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_mime_type TEXT;`);
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-    }
-
-    const hasManifestFileNameColumn = assetColumns.some(
-      (column) => column.name === "manifest_file_name",
-    );
-    if (!hasManifestFileNameColumn) {
-      this.db.exec("BEGIN");
-      try {
-        this.db.exec(`ALTER TABLE assets ADD COLUMN manifest_file_name TEXT;`);
-        const legacyRows = this.db
-          .prepare(
-            `SELECT generation_id, namespace_key, item_id, asset_id, file_name, source_json
-           FROM assets`,
-          )
-          .all() as Array<{
-          generation_id: number;
-          namespace_key: string;
-          item_id: string;
-          asset_id: string;
-          file_name: string;
-          source_json: string;
-        }>;
-        const updateManifestFileName = this.db.prepare(
-          `UPDATE assets
-           SET manifest_file_name = ?
-           WHERE generation_id = ?
-             AND namespace_key = ?
-             AND item_id = ?
-             AND asset_id = ?`,
-        );
-
-        for (const row of legacyRows) {
-          const manifestFileName = inferLegacyManifestFileName(row.source_json, row.file_name);
-          if (manifestFileName === null) {
-            continue;
-          }
-
-          updateManifestFileName.run(
-            manifestFileName,
-            row.generation_id,
-            row.namespace_key,
-            row.item_id,
-            row.asset_id,
-          );
-        }
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-    }
-
-    const hasPreciseManifestFieldsColumn = assetColumns.some(
-      (column) => column.name === "has_precise_manifest_fields",
-    );
-    if (!hasPreciseManifestFieldsColumn) {
-      this.db.exec("BEGIN");
-      try {
-        this.db.exec(
-          `ALTER TABLE assets ADD COLUMN has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1;`,
-        );
-        this.db.exec(`
-          UPDATE assets
-          SET has_precise_manifest_fields = 0
-        `);
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-    }
-
-    const pendingDeletionColumns = this.db
-      .prepare(`PRAGMA table_info(pending_deletions)`)
-      .all() as Array<{ name?: unknown }>;
-    const hasDeletionKeyColumn = pendingDeletionColumns.some(
-      (column) => column.name === "deletion_key",
-    );
-    if (!hasDeletionKeyColumn) {
-      const legacyRows = this.db
-        .prepare(
-          `SELECT
-           logical_key AS logicalKey,
-           namespace_key AS namespaceKey,
-           item_id AS itemId,
-           asset_id AS assetId,
-           relative_path AS relativePath,
-           generation_id AS generationId,
-           delete_after_ms AS deleteAfterMs
-         FROM pending_deletions`,
-        )
-        .all() as Array<{
-        logicalKey: string;
-        namespaceKey: string;
-        itemId: string;
-        assetId: string;
-        relativePath: string;
-        generationId: number;
-        deleteAfterMs: number;
-      }>;
-
-      this.db.exec("BEGIN");
-      try {
-        this.db.exec(`
-          CREATE TABLE pending_deletions_next (
-            deletion_key TEXT PRIMARY KEY,
-            logical_key TEXT NOT NULL,
-            namespace_key TEXT NOT NULL,
-            item_id TEXT NOT NULL,
-            asset_id TEXT NOT NULL,
-            relative_path TEXT NOT NULL,
-            generation_id INTEGER NOT NULL,
-            delete_after_ms INTEGER NOT NULL
-          );
-        `);
-        const insertStmt = this.db.prepare(
-          `INSERT INTO pending_deletions_next (
-            deletion_key, logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        );
-        for (const row of legacyRows) {
-          insertStmt.run(
-            createPendingDeletionKey(row.logicalKey, row.relativePath),
-            row.logicalKey,
-            row.namespaceKey,
-            row.itemId,
-            row.assetId,
-            row.relativePath,
-            row.generationId,
-            row.deleteAfterMs,
-          );
-        }
-        this.db.exec(`DROP TABLE pending_deletions;`);
-        this.db.exec(`ALTER TABLE pending_deletions_next RENAME TO pending_deletions;`);
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-    }
-  }
-}
-
-function inferLegacyManifestFileName(sourceJson: string, fileName: string): string | null {
-  try {
-    const source = parseJsonWithSchema(sourceJson, downloadRequestSchema, "legacy asset source");
-    const parsed = new URL(source.url);
-    const path = parsed.pathname ?? "";
-    const segments = path.split("/").filter(Boolean);
-    const candidate = segments.at(-1);
-    if (!candidate) {
-      // No path segment means we cannot prove file_name was derived from the URL, so preserve the
-      // stored value as the safest backfill for the explicit manifest filename column.
-      return fileName;
-    }
-
-    // Legacy caches only stored the normalized file_name. If it still matches the source URL path,
-    // the manifest likely omitted fileName and we should keep manifest_file_name unset. Otherwise
-    // treat the stored file_name as an explicit manifest value and backfill it.
-    return decodeURIComponent(candidate) === fileName ? null : fileName;
-  } catch {
-    return fileName;
   }
 }
 

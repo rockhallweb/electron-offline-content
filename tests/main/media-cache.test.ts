@@ -560,6 +560,54 @@ describe("media cache sync and queries", () => {
     expect(item?.assets[0]?.url).toBe("https://assets.example.test/main.mp4?token=abc123");
   });
 
+  it("emits resolve_asset_base_url_fallback and returns source URL when asset URL cannot be parsed in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const logs: MediaCacheLogEvent[] = [];
+    const invalidUrlManifest: ManifestInput = {
+      snapshotId: "invalid-url-fallback",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "video.mp4",
+                  source: {
+                    url: "not-a-valid-url",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      assetBaseUrl: "https://assets.example.test",
+      logLevel: "debug",
+      onLog: (entry) => {
+        logs.push(entry);
+      },
+      resolveManifest: () => invalidUrlManifest,
+    });
+
+    await cache.start();
+    const item = await cache.getItem("nature", "forest");
+
+    expect(item?.assets[0]?.url).toBe("not-a-valid-url");
+    expect(logs.some((e) => e.event === "resolve_asset_base_url_fallback")).toBe(true);
+  });
+
   it("does not call resolveAssetRequest in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     let resolveCalls = 0;
@@ -1120,9 +1168,9 @@ describe("media cache sync and queries", () => {
     await expect(
       (
         cache as unknown as {
-          ensureFileSpaceCommit(tempPath: string): Promise<void>;
+          ensureFileSpaceCommit(): Promise<void>;
         }
-      ).ensureFileSpaceCommit(partialPath),
+      ).ensureFileSpaceCommit(),
     ).resolves.toBeUndefined();
   });
 
