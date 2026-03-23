@@ -422,81 +422,21 @@ describe("media cache sync and queries", () => {
     expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
   });
 
-  it("disables passthrough by default when NODE_ENV is explicitly non-production", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
+  it("disables passthrough by default when devPassthrough is not set", async () => {
+    requestCounts = {};
+    const cache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
 
-    try {
-      requestCounts = {};
-      process.env.NODE_ENV = "test";
+    await cache.start();
 
-      const cache = new RawMediaCache({
-        storageRoot: createStorageRoot(),
-        onSyncFailure: "throw",
-        resolveManifest: () => manifests,
-      });
-
-      await cache.start();
-
-      expect(requestCounts["/main.mp4"]).toBe(1);
-      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
-        "media://asset/nature/forest/main",
-      );
-      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
-    } finally {
-      if (originalNodeEnv === undefined) {
-        delete process.env.NODE_ENV;
-      } else {
-        process.env.NODE_ENV = originalNodeEnv;
-      }
-    }
-  });
-
-  it("disables passthrough by default when NODE_ENV is production", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-
-    try {
-      process.env.NODE_ENV = "production";
-      const cache = new RawMediaCache({
-        storageRoot: createStorageRoot(),
-        onSyncFailure: "throw",
-        resolveManifest: () => manifests,
-      });
-
-      await cache.start();
-
-      expect(requestCounts["/main.mp4"]).toBe(1);
-      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
-    } finally {
-      if (originalNodeEnv === undefined) {
-        delete process.env.NODE_ENV;
-      } else {
-        process.env.NODE_ENV = originalNodeEnv;
-      }
-    }
-  });
-
-  it("disables passthrough by default when NODE_ENV is unset", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-
-    try {
-      delete process.env.NODE_ENV;
-      const cache = new RawMediaCache({
-        storageRoot: createStorageRoot(),
-        onSyncFailure: "throw",
-        resolveManifest: () => manifests,
-      });
-
-      await cache.start();
-
-      expect(requestCounts["/main.mp4"]).toBe(1);
-      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
-    } finally {
-      if (originalNodeEnv === undefined) {
-        delete process.env.NODE_ENV;
-      } else {
-        process.env.NODE_ENV = originalNodeEnv;
-      }
-    }
+    expect(requestCounts["/main.mp4"]).toBe(1);
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+      "media://asset/nature/forest/main",
+    );
+    expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
   });
 
   it("lets explicit devPassthrough override the default", async () => {

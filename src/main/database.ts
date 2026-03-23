@@ -403,22 +403,6 @@ export class MediaCacheDatabase {
       .run(relativePath, generationId, namespace, itemId, assetId);
   }
 
-  setAssetMimeType(
-    generationId: number,
-    namespace: string,
-    itemId: string,
-    assetId: string,
-    fallbackMimeType: string,
-  ): void {
-    this.db
-      .prepare(
-        `UPDATE assets
-         SET mime_type = COALESCE(mime_type, ?)
-         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
-      )
-      .run(fallbackMimeType, generationId, namespace, itemId, assetId);
-  }
-
   setAssetDownloadState(
     generationId: number,
     namespace: string,
