@@ -424,6 +424,8 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private prepareDevRuntimeState(): void {
+    // Wipe happens before resolveManifest; if manifest resolution later throws, blobs are
+    // already gone. Deferring the wipe until after staging would require a broader restructure.
     this.emitLog("warn", "dev_passthrough_clearing_state", {
       storage_root: this.storageRoot,
       reason: "devPassthrough=true clears all local state on startup",

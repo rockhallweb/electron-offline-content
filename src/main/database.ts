@@ -14,7 +14,6 @@ import type { NormalizedManifest } from "../shared/normalize.js";
 import {
   activeAssetRowSchema,
   activeGenerationRowSchema,
-  downloadRequestSchema,
   fileStemRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
@@ -109,6 +108,7 @@ export class MediaCacheDatabase {
     }
   }
 
+  /** @internal Used only by prepareDevRuntimeState in dev passthrough startup. */
   clearAllState(): void {
     this.assertNotClosed();
     this.db.exec("BEGIN");
@@ -376,9 +376,9 @@ export class MediaCacheDatabase {
               asset.kind,
               asset.resolvedVersion,
               asset.version ?? null,
-              asset.mimeType ?? null,
+              asset.mimeType ?? null, // manifest_mime_type: preserve original manifest value
               asset.fileName ?? null,
-              asset.mimeType ?? null,
+              asset.mimeType ?? null, // mime_type: effective value, may be overridden after download
               asset.normalizedFileName,
               asset.normalizedFileStem,
               asset.byteLength ?? null,
@@ -994,14 +994,29 @@ function resolveAssetBaseUrl(
   contextLabel: string,
   onWarn?: (contextLabel: string, err: unknown) => void,
 ): string {
-  const source = parseJsonWithSchema(sourceJson, downloadRequestSchema, contextLabel);
+  let url: string;
+  try {
+    const parsed = JSON.parse(sourceJson) as { url?: string };
+    if (typeof parsed?.url !== "string" || !parsed.url) {
+      throw new Error("source_json missing url");
+    }
+    url = parsed.url;
+  } catch (err) {
+    if (onWarn) {
+      onWarn(contextLabel, err);
+    } else {
+      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
+    }
+    throw err;
+  }
+
   if (!assetBaseUrlOrigin) {
-    return source.url;
+    return url;
   }
 
   try {
     const origin = new URL(assetBaseUrlOrigin);
-    const resolved = new URL(source.url);
+    const resolved = new URL(url);
     resolved.protocol = origin.protocol;
     resolved.hostname = origin.hostname;
     // normalizeAssetBaseUrl stores parsed.origin, which strips explicit default ports (e.g. :443).
@@ -1013,7 +1028,7 @@ function resolveAssetBaseUrl(
     } else {
       consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
     }
-    return source.url;
+    return url;
   }
 }
 
