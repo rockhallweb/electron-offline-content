@@ -272,9 +272,11 @@ export class MediaCache implements MediaCacheMain {
       let itemId: string;
       let assetId: string;
       try {
-        [namespace, itemId, assetId] = parts.map((part) =>
-          decodeURIComponent(part),
-        ) as [string, string, string];
+        [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part)) as [
+          string,
+          string,
+          string,
+        ];
       } catch {
         return new Response("Not found", { status: 404 });
       }

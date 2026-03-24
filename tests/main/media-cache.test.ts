@@ -2008,8 +2008,7 @@ describe("media cache sync and queries", () => {
     });
     await cache.start();
     const handler = await createProtocolHandler(cache, {
-      fetchFile: async (_request, filePath) =>
-        new Response(readFileSync(filePath, "utf8")),
+      fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, "utf8")),
     });
 
     const malformed = await handler(new Request("media://asset/foo%GG/bar/main"));
