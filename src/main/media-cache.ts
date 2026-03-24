@@ -46,6 +46,7 @@ import {
   stringInputSchema,
 } from "../internal/validation.js";
 import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
+import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -125,6 +126,8 @@ export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
 export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
+  private readonly devPassthrough: boolean;
+  private readonly assetBaseUrlOrigin: string | null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -141,6 +144,28 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
+    this.devPassthrough = options.devPassthrough ?? false;
+    if (this.devPassthrough) {
+      this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
+    } else {
+      if (options.assetBaseUrl) {
+        throw new Error(
+          "assetBaseUrl has no effect when devPassthrough is false. " +
+            "Set devPassthrough: true or remove assetBaseUrl.",
+        );
+      }
+      this.assetBaseUrlOrigin = null;
+    }
+    if (
+      this.devPassthrough &&
+      this.options.onSyncFailure &&
+      this.options.onSyncFailure !== "throw"
+    ) {
+      // Only emitted when onLog is configured; overridden setting applies regardless.
+      this.emitLog("warn", "dev_passthrough_ignores_sync_failure_mode", {
+        configured_mode: this.options.onSyncFailure,
+      });
+    }
     this.status = {
       phase: "idle",
       activeGenerationId: null,
@@ -243,11 +268,23 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      const [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part));
-      const absolutePath = this.db!.getAssetAbsolutePath(namespace, itemId, assetId);
+      let namespace: string;
+      let itemId: string;
+      let assetId: string;
+      try {
+        [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part)) as [
+          string,
+          string,
+          string,
+        ];
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
 
-      if (!absolutePath || !existsSync(absolutePath)) {
-        this.emitLog("debug", "protocol_request_missing", {
+      const target = this.db!.getProtocolAssetTarget(namespace, itemId, assetId);
+
+      if (!target) {
+        this.emitLog("debug", "protocol_request_not_found", {
           namespace,
           item_id: itemId,
           asset_id: assetId,
@@ -256,14 +293,24 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      this.emitLog("debug", "protocol_request_resolved", {
+      if (!target.absolutePath || !existsSync(target.absolutePath)) {
+        this.emitLog("debug", "protocol_request_file_missing", {
+          namespace,
+          item_id: itemId,
+          asset_id: assetId,
+          method: request.method,
+        });
+        return new Response("Not found", { status: 404 });
+      }
+
+      this.emitLog("debug", "protocol_request_local_resolved", {
         namespace,
         item_id: itemId,
         asset_id: assetId,
         method: request.method,
         range: request.headers.get("range"),
       });
-      return fetchFile(request, absolutePath);
+      return fetchFile(request, target.absolutePath);
     });
 
     this.protocolRegistered = true;
@@ -323,37 +370,80 @@ export class MediaCache implements MediaCacheMain {
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 
-    this.db = new MediaCacheDatabase(this.storageRoot);
+    this.db = new MediaCacheDatabase(this.storageRoot, {
+      devPassthrough: this.devPassthrough,
+      assetBaseUrlOrigin: this.assetBaseUrlOrigin,
+      onWarn: (contextLabel, err) => {
+        if (this.options.onLog) {
+          this.emitLog("warn", "resolve_asset_base_url_fallback", {
+            context_label: contextLabel,
+            error: err != null ? String(err) : undefined,
+          });
+        } else {
+          consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
+        }
+      },
+    });
+    if (this.devPassthrough) {
+      this.prepareDevRuntimeState();
+    }
     let storedStatus: MediaCacheStatus | null = null;
-    try {
-      storedStatus = this.db.loadStatus();
-    } catch (error) {
-      if (!(error instanceof DataValidationError)) {
-        throw error;
-      }
+    let activeGenerationId: number | null = null;
+    if (!this.devPassthrough) {
+      try {
+        storedStatus = this.db.loadStatus();
+      } catch (error) {
+        if (!(error instanceof DataValidationError)) {
+          throw error;
+        }
 
-      this.emitLog("warn", "status_snapshot_invalid", {
-        error_code: error.code,
-        error_message: error.message,
-      });
+        this.emitLog("warn", "status_snapshot_invalid", {
+          error_code: error.code,
+          error_message: error.message,
+        });
+      }
+      activeGenerationId = this.db.getActiveGenerationId();
+      if (storedStatus) {
+        this.status = storedStatus;
+      } else if (activeGenerationId !== null) {
+        this.status = {
+          ...this.status,
+          phase: "ready",
+          activeGenerationId,
+          progress: null,
+          error: null,
+        };
+      }
+      this.status.activeGenerationId = activeGenerationId;
     }
-    const activeGenerationId = this.db.getActiveGenerationId();
-    if (storedStatus) {
-      this.status = storedStatus;
-    } else if (activeGenerationId !== null) {
-      this.status = {
-        ...this.status,
-        phase: "ready",
-        activeGenerationId,
-        progress: null,
-        error: null,
-      };
-    }
-    this.status.activeGenerationId = activeGenerationId;
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
+      dev_passthrough_enabled: this.devPassthrough,
     });
+  }
+
+  private prepareDevRuntimeState(): void {
+    // Wipe happens before resolveManifest; if manifest resolution later throws, blobs are
+    // already gone. Deferring the wipe until after staging would require a broader restructure.
+    this.emitLog("warn", "dev_passthrough_clearing_state", {
+      storage_root: this.storageRoot,
+      reason: "devPassthrough=true clears all local state on startup",
+    });
+    this.db!.clearAllState();
+    rmSync(join(this.storageRoot!, "blobs"), { recursive: true, force: true });
+    rmSync(join(this.storageRoot!, "temp"), { recursive: true, force: true });
+    mkdirSync(join(this.storageRoot!, "blobs"), { recursive: true });
+    mkdirSync(join(this.storageRoot!, "temp"), { recursive: true });
+    this.status = {
+      ...this.status,
+      phase: "idle",
+      activeGenerationId: null,
+      progress: null,
+      lastRun: null,
+      error: null,
+      updatedAt: this.deps.now(),
+    };
   }
 
   private async runSync(): Promise<void> {
@@ -426,20 +516,26 @@ export class MediaCache implements MediaCacheMain {
       for (const row of stagedAssets) {
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
         const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
-        if (
-          activeRow?.relativePath &&
-          existsSync(join(this.storageRoot!, activeRow.relativePath))
-        ) {
-          const currentVersion = getResolvedVersionFromPath(activeRow.relativePath);
-          const nextVersion = manifestAsset.asset.resolvedVersion;
+        const activeRelativePath = activeRow?.relativePath ?? null;
+        const nextVersion = manifestAsset.asset.resolvedVersion;
+        const canReuseActiveBlob =
+          activeRelativePath !== null && existsSync(join(this.storageRoot!, activeRelativePath));
+
+        if (this.devPassthrough) {
+          stats.skippedAssets += 1;
+          continue;
+        }
+
+        if (canReuseActiveBlob) {
+          const currentVersion = getResolvedVersionFromPath(activeRelativePath);
           if (currentVersion === nextVersion) {
             this.db!.setAssetDownloadState(
               stagedGenerationId,
               row.namespace,
               row.itemId,
               row.assetId,
-              activeRow.relativePath,
-              activeRow.mimeType,
+              activeRelativePath,
+              activeRow?.mimeType ?? null,
             );
             stats.skippedAssets += 1;
             continue;
@@ -452,6 +548,7 @@ export class MediaCache implements MediaCacheMain {
           row.itemId,
           row.assetId,
         );
+
         downloads.push({
           namespace: row.namespace,
           itemId: row.itemId,
@@ -468,61 +565,70 @@ export class MediaCache implements MediaCacheMain {
         total_assets: stagedAssets.length,
         download_count: downloads.length,
         skipped_assets: stats.skippedAssets,
+        dev_passthrough_enabled: this.devPassthrough,
       });
 
-      this.cleanupObsoletePartialDownloads(downloads);
       await this.pruneExpiredDeletions();
-      await this.enforceStorageLimits(downloads);
+      this.cleanupObsoletePartialDownloads(downloads);
+      if (!this.devPassthrough) {
+        await this.enforceStorageLimits(downloads);
 
-      this.updateProgress((progress) => ({
-        ...progress,
-        phase: "downloading",
-        totalAssets: stagedAssets.length,
-        completedAssets: stats.skippedAssets,
-        skippedAssets: stats.skippedAssets,
-      }));
-
-      for (const download of downloads) {
-        this.emitLog("debug", "asset_download_started", {
-          run_id: runId,
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
-          resolved_version: download.resolvedVersion,
-          url: download.request.url,
-        });
-        const { relativePath, fallbackMimeType } = await this.downloadAsset(
-          download,
-          (chunkBytes) => {
-            stats.bytesDownloaded += chunkBytes;
-            this.updateProgress((progress) => ({
-              ...progress,
-              bytesDownloaded: stats.bytesDownloaded,
-            }));
-          },
-        );
-        this.db!.setAssetDownloadState(
-          stagedGenerationId,
-          download.namespace,
-          download.itemId,
-          download.assetId,
-          relativePath,
-          fallbackMimeType,
-        );
-        stats.downloadedAssets += 1;
-        this.emitLog("debug", "asset_download_completed", {
-          run_id: runId,
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
-          relative_path: relativePath,
-        });
         this.updateProgress((progress) => ({
           ...progress,
-          completedAssets: stats.downloadedAssets + stats.skippedAssets,
-          downloadedAssets: stats.downloadedAssets,
+          phase: "downloading",
+          totalAssets: stagedAssets.length,
+          completedAssets: stats.skippedAssets,
           skippedAssets: stats.skippedAssets,
-          bytesDownloaded: stats.bytesDownloaded,
+        }));
+
+        for (const download of downloads) {
+          this.emitLog("debug", "asset_download_started", {
+            run_id: runId,
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            resolved_version: download.resolvedVersion,
+            url: download.request.url,
+          });
+          const { relativePath, fallbackMimeType } = await this.downloadAsset(
+            download,
+            (chunkBytes) => {
+              stats.bytesDownloaded += chunkBytes;
+              this.updateProgress((progress) => ({
+                ...progress,
+                bytesDownloaded: stats.bytesDownloaded,
+              }));
+            },
+          );
+          this.db!.setAssetDownloadState(
+            stagedGenerationId,
+            download.namespace,
+            download.itemId,
+            download.assetId,
+            relativePath,
+            fallbackMimeType,
+          );
+          stats.downloadedAssets += 1;
+          this.emitLog("debug", "asset_download_completed", {
+            run_id: runId,
+            namespace: download.namespace,
+            item_id: download.itemId,
+            asset_id: download.assetId,
+            relative_path: relativePath,
+          });
+          this.updateProgress((progress) => ({
+            ...progress,
+            completedAssets: stats.downloadedAssets + stats.skippedAssets,
+            downloadedAssets: stats.downloadedAssets,
+            skippedAssets: stats.skippedAssets,
+            bytesDownloaded: stats.bytesDownloaded,
+          }));
+        }
+      } else {
+        this.updateProgress((progress) => ({
+          ...progress,
+          completedAssets: stagedAssets.length,
+          skippedAssets: stagedAssets.length,
         }));
       }
 
@@ -593,7 +699,7 @@ export class MediaCache implements MediaCacheMain {
 
       this.updateStatus({
         phase:
-          this.options.onSyncFailure === "throw"
+          this.devPassthrough || this.options.onSyncFailure === "throw"
             ? "error"
             : this.db!.getActiveGenerationId()
               ? "ready"
@@ -604,7 +710,7 @@ export class MediaCache implements MediaCacheMain {
         error: serialized,
       });
 
-      if (this.options.onSyncFailure === "throw") {
+      if (this.devPassthrough || this.options.onSyncFailure === "throw") {
         throw error;
       }
     }
@@ -933,10 +1039,11 @@ export class MediaCache implements MediaCacheMain {
     stagedGenerationId: number,
   ): void {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
-    const nextAssets = new Set(
-      this.db!.getGenerationAssets(stagedGenerationId).map((row) =>
+    const nextAssets = new Map(
+      this.db!.getGenerationAssets(stagedGenerationId).map((row) => [
         logicalKey(row.namespace, row.itemId, row.assetId),
-      ),
+        row.relativePath,
+      ]),
     );
     const deleteAfterMs =
       this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
@@ -944,7 +1051,8 @@ export class MediaCache implements MediaCacheMain {
     let markedCount = 0;
     for (const row of previousAssets) {
       const key = logicalKey(row.namespace, row.itemId, row.assetId);
-      if (!nextAssets.has(key) && row.relativePath) {
+      const nextRelativePath = nextAssets.get(key);
+      if (row.relativePath && nextRelativePath !== row.relativePath) {
         this.db!.markPendingDeletion(
           key,
           row.namespace,
@@ -978,7 +1086,7 @@ export class MediaCache implements MediaCacheMain {
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
 
-    this.db!.deletePendingDeletions(expired.map((item) => item.logicalKey));
+    this.db!.deletePendingDeletions(expired.map((item) => item.deletionKey));
     this.emitLog("debug", "assets_pruned", { pruned_count: expired.length });
   }
 
@@ -1062,6 +1170,30 @@ function normalizeStorageRoot(storageRoot: string | undefined): string | null {
   }
 
   return storageRoot.trim().length > 0 ? storageRoot : null;
+}
+
+function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
+  if (!assetBaseUrl) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(assetBaseUrl);
+  } catch {
+    throw new Error(`assetBaseUrl is not a valid URL: "${assetBaseUrl}"`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("assetBaseUrl must not include credentials.");
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("assetBaseUrl must not include a query string or hash fragment.");
+  }
+  if (parsed.pathname !== "/" && parsed.pathname !== "") {
+    throw new Error("assetBaseUrl must be an origin without a path.");
+  }
+
+  return parsed.origin;
 }
 
 function pruneEmptyParents(pathToFile: string, storageRoot: string): void {

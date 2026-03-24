@@ -16,12 +16,14 @@ const smokeStorageRoot = smokeDir ? join(smokeDir, "cache") : null;
 const profile = process.env.MEDIA_CACHE_EXAMPLE_PROFILE ?? "local";
 const logFormat = process.env.MEDIA_CACHE_LOG_FORMAT ?? (isSmoke ? "json" : "pretty");
 const logLevel = process.env.MEDIA_CACHE_LOG_LEVEL ?? "info";
+const devPassthrough = isSmoke ? false : undefined;
+const assetBaseUrl = isSmoke ? undefined : process.env.MEDIA_CACHE_ASSET_BASE_URL;
 const runtimeConfigDir = join(exampleDir, ".runtime");
 const runtimeConfigPath = join(runtimeConfigDir, "example-config.json");
 await mkdir(runtimeConfigDir, { recursive: true });
 await writeFile(
   runtimeConfigPath,
-  `${JSON.stringify({ profile, logFormat, logLevel }, null, 2)}\n`,
+  `${JSON.stringify({ profile, logFormat, logLevel, devPassthrough, assetBaseUrl }, null, 2)}\n`,
 );
 const args = isSmoke
   ? ["run", "smoke"]
@@ -43,6 +45,10 @@ const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, {
     MEDIA_CACHE_LOG_FORMAT: logFormat,
     MEDIA_CACHE_LOG_LEVEL: logLevel,
     MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel ?? "",
+    ...resolveOptionalEnv(
+      "MEDIA_CACHE_DEV_PASSTHROUGH",
+      devPassthrough === undefined ? process.env.MEDIA_CACHE_DEV_PASSTHROUGH : "false",
+    ),
     ...resolveOptionalEnv(
       "MEDIA_CACHE_STORAGE_ROOT",
       smokeStorageRoot ?? process.env.MEDIA_CACHE_STORAGE_ROOT,

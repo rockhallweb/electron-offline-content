@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DataValidationError } from "../shared/errors.js";
 import type { ActiveAssetRow, PendingDeletion, SyncRunStats } from "../main/database.js";
 import type {
+  DownloadRequest,
   JsonValue,
   MediaCacheStatus,
   SerializedMediaCacheError,
@@ -12,7 +13,11 @@ import type {
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const nonNegativeNumberSchema = z.number().nonnegative();
 
-export const stringInputSchema = z.string();
+/**
+ * Schema for IPC/API string identifiers: namespace, item ID, namespace tree prefix, file stem.
+ * Enforces min 1 and max 2000 characters. Used by getItem, listNamespace, listNamespaceTree, findByFileStem.
+ */
+export const stringInputSchema = z.string().min(1).max(2000);
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
@@ -81,6 +86,12 @@ export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
   updatedAt: nonNegativeIntegerSchema,
 });
 
+export const downloadRequestSchema: z.ZodType<DownloadRequest> = z.object({
+  url: z.string(),
+  method: z.literal("GET").optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
 export const statusSnapshotRowSchema = z.object({
   status_json: z.string(),
 });
@@ -131,15 +142,21 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   byteLength: nonNegativeNumberSchema.nullable(),
   assetMetadataJson: z.string(),
   relativePath: z.string().nullable(),
+  sourceJson: z.string(),
   fileStem: z.string(),
 });
 
 export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
+  deletionKey: z.string(),
   logicalKey: z.string(),
   relativePath: z.string(),
 });
 
 export const assetPathRowSchema = z.object({
+  relative_path: z.string().nullable(),
+});
+
+export const protocolAssetTargetRowSchema = z.object({
   relative_path: z.string().nullable(),
 });
 

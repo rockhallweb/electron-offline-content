@@ -52,6 +52,7 @@ await run("pnpm", ["run", "smoke"], {
   env: {
     ...process.env,
     MEDIA_CACHE_EXAMPLE_PROFILE: "local",
+    MEDIA_CACHE_DEV_PASSTHROUGH: "false",
     MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel,
     MEDIA_CACHE_STORAGE_ROOT: smokeStorageRoot,
   },

@@ -17,6 +17,8 @@ type RuntimeConfig = {
   profile?: "local" | "nasa";
   logFormat?: LogFormat;
   logLevel?: LogLevel;
+  devPassthrough?: boolean;
+  assetBaseUrl?: string | null;
 };
 
 const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -45,6 +47,15 @@ const selectedLogLevel =
   normalizeLogLevel(process.env.MEDIA_CACHE_LOG_LEVEL) ??
   normalizeLogLevel(readArgValue("media-cache-log-level")) ??
   "info";
+const selectedDevPassthrough =
+  runtimeConfig?.devPassthrough ??
+  normalizeBoolean(process.env.MEDIA_CACHE_DEV_PASSTHROUGH) ??
+  normalizeBoolean(readArgValue("media-cache-dev-passthrough"));
+const selectedAssetBaseUrl =
+  runtimeConfig?.assetBaseUrl ??
+  readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ??
+  readArgValue("media-cache-asset-base-url");
+const effectiveDevPassthrough = selectedDevPassthrough ?? false;
 const rendererUrl =
   process.env.MEDIA_CACHE_RENDERER_URL ?? readArgValue("media-cache-renderer-url");
 const rendererIndex =
@@ -66,8 +77,13 @@ logger.info("example_bootstrap_detected", {
   runtime_config_profile: runtimeConfig?.profile ?? null,
   runtime_config_log_format: runtimeConfig?.logFormat ?? null,
   runtime_config_log_level: runtimeConfig?.logLevel ?? null,
+  runtime_config_dev_passthrough: runtimeConfig?.devPassthrough ?? null,
+  runtime_config_asset_base_url: runtimeConfig?.assetBaseUrl ?? null,
   selected_log_format: selectedLogFormat,
   selected_log_level: selectedLogLevel,
+  selected_dev_passthrough: selectedDevPassthrough ?? null,
+  effective_dev_passthrough: effectiveDevPassthrough,
+  selected_asset_base_url: selectedAssetBaseUrl ?? null,
   renderer_url: rendererUrl ?? null,
   renderer_index: rendererIndex ?? null,
 });
@@ -90,9 +106,15 @@ void bootstrap().catch((error) => {
 async function bootstrap() {
   traceSmoke("bootstrap:start");
   logger.info("bootstrap_started", {});
-  await registerMediaCacheProtocolSchemes();
-  traceSmoke("bootstrap:registered-schemes");
-  logger.debug("protocol_schemes_registered", {});
+  if (!effectiveDevPassthrough) {
+    await registerMediaCacheProtocolSchemes();
+    traceSmoke("bootstrap:registered-schemes");
+    logger.debug("protocol_schemes_registered", {});
+  } else {
+    logger.info("direct_dev_asset_urls_enabled", {
+      asset_base_url: selectedAssetBaseUrl ?? null,
+    });
+  }
 
   const profileName = selectedProfile === "nasa" ? "nasa" : "local";
   const exampleProfile = await createExampleProfile(profileName);
@@ -117,6 +139,8 @@ async function bootstrap() {
 
   const mediaCache = createMediaCache({
     storageRoot,
+    devPassthrough: effectiveDevPassthrough,
+    assetBaseUrl: effectiveDevPassthrough ? selectedAssetBaseUrl : undefined,
     logLevel: selectedLogLevel,
     onLog: (entry) => {
       logger.forward(entry);
@@ -125,6 +149,9 @@ async function bootstrap() {
   });
   logger.info("media_cache_created", {
     storage_root: storageRoot,
+    dev_passthrough: selectedDevPassthrough ?? null,
+    effective_dev_passthrough: effectiveDevPassthrough,
+    asset_base_url: selectedAssetBaseUrl ?? null,
   });
 
   let mainWindow: BrowserWindow | null = null;
@@ -151,9 +178,13 @@ async function bootstrap() {
   await app.whenReady();
   traceSmoke("bootstrap:app-ready");
   logger.info("app_ready", { app_name: app.getName() });
-  await mediaCache.registerProtocol();
-  traceSmoke("bootstrap:protocol-registered");
-  logger.info("media_protocol_registered", {});
+  if (!effectiveDevPassthrough) {
+    await mediaCache.registerProtocol();
+    traceSmoke("bootstrap:protocol-registered");
+    logger.info("media_protocol_registered", {});
+  } else {
+    logger.info("media_protocol_skipped_for_dev_passthrough", {});
+  }
   await mediaCache.attachIpc();
   traceSmoke("bootstrap:ipc-attached");
   logger.info("media_cache_ipc_attached", {});
@@ -164,6 +195,7 @@ async function bootstrap() {
   logger.info("media_cache_sync_finished", {
     phase: postStartStatus.phase,
     active_generation_id: postStartStatus.activeGenerationId,
+    dev_passthrough: selectedDevPassthrough ?? null,
     run_id: postStartStatus.lastRun?.id ?? null,
     run_status: postStartStatus.lastRun?.status ?? null,
     downloaded_assets: postStartStatus.lastRun?.stats.downloadedAssets ?? null,
@@ -418,6 +450,16 @@ function normalizeLogFormat(value?: string): LogFormat | null {
     return value;
   }
   return null;
+}
+
+function normalizeBoolean(value?: string): boolean | undefined {
+  if (value === "true" || value === "1") {
+    return true;
+  }
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  return undefined;
 }
 
 function writeLog(

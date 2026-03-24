@@ -85,6 +85,8 @@ export type SyncFailureMode = "serve-last-snapshot" | "throw";
 
 export interface MediaCacheOptions {
   storageRoot?: string;
+  devPassthrough?: boolean;
+  assetBaseUrl?: string | null;
   maxCacheBytes?: number;
   reserveFreeBytes?: number;
   staleDeleteAfterMs?: number;

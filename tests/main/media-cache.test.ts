@@ -14,7 +14,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MediaCache, createMediaCache } from "../../src/main/media-cache.js";
+import {
+  MediaCache as RawMediaCache,
+  createMediaCache as createRawMediaCache,
+  type MediaCacheMain,
+} from "../../src/main/media-cache.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
@@ -28,6 +32,19 @@ import type {
   MediaCacheLogEvent,
   JsonValue,
 } from "../../src/shared/types.js";
+
+class MediaCache extends RawMediaCache {
+  constructor(
+    options: ConstructorParameters<typeof RawMediaCache>[0],
+    deps?: ConstructorParameters<typeof RawMediaCache>[1],
+  ) {
+    super({ devPassthrough: false, ...options }, deps);
+  }
+}
+
+function createMediaCache(options: Parameters<typeof createRawMediaCache>[0]) {
+  return createRawMediaCache({ devPassthrough: false, ...options });
+}
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -131,17 +148,29 @@ describe("media cache sync and queries", () => {
   let server: ReturnType<typeof createServer>;
   let baseUrl = "";
   let requestCounts: Record<string, number>;
+  let requestMethods: Record<string, string[]>;
   let requestRanges: Record<string, string[]>;
+  let requestAuthHeaders: Record<string, string[]>;
   let manifests: ManifestInput;
 
   beforeAll(async () => {
     requestCounts = {};
+    requestMethods = {};
     requestRanges = {};
+    requestAuthHeaders = {};
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const path = req.url ?? "/";
       requestCounts[path] = (requestCounts[path] ?? 0) + 1;
+      requestMethods[path] ??= [];
+      requestMethods[path].push(req.method ?? "GET");
       requestRanges[path] ??= [];
       requestRanges[path].push(req.headers.range ?? "");
+      requestAuthHeaders[path] ??= [];
+      requestAuthHeaders[path].push(
+        Array.isArray(req.headers["x-media-auth"])
+          ? req.headers["x-media-auth"].join(",")
+          : (req.headers["x-media-auth"] ?? ""),
+      );
 
       if (path === "/broken.mp4") {
         res.writeHead(500);
@@ -217,6 +246,26 @@ describe("media cache sync and queries", () => {
         return;
       }
 
+      if (path === "/auth.mp4") {
+        if (req.headers["x-media-auth"] !== "passthrough-secret") {
+          res.writeHead(401);
+          res.end("unauthorized");
+          return;
+        }
+        sendStaticBody(req, res, "auth-video", "video/mp4");
+        return;
+      }
+
+      if (path === "/method-bound.mp4") {
+        if (req.method !== "GET") {
+          res.writeHead(405);
+          res.end("method-not-allowed");
+          return;
+        }
+        sendStaticBody(req, res, "method-video", "video/mp4");
+        return;
+      }
+
       const payloads: Record<string, string> = {
         "/main.mp4": "video-one",
         "/poster.jpg": "poster",
@@ -259,7 +308,9 @@ describe("media cache sync and queries", () => {
 
   beforeEach(() => {
     requestCounts = {};
+    requestMethods = {};
     requestRanges = {};
+    requestAuthHeaders = {};
     manifests = {
       snapshotId: "initial",
       namespaces: [
@@ -371,6 +422,268 @@ describe("media cache sync and queries", () => {
     expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
   });
 
+  it("disables passthrough by default when devPassthrough is not set", async () => {
+    requestCounts = {};
+    const cache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(requestCounts["/main.mp4"]).toBe(1);
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+      "media://asset/nature/forest/main",
+    );
+    expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
+  });
+
+  it("lets explicit devPassthrough override the default", async () => {
+    const passthroughCache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: true,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await passthroughCache.start();
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+
+    requestCounts = {};
+    const offlineCache = new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: false,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+    expect(requestCounts["/main.mp4"]).toBe(1);
+  });
+
+  it("commits metadata without downloading assets when passthrough is enabled", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+    expect(requestCounts["/poster.jpg"]).toBeUndefined();
+
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+    expect((await cache.getStatus()).lastRun?.stats).toEqual({
+      totalAssets: 4,
+      downloadedAssets: 0,
+      skippedAssets: 4,
+      bytesDownloaded: 0,
+    });
+
+    manifests = {
+      snapshotId: "passthrough-v2",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await cache.syncNow();
+
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+    expect((await cache.getItem("nature", "forest"))?.version).toBe("v2");
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+  });
+
+  it("uses assetBaseUrl as an origin override in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const manifestWithQuerySource: ManifestInput = {
+      snapshotId: "asset-base-url",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: `${baseUrl}/main.mp4?token=abc123`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      assetBaseUrl: "https://assets.example.test",
+      resolveManifest: () => manifestWithQuerySource,
+    });
+
+    await passthroughCache.start();
+
+    const item = await passthroughCache.getItem("nature", "forest");
+    expect(item?.assets[0]?.url).toBe("https://assets.example.test/main.mp4?token=abc123");
+  });
+
+  it("emits resolve_asset_base_url_fallback and returns source URL when asset URL cannot be parsed in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const logs: MediaCacheLogEvent[] = [];
+    const invalidUrlManifest: ManifestInput = {
+      snapshotId: "invalid-url-fallback",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "video.mp4",
+                  source: {
+                    url: "not-a-valid-url",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      assetBaseUrl: "https://assets.example.test",
+      logLevel: "debug",
+      onLog: (entry) => {
+        logs.push(entry);
+      },
+      resolveManifest: () => invalidUrlManifest,
+    });
+
+    await cache.start();
+    const item = await cache.getItem("nature", "forest");
+
+    expect(item?.assets[0]?.url).toBe("not-a-valid-url");
+    expect(logs.some((e) => e.event === "resolve_asset_base_url_fallback")).toBe(true);
+  });
+
+  it("does not call resolveAssetRequest in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    let resolveCalls = 0;
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+      resolveAssetRequest: () => {
+        resolveCalls += 1;
+        return {
+          url: `${baseUrl}/auth.mp4`,
+        };
+      },
+    });
+
+    await cache.start();
+    expect(resolveCalls).toBe(0);
+    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+  });
+
+  it("clears prior local state on passthrough startup", async () => {
+    const storageRoot = createStorageRoot();
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+    const committedBlobPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
+    );
+    expect(existsSync(committedBlobPath)).toBe(true);
+
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await passthroughCache.start();
+
+    expect(existsSync(committedBlobPath)).toBe(false);
+    expect((await passthroughCache.getStatus()).activeGenerationId).not.toBeNull();
+    expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+      `${baseUrl}/main.mp4`,
+    );
+  });
+
+  it("fails fast in passthrough mode when manifest resolution fails", async () => {
+    const storageRoot = createStorageRoot();
+    const offlineCache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    await offlineCache.start();
+    const committedBlobPath = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
+    );
+    expect(existsSync(committedBlobPath)).toBe(true);
+
+    const passthroughCache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => {
+        throw new Error("manifest unavailable");
+      },
+    });
+
+    await expect(passthroughCache.start()).rejects.toThrow("manifest unavailable");
+    expect((await passthroughCache.getStatus()).activeGenerationId).toBeNull();
+    expect(existsSync(committedBlobPath)).toBe(false);
+  });
+
   it("skips unchanged downloads and redownloads when the version changes", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
@@ -415,6 +728,27 @@ describe("media cache sync and queries", () => {
 
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(2);
+  });
+
+  it("skips request resolution when an unchanged cached blob can be reused", async () => {
+    const storageRoot = createStorageRoot();
+    let resolveCalls = 0;
+    const cache = createMediaCache({
+      storageRoot,
+      onSyncFailure: "throw",
+      resolveManifest: () => manifests,
+      resolveAssetRequest: ({ asset }) => {
+        resolveCalls += 1;
+        return asset.source;
+      },
+    });
+
+    await cache.start();
+    expect(resolveCalls).toBe(4);
+
+    await cache.syncNow();
+    expect(resolveCalls).toBe(4);
+    expect(requestCounts["/main.mp4"]).toBe(1);
   });
 
   it("reuses cached assets when stored relative paths use windows separators", async () => {
@@ -834,9 +1168,9 @@ describe("media cache sync and queries", () => {
     await expect(
       (
         cache as unknown as {
-          ensureFileSpaceCommit(tempPath: string): Promise<void>;
+          ensureFileSpaceCommit(): Promise<void>;
         }
-      ).ensureFileSpaceCommit(partialPath),
+      ).ensureFileSpaceCommit(),
     ).resolves.toBeUndefined();
   });
 
@@ -1199,6 +1533,26 @@ describe("media cache sync and queries", () => {
     ).toBe(true);
   });
 
+  it("cleans up obsolete partial files while passthrough mode is enabled", async () => {
+    const storageRoot = createStorageRoot();
+    const obsoletePartialPath = join(
+      storageRoot,
+      partialPathFor("nature", "forest", "main", "stale-version", "main.mp4"),
+    );
+    mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
+    writeFileSync(obsoletePartialPath, "stale-bytes");
+
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    expect(existsSync(obsoletePartialPath)).toBe(false);
+  });
+
   it("classifies wrapped ENOSPC download failures as storage limit errors", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache(
@@ -1386,6 +1740,129 @@ describe("media cache sync and queries", () => {
     ).toBe(true);
   });
 
+  it("retains multiple obsolete blob versions until each expires", async () => {
+    let currentNow = 1_000;
+    const storageRoot = createStorageRoot();
+    manifests = {
+      snapshotId: "retain-v1",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "main.mp4",
+                  byteLength: "video-one".length,
+                  source: {
+                    url: `${baseUrl}/main.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        staleDeleteAfterMs: 1_000,
+        resolveManifest: () => manifests,
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await cache.start();
+
+    currentNow = 1_100;
+    manifests = {
+      snapshotId: "retain-v2",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "flower.mp4",
+                  byteLength: "flower-video".length,
+                  source: {
+                    url: `${baseUrl}/flower.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    await cache.syncNow();
+
+    currentNow = 1_200;
+    manifests = {
+      snapshotId: "retain-v3",
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v3",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "resumable.mp4",
+                  byteLength: "resume-data".length,
+                  source: {
+                    url: `${baseUrl}/resumable.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    await cache.syncNow();
+
+    const v1Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
+    const v2Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "flower.mp4"));
+    const v3Path = join(
+      storageRoot,
+      blobPathFor("nature", "forest", "main", "v3", "resumable.mp4"),
+    );
+    expect(existsSync(v1Path)).toBe(true);
+    expect(existsSync(v2Path)).toBe(true);
+    expect(existsSync(v3Path)).toBe(true);
+
+    currentNow = 3_000;
+    await cache.syncNow();
+
+    expect(existsSync(v1Path)).toBe(false);
+    expect(existsSync(v2Path)).toBe(false);
+    expect(existsSync(v3Path)).toBe(true);
+  });
+
   it("uses response content type only as a mimeType fallback", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
@@ -1521,6 +1998,107 @@ describe("media cache sync and queries", () => {
 
     const missing = await handler(new Request("media://asset/nature/forest/missing"));
     expect(missing.status).toBe(404);
+  });
+
+  it("returns 404 for media:// URLs with malformed percent-encoding in path", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+    await cache.start();
+    const handler = await createProtocolHandler(cache, {
+      fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, "utf8")),
+    });
+
+    const malformed = await handler(new Request("media://asset/foo%GG/bar/main"));
+    expect(malformed.status).toBe(404);
+  });
+
+  it("returns 404 for passthrough assets over media:// because dev mode uses direct asset URLs", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+
+    const handler = await createProtocolHandler(cache);
+    const response = await handler(new Request("media://asset/nature/forest/main"));
+
+    expect(response.status).toBe(404);
+    expect(requestCounts["/main.mp4"]).toBeUndefined();
+  });
+
+  it("throws when assetBaseUrl is set without devPassthrough", () => {
+    expect(
+      () =>
+        new RawMediaCache({
+          storageRoot: createStorageRoot(),
+          devPassthrough: false,
+          assetBaseUrl: "https://cdn.example.com",
+          resolveManifest: () => manifests,
+        }),
+    ).toThrow("assetBaseUrl has no effect when devPassthrough is false");
+  });
+
+  it("emits dev_passthrough_ignores_sync_failure_mode when both devPassthrough and serve-last-snapshot are set", () => {
+    const logs: MediaCacheLogEvent[] = [];
+    new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: true,
+      onSyncFailure: "serve-last-snapshot",
+      onLog: (e) => logs.push(e),
+      resolveManifest: () => manifests,
+    });
+    expect(logs.some((e) => e.event === "dev_passthrough_ignores_sync_failure_mode")).toBe(true);
+    expect(logs.find((e) => e.event === "dev_passthrough_ignores_sync_failure_mode")).toMatchObject(
+      { configured_mode: "serve-last-snapshot" },
+    );
+  });
+
+  it("rejects invalid assetBaseUrl values", () => {
+    const create = (assetBaseUrl: string) => () =>
+      new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        devPassthrough: true,
+        assetBaseUrl,
+        resolveManifest: () => manifests,
+      });
+
+    expect(create("https://user:pass@example.test")).toThrow(
+      "assetBaseUrl must not include credentials.",
+    );
+    expect(create("https://assets.example.test/path")).toThrow(
+      "assetBaseUrl must be an origin without a path.",
+    );
+    expect(create("https://assets.example.test?token=abc")).toThrow(
+      "assetBaseUrl must not include a query string or hash fragment.",
+    );
+    expect(create("https://assets.example.test#hash")).toThrow(
+      "assetBaseUrl must not include a query string or hash fragment.",
+    );
+    expect(create("https//cdn.example.com")).toThrow(
+      'assetBaseUrl is not a valid URL: "https//cdn.example.com"',
+    );
+  });
+
+  it("accepts assetBaseUrl null and uses manifest URLs as-is in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      assetBaseUrl: null,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
   });
 
   it("serves byte ranges for committed video assets", async () => {
@@ -1985,6 +2563,27 @@ describe("media cache sync and queries", () => {
     expect(dbCalled).toBe(true);
   });
 
+  it("rejects empty string and oversized identifiers with DataValidationError", async () => {
+    const cache = createMediaCache({
+      storageRoot: createStorageRoot(),
+      resolveManifest: () => manifests,
+    });
+    await cache.start();
+
+    await expect(cache.getItem("", "forest")).rejects.toThrow(DataValidationError);
+    await expect(cache.getItem("nature", "")).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespace("")).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespaceTree("")).rejects.toThrow(DataValidationError);
+    await expect(cache.findByFileStem("")).rejects.toThrow(DataValidationError);
+
+    const long = "x".repeat(2001);
+    await expect(cache.getItem(long, "forest")).rejects.toThrow(DataValidationError);
+    await expect(cache.getItem("nature", long)).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespace(long)).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespaceTree(long)).rejects.toThrow(DataValidationError);
+    await expect(cache.findByFileStem(long)).rejects.toThrow(DataValidationError);
+  });
+
   it("wraps circular manifest metadata serialization errors in DataValidationError", async () => {
     const storageRoot = createStorageRoot();
     const circular: Record<string, unknown> = {};
@@ -2204,11 +2803,11 @@ function readFileSafe(path: string): { type: "file" | "directory" } | null {
   }
 }
 
-type RegisterProtocolOptions = NonNullable<Parameters<MediaCache["registerProtocol"]>[0]>;
-type AttachIpcOptions = NonNullable<Parameters<MediaCache["attachIpc"]>[0]>;
+type RegisterProtocolOptions = NonNullable<Parameters<MediaCacheMain["registerProtocol"]>[0]>;
+type AttachIpcOptions = NonNullable<Parameters<MediaCacheMain["attachIpc"]>[0]>;
 
 async function createProtocolHandler(
-  cache: MediaCache,
+  cache: Pick<MediaCacheMain, "registerProtocol">,
   options?: Omit<RegisterProtocolOptions, "session">,
 ): Promise<(request: Request) => Promise<Response>> {
   let handler: ((request: Request) => Promise<Response>) | null = null;
@@ -2233,7 +2832,7 @@ async function createProtocolHandler(
 }
 
 async function createIpcHandlers(
-  cache: MediaCache,
+  cache: Pick<MediaCacheMain, "attachIpc">,
 ): Promise<Map<string, (...args: unknown[]) => Promise<unknown>>> {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
   const fakeIpcMain = {

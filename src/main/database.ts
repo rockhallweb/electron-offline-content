@@ -14,14 +14,13 @@ import type { NormalizedManifest } from "../shared/normalize.js";
 import {
   activeAssetRowSchema,
   activeGenerationRowSchema,
-  assetPathRowSchema,
   fileStemRowSchema,
-  generationAssetKeyRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
   parseJsonWithSchema,
   parseWithSchema,
   pendingDeletionSchema,
+  protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
   stringRecordSchema,
   stringifyWithSchema,
@@ -29,6 +28,7 @@ import {
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
+import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -53,12 +53,18 @@ export interface ActiveAssetRow {
   byteLength: number | null;
   assetMetadataJson: string;
   relativePath: string | null;
+  sourceJson: string;
   fileStem: string;
 }
 
 export interface PendingDeletion {
+  deletionKey: string;
   logicalKey: string;
   relativePath: string;
+}
+
+export interface ProtocolAssetTarget {
+  absolutePath: string | null;
 }
 
 export interface SyncRunStats {
@@ -70,8 +76,16 @@ export interface SyncRunStats {
 
 export class MediaCacheDatabase {
   private readonly db: import("node:sqlite").DatabaseSync;
+  private closed = false;
 
-  constructor(private readonly root: string) {
+  constructor(
+    private readonly root: string,
+    private readonly options: {
+      devPassthrough: boolean;
+      assetBaseUrlOrigin: string | null;
+      onWarn?: (contextLabel: string, err: unknown) => void;
+    },
+  ) {
     const sqliteDir = join(root, "sqlite");
     mkdirSync(sqliteDir, { recursive: true });
     this.db = new DatabaseSync(join(sqliteDir, "media-cache.db"));
@@ -81,10 +95,41 @@ export class MediaCacheDatabase {
   }
 
   close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
     this.db.close();
   }
 
+  private assertNotClosed(): void {
+    if (this.closed) {
+      throw new Error("MediaCacheDatabase is closed");
+    }
+  }
+
+  /** @internal Used only by prepareDevRuntimeState in dev passthrough startup. */
+  clearAllState(): void {
+    this.assertNotClosed();
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM pending_deletions`).run();
+      this.db.prepare(`DELETE FROM active_generation`).run();
+      this.db.prepare(`DELETE FROM assets`).run();
+      this.db.prepare(`DELETE FROM items`).run();
+      this.db.prepare(`DELETE FROM generation_namespaces`).run();
+      this.db.prepare(`DELETE FROM generations`).run();
+      this.db.prepare(`DELETE FROM sync_runs`).run();
+      this.db.prepare(`DELETE FROM status_snapshot`).run();
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   loadStatus(): MediaCacheStatus | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT status_json
@@ -105,6 +150,7 @@ export class MediaCacheDatabase {
   }
 
   saveStatus(status: MediaCacheStatus, now: number): void {
+    this.assertNotClosed();
     const statusJson = stringifyWithSchema(status, mediaCacheStatusSchema, "media cache status");
     this.db.exec("BEGIN");
     try {
@@ -128,6 +174,7 @@ export class MediaCacheDatabase {
   }
 
   createSyncRun(now: number): number {
+    this.assertNotClosed();
     const statsJson = stringifyWithSchema(emptyStats(), syncRunStatsSchema, "sync run stats");
     const result = this.db
       .prepare(
@@ -146,6 +193,7 @@ export class MediaCacheDatabase {
     errorCode: string | null = null,
     errorMessage: string | null = null,
   ): SyncRunSummary {
+    this.assertNotClosed();
     const statsJson = stringifyWithSchema(stats, syncRunStatsSchema, "sync run stats");
     this.db
       .prepare(
@@ -159,6 +207,7 @@ export class MediaCacheDatabase {
   }
 
   getSyncRun(id: number): SyncRunSummary | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT id, started_at_ms, finished_at_ms, status, error_code, error_message, stats_json
@@ -188,28 +237,41 @@ export class MediaCacheDatabase {
   }
 
   pruneSyncHistory(limit: number): void {
-    const rows = parseWithSchema(
-      syncRunIdRowSchema.array(),
-      this.db
-        .prepare(
-          `SELECT id
-           FROM sync_runs
-           ORDER BY started_at_ms DESC
-           LIMIT -1 OFFSET ?`,
-        )
-        .all(limit),
-      "sync run history rows",
-    );
-    if (rows.length === 0) {
+    this.assertNotClosed();
+    if (limit < 1) {
       return;
     }
+    this.db.exec("BEGIN");
+    try {
+      const rows = parseWithSchema(
+        syncRunIdRowSchema.array(),
+        this.db
+          .prepare(
+            `SELECT id
+             FROM sync_runs
+             ORDER BY started_at_ms DESC
+             LIMIT -1 OFFSET ?`,
+          )
+          .all(limit),
+        "sync run history rows",
+      );
+      if (rows.length === 0) {
+        this.db.exec("COMMIT");
+        return;
+      }
 
-    const ids = rows.map((row) => row.id);
-    const placeholders = ids.map(() => "?").join(", ");
-    this.db.prepare(`DELETE FROM sync_runs WHERE id IN (${placeholders})`).run(...ids);
+      const ids = rows.map((row) => row.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      this.db.prepare(`DELETE FROM sync_runs WHERE id IN (${placeholders})`).run(...ids);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   getActiveGenerationId(): number | null {
+    this.assertNotClosed();
     const row = this.db
       .prepare(
         `SELECT generation_id
@@ -223,6 +285,7 @@ export class MediaCacheDatabase {
   }
 
   createStagedGeneration(manifest: NormalizedManifest, now: number): number {
+    this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       const generationInsert = this.db
@@ -261,9 +324,10 @@ export class MediaCacheDatabase {
       const assetStmt = this.db.prepare(
         `INSERT INTO assets (
           generation_id, namespace_key, item_id, asset_id, role, kind, resolved_version,
-          asset_version, mime_type, file_name, file_stem, byte_length, source_json,
-          metadata_json, order_index, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          asset_version, manifest_mime_type, manifest_file_name, mime_type, file_name,
+          file_stem, byte_length, source_json, resolved_request_json, metadata_json,
+          order_index, has_precise_manifest_fields, relative_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
 
       manifest.namespaces.forEach((namespace, namespaceOrder) => {
@@ -312,10 +376,16 @@ export class MediaCacheDatabase {
               asset.kind,
               asset.resolvedVersion,
               asset.version ?? null,
-              asset.mimeType ?? null,
+              asset.mimeType ?? null, // manifest_mime_type: preserve original manifest value
+              asset.fileName ?? null,
+              asset.mimeType ?? null, // mime_type: effective value, may be overridden after download
               asset.normalizedFileName,
               asset.normalizedFileStem,
               asset.byteLength ?? null,
+              JSON.stringify(asset.source),
+              // resolved_request_json is initialised to source_json; reserved for a future
+              // feature that will persist the resolveAssetRequest() result for reuse across
+              // sync generations without re-invoking the callback.
               JSON.stringify(asset.source),
               stringifyWithSchema(
                 asset.metadata ?? {},
@@ -323,6 +393,7 @@ export class MediaCacheDatabase {
                 `metadata for asset "${namespace.key}/${item.id}/${asset.id}"`,
               ),
               assetOrder,
+              1,
             );
           });
         });
@@ -337,6 +408,7 @@ export class MediaCacheDatabase {
   }
 
   deleteGeneration(generationId: number): void {
+    this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM assets WHERE generation_id = ?`).run(generationId);
@@ -359,6 +431,7 @@ export class MediaCacheDatabase {
     assetId: string,
     relativePath: string,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `UPDATE assets
@@ -376,6 +449,7 @@ export class MediaCacheDatabase {
     relativePath: string,
     fallbackMimeType: string | null,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `UPDATE assets
@@ -388,6 +462,7 @@ export class MediaCacheDatabase {
   }
 
   getGenerationAssets(generationId: number): ActiveAssetRow[] {
+    this.assertNotClosed();
     return parseWithSchema(
       activeAssetRowSchema.array(),
       this.db
@@ -412,6 +487,7 @@ export class MediaCacheDatabase {
              assets.byte_length AS byteLength,
              assets.metadata_json AS assetMetadataJson,
              assets.relative_path AS relativePath,
+             assets.source_json AS sourceJson,
              assets.file_stem AS fileStem
            FROM assets
            INNER JOIN items
@@ -430,6 +506,7 @@ export class MediaCacheDatabase {
   }
 
   activateGeneration(generationId: number, now: number): number | null {
+    this.assertNotClosed();
     const previousActive = this.getActiveGenerationId();
 
     this.db.exec("BEGIN");
@@ -459,19 +536,11 @@ export class MediaCacheDatabase {
   }
 
   clearPendingDeletionsForGeneration(generationId: number): void {
-    const logicalKeys = parseWithSchema(
-      generationAssetKeyRowSchema.array(),
-      this.db
-        .prepare(
-          `SELECT namespace_key AS namespaceKey, item_id AS itemId, asset_id AS assetId
-           FROM assets
-           WHERE generation_id = ?`,
-        )
-        .all(generationId),
-      `generation ${generationId} deletion rows`,
-    ).map((row) => createLogicalKey(row.namespaceKey, row.itemId, row.assetId));
-
-    this.deletePendingDeletions(logicalKeys);
+    this.assertNotClosed();
+    const activeRelativePaths = this.getGenerationAssets(generationId).flatMap((row) =>
+      row.relativePath ? [row.relativePath] : [],
+    );
+    this.deletePendingDeletionsByRelativePath(activeRelativePaths);
   }
 
   markPendingDeletion(
@@ -483,26 +552,38 @@ export class MediaCacheDatabase {
     generationId: number,
     deleteAfterMs: number,
   ): void {
+    this.assertNotClosed();
     this.db
       .prepare(
         `INSERT INTO pending_deletions (
-          logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(logical_key)
+          deletion_key, logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(deletion_key)
         DO UPDATE SET
+          logical_key = excluded.logical_key,
           relative_path = excluded.relative_path,
           generation_id = excluded.generation_id,
           delete_after_ms = excluded.delete_after_ms`,
       )
-      .run(logicalKey, namespace, itemId, assetId, relativePath, generationId, deleteAfterMs);
+      .run(
+        createPendingDeletionKey(logicalKey, relativePath),
+        logicalKey,
+        namespace,
+        itemId,
+        assetId,
+        relativePath,
+        generationId,
+        deleteAfterMs,
+      );
   }
 
   getExpiredPendingDeletions(now: number): PendingDeletion[] {
+    this.assertNotClosed();
     return parseWithSchema(
       pendingDeletionSchema.array(),
       this.db
         .prepare(
-          `SELECT logical_key AS logicalKey, relative_path AS relativePath
+          `SELECT deletion_key AS deletionKey, logical_key AS logicalKey, relative_path AS relativePath
            FROM pending_deletions
            WHERE delete_after_ms <= ?`,
         )
@@ -511,18 +592,36 @@ export class MediaCacheDatabase {
     );
   }
 
-  deletePendingDeletions(logicalKeys: string[]): void {
-    if (logicalKeys.length === 0) {
+  deletePendingDeletions(deletionKeys: string[]): void {
+    this.assertNotClosed();
+    if (deletionKeys.length === 0) {
       return;
     }
 
-    const placeholders = logicalKeys.map(() => "?").join(", ");
+    const placeholders = deletionKeys.map(() => "?").join(", ");
     this.db
-      .prepare(`DELETE FROM pending_deletions WHERE logical_key IN (${placeholders})`)
-      .run(...logicalKeys);
+      .prepare(`DELETE FROM pending_deletions WHERE deletion_key IN (${placeholders})`)
+      .run(...deletionKeys);
   }
 
-  getAssetAbsolutePath(namespace: string, itemId: string, assetId: string): string | null {
+  deletePendingDeletionsByRelativePath(relativePaths: string[]): void {
+    this.assertNotClosed();
+    if (relativePaths.length === 0) {
+      return;
+    }
+
+    const placeholders = relativePaths.map(() => "?").join(", ");
+    this.db
+      .prepare(`DELETE FROM pending_deletions WHERE relative_path IN (${placeholders})`)
+      .run(...relativePaths);
+  }
+
+  getProtocolAssetTarget(
+    namespace: string,
+    itemId: string,
+    assetId: string,
+  ): ProtocolAssetTarget | null {
+    this.assertNotClosed();
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
       return null;
@@ -540,35 +639,36 @@ export class MediaCacheDatabase {
       return null;
     }
 
-    const validatedRow = parseWithSchema(assetPathRowSchema, row, "asset path row");
-    if (!validatedRow.relative_path) {
-      return null;
-    }
-
-    return join(this.root, validatedRow.relative_path);
+    const validatedRow = parseWithSchema(protocolAssetTargetRowSchema, row, "protocol asset row");
+    return {
+      absolutePath: validatedRow.relative_path ? join(this.root, validatedRow.relative_path) : null,
+    };
   }
 
   listNamespace(
     namespace: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("exact", namespace);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(this.buildResolvedItems(rows), pagination);
   }
 
   listNamespaceTree(
     prefix: string,
     pagination?: PaginationInput,
   ): PaginationResult<ResolvedMediaContentItem> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
     const rows = this.getResolvedRows("tree", prefix);
-    return paginateArray(buildResolvedItems(rows), pagination);
+    return paginateArray(this.buildResolvedItems(rows), pagination);
   }
 
   getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
+    this.assertNotClosed();
     const rows = this.getResolvedRows("item", namespace, id);
-    const items = buildResolvedItems(rows);
+    const items = this.buildResolvedItems(rows);
     return items[0] ?? null;
   }
 
@@ -577,6 +677,7 @@ export class MediaCacheDatabase {
     namespace: string | undefined,
     pagination?: PaginationInput,
   ): PaginationResult<FileStemMatch> {
+    this.assertNotClosed();
     resolvePaginationWindow(pagination);
 
     const activeGeneration = this.getActiveGenerationId();
@@ -668,6 +769,7 @@ export class MediaCacheDatabase {
         assets.byte_length AS byteLength,
         assets.metadata_json AS assetMetadataJson,
         assets.relative_path AS relativePath,
+        assets.source_json AS sourceJson,
         assets.file_stem AS fileStem
       FROM assets
       INNER JOIN items
@@ -724,6 +826,61 @@ export class MediaCacheDatabase {
     );
   }
 
+  private buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] {
+    const items = new Map<string, ResolvedMediaContentItem>();
+
+    for (const row of rows) {
+      const key = `${row.namespace}|${row.itemId}`;
+      let item = items.get(key);
+      if (!item) {
+        item = {
+          namespace: row.namespace,
+          id: row.itemId,
+          version: row.itemVersion,
+          kind: row.itemKind as ResolvedMediaContentItem["kind"],
+          title: row.itemTitle ?? undefined,
+          description: row.itemDescription ?? undefined,
+          summary: row.itemSummary ?? undefined,
+          blobs: parseJsonWithSchema(
+            row.itemBlobsJson,
+            stringRecordSchema,
+            `item blobs for "${row.namespace}/${row.itemId}"`,
+          ),
+          metadata: parseJsonWithSchema(
+            row.itemMetadataJson,
+            jsonObjectSchema,
+            `item metadata for "${row.namespace}/${row.itemId}"`,
+          ),
+          assets: [],
+        };
+        items.set(key, item);
+      }
+
+      item.assets.push({
+        id: row.assetId,
+        role: row.assetRole,
+        kind: row.assetKind,
+        mimeType: row.mimeType ?? undefined,
+        byteLength: row.byteLength ?? undefined,
+        url: this.options.devPassthrough
+          ? resolveAssetBaseUrl(
+              row.sourceJson,
+              this.options.assetBaseUrlOrigin,
+              `asset source for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+              this.options.onWarn,
+            )
+          : buildMediaUrl(row.namespace, row.itemId, row.assetId),
+        metadata: parseJsonWithSchema(
+          row.assetMetadataJson,
+          jsonObjectSchema,
+          `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
+        ),
+      });
+    }
+
+    return [...items.values()];
+  }
+
   private migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS generations (
@@ -773,13 +930,17 @@ export class MediaCacheDatabase {
         kind TEXT NOT NULL,
         resolved_version TEXT NOT NULL,
         asset_version TEXT,
+        manifest_mime_type TEXT,
+        manifest_file_name TEXT,
         mime_type TEXT,
         file_name TEXT NOT NULL,
         file_stem TEXT NOT NULL,
         byte_length INTEGER,
         source_json TEXT NOT NULL,
+        resolved_request_json TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
+        has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1,
         relative_path TEXT,
         PRIMARY KEY (generation_id, namespace_key, item_id, asset_id)
       );
@@ -792,7 +953,8 @@ export class MediaCacheDatabase {
       );
 
       CREATE TABLE IF NOT EXISTS pending_deletions (
-        logical_key TEXT PRIMARY KEY,
+        deletion_key TEXT PRIMARY KEY,
+        logical_key TEXT NOT NULL,
         namespace_key TEXT NOT NULL,
         item_id TEXT NOT NULL,
         asset_id TEXT NOT NULL,
@@ -822,60 +984,60 @@ export class MediaCacheDatabase {
   }
 }
 
-function buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] {
-  const items = new Map<string, ResolvedMediaContentItem>();
-
-  for (const row of rows) {
-    const key = `${row.namespace}|${row.itemId}`;
-    let item = items.get(key);
-    if (!item) {
-      item = {
-        namespace: row.namespace,
-        id: row.itemId,
-        version: row.itemVersion,
-        kind: row.itemKind as ResolvedMediaContentItem["kind"],
-        title: row.itemTitle ?? undefined,
-        description: row.itemDescription ?? undefined,
-        summary: row.itemSummary ?? undefined,
-        blobs: parseJsonWithSchema(
-          row.itemBlobsJson,
-          stringRecordSchema,
-          `item blobs for "${row.namespace}/${row.itemId}"`,
-        ),
-        metadata: parseJsonWithSchema(
-          row.itemMetadataJson,
-          jsonObjectSchema,
-          `item metadata for "${row.namespace}/${row.itemId}"`,
-        ),
-        assets: [],
-      };
-      items.set(key, item);
-    }
-
-    item.assets.push({
-      id: row.assetId,
-      role: row.assetRole,
-      kind: row.assetKind,
-      mimeType: row.mimeType ?? undefined,
-      byteLength: row.byteLength ?? undefined,
-      url: buildMediaUrl(row.namespace, row.itemId, row.assetId),
-      metadata: parseJsonWithSchema(
-        row.assetMetadataJson,
-        jsonObjectSchema,
-        `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
-      ),
-    });
-  }
-
-  return [...items.values()];
-}
-
 function buildMediaUrl(namespace: string, itemId: string, assetId: string): string {
   return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
 }
 
+function resolveAssetBaseUrl(
+  sourceJson: string,
+  assetBaseUrlOrigin: string | null,
+  contextLabel: string,
+  onWarn?: (contextLabel: string, err: unknown) => void,
+): string {
+  let url: string;
+  try {
+    const parsed = JSON.parse(sourceJson) as { url?: string };
+    if (typeof parsed?.url !== "string" || !parsed.url) {
+      throw new Error("source_json missing url");
+    }
+    url = parsed.url;
+  } catch (err) {
+    if (onWarn) {
+      onWarn(contextLabel, err);
+    } else {
+      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
+    }
+    throw err;
+  }
+
+  if (!assetBaseUrlOrigin) {
+    return url;
+  }
+
+  try {
+    const origin = new URL(assetBaseUrlOrigin);
+    const resolved = new URL(url);
+    resolved.protocol = origin.protocol;
+    resolved.hostname = origin.hostname;
+    // normalizeAssetBaseUrl stores parsed.origin, which strips explicit default ports (e.g. :443).
+    resolved.port = origin.port;
+    return resolved.toString();
+  } catch (err) {
+    if (onWarn) {
+      onWarn(contextLabel, err);
+    } else {
+      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
+    }
+    return url;
+  }
+}
+
 function createLogicalKey(...parts: string[]): string {
   return JSON.stringify(parts);
+}
+
+function createPendingDeletionKey(logicalKey: string, relativePath: string): string {
+  return JSON.stringify([logicalKey, relativePath]);
 }
 
 function parseLogicalItemKey(key: string): [string, string] {
