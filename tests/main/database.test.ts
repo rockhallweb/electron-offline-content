@@ -118,9 +118,11 @@ describe("MediaCacheDatabase.close", () => {
         assetBaseUrlOrigin: null,
       });
 
-      db.close();
-      db.close();
-      db.close();
+      expect(() => {
+        db.close();
+        db.close();
+        db.close();
+      }).not.toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
