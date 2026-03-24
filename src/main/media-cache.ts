@@ -262,7 +262,7 @@ export class MediaCache implements MediaCacheMain {
       const target = this.db!.getProtocolAssetTarget(namespace, itemId, assetId);
 
       if (!target) {
-        this.emitLog("debug", "protocol_request_missing", {
+        this.emitLog("debug", "protocol_request_not_found", {
           namespace,
           item_id: itemId,
           asset_id: assetId,
@@ -272,7 +272,7 @@ export class MediaCache implements MediaCacheMain {
       }
 
       if (!target.absolutePath || !existsSync(target.absolutePath)) {
-        this.emitLog("debug", "protocol_request_missing", {
+        this.emitLog("debug", "protocol_request_file_missing", {
           namespace,
           item_id: itemId,
           asset_id: assetId,
