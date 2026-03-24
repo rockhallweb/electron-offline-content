@@ -1149,7 +1149,12 @@ function normalizeAssetBaseUrl(assetBaseUrl: string | undefined): string | null 
     return null;
   }
 
-  const parsed = new URL(assetBaseUrl);
+  let parsed: URL;
+  try {
+    parsed = new URL(assetBaseUrl);
+  } catch {
+    throw new Error(`assetBaseUrl is not a valid URL: "${assetBaseUrl}"`);
+  }
   if (parsed.username || parsed.password) {
     throw new Error("assetBaseUrl must not include credentials.");
   }

@@ -167,7 +167,7 @@ await mediaCache.attachIpc();
 await mediaCache.start();
 ```
 
-`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library. Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields).
+`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library. Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields). Debug-level protocol events include `protocol_request_not_found` (no matching generation or asset for a `media://` request) and `protocol_request_file_missing` (asset exists in DB but file is absent on disk).
 
 `devPassthrough` is explicit opt-in and stays disabled unless the consumer sets it to `true`.
 

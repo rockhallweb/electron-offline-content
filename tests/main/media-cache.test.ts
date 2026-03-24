@@ -2051,6 +2051,9 @@ describe("media cache sync and queries", () => {
     expect(create("https://assets.example.test#hash")).toThrow(
       "assetBaseUrl must not include a query string or hash fragment.",
     );
+    expect(create("https//cdn.example.com")).toThrow(
+      'assetBaseUrl is not a valid URL: "https//cdn.example.com"',
+    );
   });
 
   it("serves byte ranges for committed video assets", async () => {
