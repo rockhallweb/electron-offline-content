@@ -51,9 +51,10 @@ const selectedDevPassthrough =
   runtimeConfig?.devPassthrough ??
   normalizeBoolean(process.env.MEDIA_CACHE_DEV_PASSTHROUGH) ??
   normalizeBoolean(readArgValue("media-cache-dev-passthrough"));
+// assetBaseUrl uses Object.hasOwn so explicit null in config overrides env; other fields use ??.
 const selectedAssetBaseUrl =
   runtimeConfig && Object.hasOwn(runtimeConfig, "assetBaseUrl")
-    ? (runtimeConfig.assetBaseUrl ?? null)
+    ? runtimeConfig.assetBaseUrl
     : (readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ?? readArgValue("media-cache-asset-base-url"));
 const effectiveDevPassthrough = selectedDevPassthrough ?? false;
 const rendererUrl =
