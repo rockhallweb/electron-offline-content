@@ -52,9 +52,9 @@ const selectedDevPassthrough =
   normalizeBoolean(process.env.MEDIA_CACHE_DEV_PASSTHROUGH) ??
   normalizeBoolean(readArgValue("media-cache-dev-passthrough"));
 const selectedAssetBaseUrl =
-  runtimeConfig?.assetBaseUrl ??
-  readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ??
-  readArgValue("media-cache-asset-base-url");
+  "assetBaseUrl" in (runtimeConfig ?? {})
+    ? (runtimeConfig!.assetBaseUrl ?? null)
+    : (readOptionalEnv("MEDIA_CACHE_ASSET_BASE_URL") ?? readArgValue("media-cache-asset-base-url"));
 const effectiveDevPassthrough = selectedDevPassthrough ?? false;
 const rendererUrl =
   process.env.MEDIA_CACHE_RENDERER_URL ?? readArgValue("media-cache-renderer-url");

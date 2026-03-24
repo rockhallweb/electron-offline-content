@@ -1002,11 +1002,9 @@ function resolveAssetBaseUrl(
     }
     url = parsed.url;
   } catch (err) {
-    if (onWarn) {
-      onWarn(contextLabel, err);
-    } else {
-      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
-    }
+    // Data-integrity error, not a recoverable fallback — do not emit resolve_asset_base_url_fallback
+    // (which implies graceful recovery). The second catch below uses the same event for origin-override
+    // failures where we *do* fall back to the original URL.
     throw err;
   }
 
