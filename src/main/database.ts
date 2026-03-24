@@ -83,6 +83,10 @@ export class MediaCacheDatabase {
     private readonly options: {
       devPassthrough: boolean;
       assetBaseUrlOrigin: string | null;
+      /**
+       * Invoked only when dev passthrough origin override fails (fallback to stored URL).
+       * Not called for invalid `source_json` (parse error or missing url) — those throw.
+       */
       onWarn?: (contextLabel: string, err: unknown) => void;
     },
   ) {
@@ -988,6 +992,11 @@ function buildMediaUrl(namespace: string, itemId: string, assetId: string): stri
   return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
 }
 
+/**
+ * Dev passthrough: parse `source_json` and optionally rewrite URL origin.
+ * @param onWarn Invoked only when origin override fails (graceful fallback). Parse errors and
+ *   missing `url` throw without calling `onWarn` — catch the error to observe those failures.
+ */
 function resolveAssetBaseUrl(
   sourceJson: string,
   assetBaseUrlOrigin: string | null,
