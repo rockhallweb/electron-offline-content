@@ -83,6 +83,10 @@ export class MediaCacheDatabase {
     private readonly options: {
       devPassthrough: boolean;
       assetBaseUrlOrigin: string | null;
+      /**
+       * Invoked only when dev passthrough origin override fails (fallback to stored URL).
+       * Not called for invalid `source_json` (parse error or missing url) — those throw.
+       */
       onWarn?: (contextLabel: string, err: unknown) => void;
     },
   ) {
@@ -988,27 +992,32 @@ function buildMediaUrl(namespace: string, itemId: string, assetId: string): stri
   return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
 }
 
+/**
+ * Dev passthrough: parse `source_json` and optionally rewrite URL origin.
+ * @param onWarn Invoked only when origin override fails (graceful fallback). Parse errors and
+ *   missing `url` throw without calling `onWarn` — catch the error to observe those failures.
+ */
 function resolveAssetBaseUrl(
   sourceJson: string,
   assetBaseUrlOrigin: string | null,
   contextLabel: string,
   onWarn?: (contextLabel: string, err: unknown) => void,
 ): string {
-  let url: string;
+  // Data-integrity error — do not emit resolve_asset_base_url_fallback (implies graceful recovery).
+  // The try/catch below handles origin-override failures and *does* fall back to the original URL.
+  let parsed: { url?: string };
   try {
-    const parsed = JSON.parse(sourceJson) as { url?: string };
-    if (typeof parsed?.url !== "string" || !parsed.url) {
-      throw new Error("source_json missing url");
-    }
-    url = parsed.url;
+    parsed = JSON.parse(sourceJson) as { url?: string };
   } catch (err) {
-    if (onWarn) {
-      onWarn(contextLabel, err);
-    } else {
-      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
-    }
-    throw err;
+    throw new Error(
+      `${contextLabel}: Failed to parse source_json (${err instanceof Error ? err.message : String(err)})`,
+      { cause: err },
+    );
   }
+  if (typeof parsed?.url !== "string" || !parsed?.url) {
+    throw new Error(`${contextLabel}: source_json missing url`);
+  }
+  const url = parsed.url;
 
   if (!assetBaseUrlOrigin) {
     return url;
