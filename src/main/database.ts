@@ -1006,7 +1006,7 @@ function resolveAssetBaseUrl(
     (wrap as Error & { cause?: unknown }).cause = err;
     throw wrap;
   }
-  if (typeof parsed.url !== "string" || !parsed.url) {
+  if (typeof parsed?.url !== "string" || !parsed?.url) {
     throw new Error(`${contextLabel}: source_json missing url`);
   }
   const url = parsed.url;
