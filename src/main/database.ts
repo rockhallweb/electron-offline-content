@@ -994,19 +994,22 @@ function resolveAssetBaseUrl(
   contextLabel: string,
   onWarn?: (contextLabel: string, err: unknown) => void,
 ): string {
-  let url: string;
+  // Data-integrity error — do not emit resolve_asset_base_url_fallback (implies graceful recovery).
+  // The try/catch below handles origin-override failures and *does* fall back to the original URL.
+  let parsed: { url?: string };
   try {
-    const parsed = JSON.parse(sourceJson) as { url?: string };
-    if (typeof parsed?.url !== "string" || !parsed.url) {
-      throw new Error("source_json missing url");
-    }
-    url = parsed.url;
+    parsed = JSON.parse(sourceJson) as { url?: string };
   } catch (err) {
-    // Data-integrity error, not a recoverable fallback — do not emit resolve_asset_base_url_fallback
-    // (which implies graceful recovery). The second catch below uses the same event for origin-override
-    // failures where we *do* fall back to the original URL.
-    throw err;
+    const wrap = new Error(
+      `${contextLabel}: Failed to parse source_json (${err instanceof Error ? err.message : String(err)})`,
+    );
+    (wrap as Error & { cause?: unknown }).cause = err;
+    throw wrap;
   }
+  if (typeof parsed?.url !== "string" || !parsed.url) {
+    throw new Error(`${contextLabel}: source_json missing url`);
+  }
+  const url = parsed.url;
 
   if (!assetBaseUrlOrigin) {
     return url;
