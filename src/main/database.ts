@@ -1000,11 +1000,10 @@ function resolveAssetBaseUrl(
   try {
     parsed = JSON.parse(sourceJson) as { url?: string };
   } catch (err) {
-    const wrap = new Error(
+    throw new Error(
       `${contextLabel}: Failed to parse source_json (${err instanceof Error ? err.message : String(err)})`,
+      { cause: err },
     );
-    (wrap as Error & { cause?: unknown }).cause = err;
-    throw wrap;
   }
   if (typeof parsed?.url !== "string" || !parsed?.url) {
     throw new Error(`${contextLabel}: source_json missing url`);
