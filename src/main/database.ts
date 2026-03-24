@@ -29,7 +29,7 @@ import {
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
-import { warnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
+import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -1004,13 +1004,14 @@ function resolveAssetBaseUrl(
     const resolved = new URL(source.url);
     resolved.protocol = origin.protocol;
     resolved.hostname = origin.hostname;
+    // normalizeAssetBaseUrl stores parsed.origin, which strips explicit default ports (e.g. :443).
     resolved.port = origin.port;
     return resolved.toString();
   } catch (err) {
     if (onWarn) {
       onWarn(contextLabel, err);
     } else {
-      warnResolveAssetBaseUrlFallback(contextLabel, err);
+      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
     }
     return source.url;
   }

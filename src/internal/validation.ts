@@ -13,7 +13,11 @@ import type {
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const nonNegativeNumberSchema = z.number().nonnegative();
 
-export const stringInputSchema = z.string().min(1).max(500);
+/**
+ * Schema for IPC/API string identifiers: namespace, item ID, namespace tree prefix, file stem.
+ * Enforces min 1 and max 2000 characters. Used by getItem, listNamespace, listNamespaceTree, findByFileStem.
+ */
+export const stringInputSchema = z.string().min(1).max(2000);
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([

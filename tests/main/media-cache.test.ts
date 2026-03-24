@@ -2000,6 +2000,22 @@ describe("media cache sync and queries", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("returns 404 for media:// URLs with malformed percent-encoding in path", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+    await cache.start();
+    const handler = await createProtocolHandler(cache, {
+      fetchFile: async (_request, filePath) =>
+        new Response(readFileSync(filePath, "utf8")),
+    });
+
+    const malformed = await handler(new Request("media://asset/foo%GG/bar/main"));
+    expect(malformed.status).toBe(404);
+  });
+
   it("returns 404 for passthrough assets over media:// because dev mode uses direct asset URLs", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
@@ -2028,6 +2044,21 @@ describe("media cache sync and queries", () => {
           resolveManifest: () => manifests,
         }),
     ).toThrow("assetBaseUrl has no effect when devPassthrough is false");
+  });
+
+  it("emits dev_passthrough_ignores_sync_failure_mode when both devPassthrough and serve-last-snapshot are set", () => {
+    const logs: MediaCacheLogEvent[] = [];
+    new RawMediaCache({
+      storageRoot: createStorageRoot(),
+      devPassthrough: true,
+      onSyncFailure: "serve-last-snapshot",
+      onLog: (e) => logs.push(e),
+      resolveManifest: () => manifests,
+    });
+    expect(logs.some((e) => e.event === "dev_passthrough_ignores_sync_failure_mode")).toBe(true);
+    expect(logs.find((e) => e.event === "dev_passthrough_ignores_sync_failure_mode")).toMatchObject(
+      { configured_mode: "serve-last-snapshot" },
+    );
   });
 
   it("rejects invalid assetBaseUrl values", () => {
@@ -2531,6 +2562,27 @@ describe("media cache sync and queries", () => {
       items: expect.any(Array),
     });
     expect(dbCalled).toBe(true);
+  });
+
+  it("rejects empty string and oversized identifiers with DataValidationError", async () => {
+    const cache = createMediaCache({
+      storageRoot: createStorageRoot(),
+      resolveManifest: () => manifests,
+    });
+    await cache.start();
+
+    await expect(cache.getItem("", "forest")).rejects.toThrow(DataValidationError);
+    await expect(cache.getItem("nature", "")).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespace("")).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespaceTree("")).rejects.toThrow(DataValidationError);
+    await expect(cache.findByFileStem("")).rejects.toThrow(DataValidationError);
+
+    const long = "x".repeat(2001);
+    await expect(cache.getItem(long, "forest")).rejects.toThrow(DataValidationError);
+    await expect(cache.getItem("nature", long)).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespace(long)).rejects.toThrow(DataValidationError);
+    await expect(cache.listNamespaceTree(long)).rejects.toThrow(DataValidationError);
+    await expect(cache.findByFileStem(long)).rejects.toThrow(DataValidationError);
   });
 
   it("wraps circular manifest metadata serialization errors in DataValidationError", async () => {

@@ -46,7 +46,7 @@ import {
   stringInputSchema,
 } from "../internal/validation.js";
 import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
-import { warnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
+import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -156,6 +156,16 @@ export class MediaCache implements MediaCacheMain {
       }
       this.assetBaseUrlOrigin = null;
     }
+    if (
+      this.devPassthrough &&
+      this.options.onSyncFailure &&
+      this.options.onSyncFailure !== "throw"
+    ) {
+      // Only emitted when onLog is configured; overridden setting applies regardless.
+      this.emitLog("warn", "dev_passthrough_ignores_sync_failure_mode", {
+        configured_mode: this.options.onSyncFailure,
+      });
+    }
     this.status = {
       phase: "idle",
       activeGenerationId: null,
@@ -258,7 +268,17 @@ export class MediaCache implements MediaCacheMain {
         return new Response("Not found", { status: 404 });
       }
 
-      const [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part));
+      let namespace: string;
+      let itemId: string;
+      let assetId: string;
+      try {
+        [namespace, itemId, assetId] = parts.map((part) =>
+          decodeURIComponent(part),
+        ) as [string, string, string];
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
+
       const target = this.db!.getProtocolAssetTarget(namespace, itemId, assetId);
 
       if (!target) {
@@ -358,7 +378,7 @@ export class MediaCache implements MediaCacheMain {
             error: err != null ? String(err) : undefined,
           });
         } else {
-          warnResolveAssetBaseUrlFallback(contextLabel, err);
+          consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
         }
       },
     });
