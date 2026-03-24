@@ -2056,6 +2056,21 @@ describe("media cache sync and queries", () => {
     );
   });
 
+  it("accepts assetBaseUrl null and uses manifest URLs as-is in passthrough mode", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new RawMediaCache({
+      storageRoot,
+      devPassthrough: true,
+      assetBaseUrl: null,
+      resolveManifest: () => manifests,
+    });
+
+    await cache.start();
+
+    const item = await cache.getItem("nature", "forest");
+    expect(item?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+  });
+
   it("serves byte ranges for committed video assets", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({

@@ -13,7 +13,7 @@ import type {
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const nonNegativeNumberSchema = z.number().nonnegative();
 
-export const stringInputSchema = z.string();
+export const stringInputSchema = z.string().min(1).max(500);
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([

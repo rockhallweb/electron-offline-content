@@ -402,6 +402,10 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private prepareDevRuntimeState(): void {
+    this.emitLog("warn", "dev_passthrough_clearing_state", {
+      storage_root: this.storageRoot,
+      reason: "devPassthrough=true clears all local state on startup",
+    });
     this.db!.clearAllState();
     rmSync(join(this.storageRoot!, "blobs"), { recursive: true, force: true });
     rmSync(join(this.storageRoot!, "temp"), { recursive: true, force: true });
@@ -1144,7 +1148,7 @@ function normalizeStorageRoot(storageRoot: string | undefined): string | null {
   return storageRoot.trim().length > 0 ? storageRoot : null;
 }
 
-function normalizeAssetBaseUrl(assetBaseUrl: string | undefined): string | null {
+function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
   if (!assetBaseUrl) {
     return null;
   }

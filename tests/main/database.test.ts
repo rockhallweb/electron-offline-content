@@ -35,6 +35,7 @@ describe("MediaCacheDatabase", () => {
         expect(columns.length).toBeGreaterThan(0);
       }
       const assetColumns = dbInternal.prepare("PRAGMA table_info(assets)").all();
+      expect(assetColumns.map((c) => c.name)).toContain("source_json");
       expect(assetColumns.map((c) => c.name)).toContain("resolved_request_json");
 
       const pendingColumns = dbInternal.prepare("PRAGMA table_info(pending_deletions)").all();

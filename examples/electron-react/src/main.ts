@@ -18,7 +18,7 @@ type RuntimeConfig = {
   logFormat?: LogFormat;
   logLevel?: LogLevel;
   devPassthrough?: boolean;
-  assetBaseUrl?: string;
+  assetBaseUrl?: string | null;
 };
 
 const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
