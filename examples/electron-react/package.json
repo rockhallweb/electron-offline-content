@@ -10,7 +10,7 @@
     "package": "electron-forge package"
   },
   "dependencies": {
-    "@rockhallweb/electron-offline-content": "workspace:*",
+    "@rockhallweb/electron-offline-content": "../../",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
