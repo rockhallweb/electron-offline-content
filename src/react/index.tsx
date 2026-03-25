@@ -33,10 +33,10 @@ interface AsyncState<T> {
 }
 
 /**
- * Supplies a {@link MediaCacheBridge} to descendants via context. Uses the `bridge` prop when set,
- * otherwise falls back to `window.mediaCache` (from preload).
+ * Supplies a {@link MediaCacheBridge} via context. When `bridge` is set, it wins; otherwise falls
+ * back to `window.mediaCache`, which matches the default preload key (`exposeMediaCacheBridge()`
+ * with no options). If you use a custom `key` in preload, pass the bridge explicitly with `bridge`.
  */
-
 export function MediaCacheProvider({
   bridge,
   children,
@@ -46,15 +46,15 @@ export function MediaCacheProvider({
 }
 
 /**
- * Returns the bridge from context or `window.mediaCache`. Throws if neither is available—wrap the
- * tree in {@link MediaCacheProvider} or expose the preload bridge first.
+ * Returns the bridge from context, then `window.mediaCache` if set. Throws if neither is available.
+ * With default-key preload, use {@link MediaCacheProvider} or ensure `window.mediaCache` exists;
+ * with a custom preload `key`, pass `bridge` into the provider.
  */
-
 export function useMediaCacheBridge(): MediaCacheBridge {
   const bridge = useContext(MediaCacheContext) ?? window.mediaCache ?? null;
   if (!bridge) {
     throw new Error(
-      "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.",
+      "MediaCache bridge is unavailable. Pass bridge to <MediaCacheProvider>, or expose the preload API (default window.mediaCache; custom key requires passing bridge).",
     );
   }
   return bridge;
@@ -64,7 +64,6 @@ export function useMediaCacheBridge(): MediaCacheBridge {
  * Loads cache status once, subscribes to live updates via `subscribeStatus`, and exposes `refresh`
  * to poll `getStatus` again.
  */
-
 export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
   const bridge = useMediaCacheBridge();
   const [data, setData] = useState<MediaCacheStatus | null>(null);
@@ -148,7 +147,6 @@ export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
 /**
  * Fetches one item by `namespace` and `id`; reloads when either key or the bridge changes.
  */
-
 export function useMediaItem(
   namespace: string,
   id: string,
@@ -161,7 +159,6 @@ export function useMediaItem(
 /**
  * Paginated flat list of items in a single namespace; depends on `namespace` and `pagination` cursor/limit.
  */
-
 export function useMediaNamespace(
   namespace: string,
   pagination?: PaginationInput,
@@ -179,7 +176,6 @@ export function useMediaNamespace(
 /**
  * Paginated items under a namespace key prefix (`listNamespaceTree`); depends on `prefix` and pagination.
  */
-
 export function useMediaNamespaceTree(
   prefix: string,
   pagination?: PaginationInput,
@@ -197,7 +193,6 @@ export function useMediaNamespaceTree(
 /**
  * Paginated stem search across assets (`findByFileStem`); depends on `stem`, optional `namespace`, and pagination.
  */
-
 export function useFileStemMatch(
   stem: string,
   options?: PaginationInput & { namespace?: string },

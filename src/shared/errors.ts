@@ -1,7 +1,6 @@
 import type { SerializedMediaCacheError } from "./types.js";
 
 /** Base class for cache errors; use `code` for stable programmatic handling. */
-
 export class MediaCacheError extends Error {
   constructor(
     message: string,
@@ -14,7 +13,6 @@ export class MediaCacheError extends Error {
 }
 
 /** Manifest from `resolveManifest` is missing or inconsistent (namespaces, items, or assets). */
-
 export class ManifestValidationError extends MediaCacheError {
   constructor(message: string) {
     super(message, "MANIFEST_VALIDATION_ERROR");
@@ -26,7 +24,6 @@ export class ManifestValidationError extends MediaCacheError {
  * Cache would exceed `maxCacheBytes`, violate `reserveFreeBytes`, disk is full (`ENOSPC`), or a
  * commit would leave insufficient free space.
  */
-
 export class StorageLimitError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "STORAGE_LIMIT_ERROR", options);
@@ -35,7 +32,6 @@ export class StorageLimitError extends MediaCacheError {
 }
 
 /** Persisted state on disk fails validation (for example a corrupt status snapshot). */
-
 export class DataValidationError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "DATA_VALIDATION_ERROR", options);
@@ -44,7 +40,6 @@ export class DataValidationError extends MediaCacheError {
 }
 
 /** Network or HTTP failure while downloading an asset during sync (may be retryable internally). */
-
 export class SyncFailureError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "SYNC_FAILURE", options);

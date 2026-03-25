@@ -88,7 +88,6 @@ interface AttachIpcOptions {
  * the same operations to renderers via IPC. Call `registerMediaCacheProtocolSchemes` once before
  * `app.ready`, then `start` (or `syncNow`), then `registerProtocol` and `attachIpc` as needed.
  */
-
 export interface MediaCacheMain {
   /** Initializes storage, then runs an initial sync (same as calling `syncNow` after init). */
   start(): Promise<void>;
@@ -124,7 +123,6 @@ export interface MediaCacheMain {
  * Must be called in the main process before `app.whenReady()` (or app creation patterns that
  * forbid late registration).
  */
-
 export async function registerMediaCacheProtocolSchemes(): Promise<void> {
   const { protocol } = await import("electron");
   protocol.registerSchemesAsPrivileged([
@@ -141,7 +139,6 @@ export async function registerMediaCacheProtocolSchemes(): Promise<void> {
 }
 
 /** Constructs a {@link MediaCacheMain} instance with the given options (does not start sync until `start` or `syncNow`). */
-
 export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
   return new MediaCache(options);
 }
