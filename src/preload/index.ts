@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "../shared/types.js";
 
+/**
+ * Builds a {@link MediaCacheBridge} that invokes main-process handlers via `ipcRenderer`.
+ * Does not call `contextBridge`; use {@link exposeMediaCacheBridge} from an isolated preload to put the API on `window`.
+ */
+
 export function createMediaCacheBridge(): MediaCacheBridge {
   return {
     getStatus: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.getStatus),
@@ -24,6 +29,11 @@ export function createMediaCacheBridge(): MediaCacheBridge {
     },
   };
 }
+
+/**
+ * Exposes the bridge on the renderer's `window` under `options.key` (default `mediaCache`) using `contextBridge.exposeInMainWorld`.
+ * Returns the same bridge instance for convenience.
+ */
 
 export function exposeMediaCacheBridge(options?: PreloadExposeOptions): MediaCacheBridge {
   const bridge = createMediaCacheBridge();
