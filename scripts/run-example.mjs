@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(__dirname);
 const exampleDir = join(repoRoot, "examples", "electron-react");
+
+ensureExampleDeps();
 
 const mode = process.argv[2] ?? "dev";
 const isSmoke = mode === "smoke";
@@ -97,4 +99,22 @@ function resolveOptionalEnv(name, value) {
   }
 
   return { [name]: value };
+}
+
+function ensureExampleDeps() {
+  const result = spawnSync(
+    process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+    ["install", "--frozen-lockfile"],
+    {
+      cwd: exampleDir,
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 }
