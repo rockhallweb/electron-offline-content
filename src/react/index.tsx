@@ -32,6 +32,11 @@ interface AsyncState<T> {
   refresh: () => Promise<void>;
 }
 
+/**
+ * Supplies a {@link MediaCacheBridge} via context. When `bridge` is set, it wins; otherwise falls
+ * back to `window.mediaCache`, which matches the default preload key (`exposeMediaCacheBridge()`
+ * with no options). If you use a custom `key` in preload, pass the bridge explicitly with `bridge`.
+ */
 export function MediaCacheProvider({
   bridge,
   children,
@@ -40,6 +45,11 @@ export function MediaCacheProvider({
   return <MediaCacheContext.Provider value={value}>{children}</MediaCacheContext.Provider>;
 }
 
+/**
+ * Returns the bridge from context, then `window.mediaCache` if set. Throws if neither is available.
+ * With default-key preload, use {@link MediaCacheProvider} or ensure `window.mediaCache` exists;
+ * with a custom preload `key`, pass `bridge` into the provider.
+ */
 export function useMediaCacheBridge(): MediaCacheBridge {
   const bridge = useContext(MediaCacheContext) ?? window.mediaCache ?? null;
   if (!bridge) {
@@ -50,6 +60,10 @@ export function useMediaCacheBridge(): MediaCacheBridge {
   return bridge;
 }
 
+/**
+ * Loads cache status once, subscribes to live updates via `subscribeStatus`, and exposes `refresh`
+ * to poll `getStatus` again.
+ */
 export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
   const bridge = useMediaCacheBridge();
   const [data, setData] = useState<MediaCacheStatus | null>(null);
@@ -130,6 +144,9 @@ export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
   };
 }
 
+/**
+ * Fetches one item by `namespace` and `id`; reloads when either key or the bridge changes.
+ */
 export function useMediaItem(
   namespace: string,
   id: string,
@@ -139,6 +156,9 @@ export function useMediaItem(
   return useAsyncResource(loader);
 }
 
+/**
+ * Paginated flat list of items in a single namespace; depends on `namespace` and `pagination` cursor/limit.
+ */
 export function useMediaNamespace(
   namespace: string,
   pagination?: PaginationInput,
@@ -153,6 +173,9 @@ export function useMediaNamespace(
   return useAsyncResource(loader);
 }
 
+/**
+ * Paginated items under a namespace key prefix (`listNamespaceTree`); depends on `prefix` and pagination.
+ */
 export function useMediaNamespaceTree(
   prefix: string,
   pagination?: PaginationInput,
@@ -167,6 +190,9 @@ export function useMediaNamespaceTree(
   return useAsyncResource(loader);
 }
 
+/**
+ * Paginated stem search across assets (`findByFileStem`); depends on `stem`, optional `namespace`, and pagination.
+ */
 export function useFileStemMatch(
   stem: string,
   options?: PaginationInput & { namespace?: string },

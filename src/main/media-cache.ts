@@ -83,27 +83,46 @@ interface AttachIpcOptions {
   ipcMain?: IpcMain;
 }
 
+/**
+ * Main-process controller: syncs the manifest, stores blobs, serves `media:` URLs, and can expose
+ * the same operations to renderers via IPC. Call `registerMediaCacheProtocolSchemes` once before
+ * `app.ready`, then `start` (or `syncNow`), then `registerProtocol` and `attachIpc` as needed.
+ */
 export interface MediaCacheMain {
+  /** Initializes storage, then runs an initial sync (same as calling `syncNow` after init). */
   start(): Promise<void>;
+  /** Runs or joins the current sync; concurrent callers share one run. */
   syncNow(): Promise<void>;
+  /** Latest status snapshot (phase, progress, last run, error). */
   getStatus(): Promise<MediaCacheStatus>;
+  /** Single item in a namespace, or null if missing. */
   getItem(namespace: string, id: string): Promise<ResolvedMediaContentItem | null>;
+  /** Flat list of items in exactly one namespace, paginated. */
   listNamespace(
     namespace: string,
     pagination?: PaginationInput,
   ): Promise<{ items: ResolvedMediaContentItem[]; nextCursor: string | null }>;
+  /** Items in the `prefix` namespace and all dot-delimited descendant namespaces (hierarchical browse). */
   listNamespaceTree(
     prefix: string,
     pagination?: PaginationInput,
   ): Promise<{ items: ResolvedMediaContentItem[]; nextCursor: string | null }>;
+  /** Search by normalized file name stem; optional `namespace` scopes the search. */
   findByFileStem(
     stem: string,
     options?: PaginationInput & { namespace?: string },
   ): Promise<Awaited<ReturnType<MediaCacheBridge["findByFileStem"]>>>;
+  /** Register the `media:` protocol handler for the given session (default: `defaultSession`). */
   registerProtocol(options?: RegisterProtocolOptions): Promise<void>;
+  /** Wire `ipcMain` handlers and broadcast status to all browser windows. */
   attachIpc(options?: AttachIpcOptions): Promise<void>;
 }
 
+/**
+ * Registers the privileged `media:` scheme so local asset URLs can be fetched in renderers.
+ * Must be called in the main process before `app.whenReady()` (or app creation patterns that
+ * forbid late registration).
+ */
 export async function registerMediaCacheProtocolSchemes(): Promise<void> {
   const { protocol } = await import("electron");
   protocol.registerSchemesAsPrivileged([
@@ -119,6 +138,7 @@ export async function registerMediaCacheProtocolSchemes(): Promise<void> {
   ]);
 }
 
+/** Constructs a {@link MediaCacheMain} instance with the given options (does not start sync until `start` or `syncNow`). */
 export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
   return new MediaCache(options);
 }
