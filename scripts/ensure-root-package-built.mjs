@@ -15,4 +15,10 @@ if (existsSync(marker)) {
 
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const result = spawnSync(pnpm, ["build"], { cwd: repoRoot, stdio: "inherit" });
+if (result.error) {
+  process.stderr.write(
+    `ensure-root-package-built: failed to spawn pnpm: ${result.error.message}\n`,
+  );
+  process.exit(1);
+}
 process.exit(result.status ?? 1);
