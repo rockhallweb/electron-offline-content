@@ -54,7 +54,7 @@ export function useMediaCacheBridge(): MediaCacheBridge {
   const bridge = useContext(MediaCacheContext) ?? window.mediaCache ?? null;
   if (!bridge) {
     throw new Error(
-      "MediaCache bridge is unavailable. Pass bridge to <MediaCacheProvider>, or expose the preload API (default window.mediaCache; custom key requires passing bridge).",
+      "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.",
     );
   }
   return bridge;

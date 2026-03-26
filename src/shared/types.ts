@@ -127,8 +127,8 @@ export interface MediaCacheOptions {
 }
 
 /**
- * Cursor-based page for list APIs. Pass `nextCursor` from a prior
- * {@link PaginationResult} to continue; omit both for the first page.
+ * Cursor-based page for list APIs. Set `cursor` to the `nextCursor` from a prior
+ * {@link PaginationResult} to advance to the next page; omit for the first page.
  */
 export interface PaginationInput {
   limit?: number;
