@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = fileURLToPath(new URL(".", import.meta.url));
 const repoRoot = join(scriptsDir, "..");
 const marker = join(repoRoot, "dist", "main", "index.js");
+// Existence-only check: if dist/main/index.js exists we assume the root package is
+// built. We do NOT check freshness — if you have edited root source, run
+// `pnpm build` from the repo root before `pnpm run dev` here.
 if (existsSync(marker)) {
   process.exit(0);
 }
