@@ -8,3 +8,6 @@ examples/electron-react/.vite/
 examples/electron-react/.runtime/
 examples/electron-react/out/
 tmp-review/
+*.db
+*.sqlite
+*.sqlite3
