@@ -36,6 +36,7 @@
     "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "install:example": "pnpm install --dir examples/electron-react",
     "example:dev": "pnpm build && node scripts/run-example.mjs dev",
     "example:demo:nasa": "MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev",
     "example:smoke": "pnpm build && node scripts/run-example.mjs smoke",

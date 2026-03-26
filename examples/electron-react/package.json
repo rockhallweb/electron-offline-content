@@ -5,12 +5,13 @@
   "description": "Electron Forge + React example for @rockhallweb/electron-offline-content",
   "main": ".vite/build/main.js",
   "scripts": {
+    "predev": "node ../../scripts/ensure-root-package-built.mjs",
     "dev": "electron-forge start",
     "smoke": "node scripts/smoke.mjs",
     "package": "electron-forge package"
   },
   "dependencies": {
-    "@rockhallweb/electron-offline-content": "workspace:*",
+    "@rockhallweb/electron-offline-content": "../../",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

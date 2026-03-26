@@ -2,14 +2,13 @@
 
 A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.
 
-## Workspace
+## Repository layout
 
-This repo is a pnpm workspace with:
+- **Root package** — `@rockhallweb/electron-offline-content` (library source and published `dist/` output).
+- **`pnpm-workspace.yaml`** — Declares only the root package (`packages: ["."]`) so the root `pnpm-lock.yaml` stays limited to the library. Without this, pnpm can treat nested `package.json` files as extra importers and merge example dependencies into the root lockfile.
+- **Example app** — `examples/electron-react` is a standalone pnpm project: it depends on the root package via a local path (`../../`) and has its own `pnpm-lock.yaml`. A root `pnpm install` installs only the library; install example dependencies with `pnpm install:example` (or `pnpm install` inside `examples/electron-react`).
 
-- the package at the root
-- a real consumer app at `examples/electron-react`
-
-The example app is the maintainer validation target. It uses Electron Forge, React, and Vite for manual development, plus a direct Electron smoke path for deterministic automation.
+The example is the maintainer validation target. It uses Electron Forge, React, and Vite for manual development, plus a direct Electron smoke path for deterministic automation. The linked package resolves to compiled files under `dist/`; if you run `pnpm dev` from the example directory, `predev` builds the root package when `dist/` is missing. `pnpm smoke` from the example expects `dist/` to exist (root `pnpm example:smoke` and `pnpm pack:smoke` run `pnpm build` first).
 
 ## Features
 
@@ -38,7 +37,7 @@ Peer dependencies:
 Use the root commands for maintainership and CI:
 
 - `pnpm lint`
-  Run Oxlint across the workspace source and config files.
+  Run Oxlint across the repository source and config files.
 - `pnpm format:check`
   Verify formatting with Oxfmt without rewriting files.
 - `pnpm format`
@@ -49,6 +48,8 @@ Use the root commands for maintainership and CI:
   Run fast package-level behavior tests.
 - `pnpm build`
   Build the package outputs in `dist/`.
+- `pnpm install:example`
+  Install dependencies for `examples/electron-react` (required once before `pnpm example:dev` / `pnpm example:smoke` if you have not installed there yet; root launcher scripts also run this automatically).
 - `pnpm example:dev`
   Launch the in-repo Electron Forge example for manual integration testing.
 - `pnpm example:demo:nasa`
@@ -62,7 +63,7 @@ Use the root commands for maintainership and CI:
 
 GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is restricted to member-controlled branches and same-repository PRs; see [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
 
-Workspace installs are for day-to-day development. `pnpm pack:smoke` is the release validation path because it catches package export mistakes, missing files, and install-time issues that workspace linking can hide.
+Day-to-day development uses the path-linked example plus root `pnpm build`. `pnpm pack:smoke` is the release validation path because it catches package export mistakes, missing files, and install-time issues that path linking can hide.
 
 ## Example App
 

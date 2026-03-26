@@ -42,7 +42,7 @@ packageJson.pnpm = {
 };
 await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
-await run("pnpm", ["install", "--ignore-scripts=false"], {
+await run("pnpm", ["install", "--no-frozen-lockfile", "--ignore-scripts=false"], {
   cwd: copiedExampleDir,
   env: process.env,
 });
