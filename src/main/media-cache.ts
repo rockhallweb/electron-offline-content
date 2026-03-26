@@ -102,7 +102,7 @@ export interface MediaCacheMain {
     namespace: string,
     pagination?: PaginationInput,
   ): Promise<{ items: ResolvedMediaContentItem[]; nextCursor: string | null }>;
-  /** Items in any namespace whose key starts with `prefix` (hierarchical browse). */
+  /** Items in the `prefix` namespace and all dot-delimited descendant namespaces (hierarchical browse). */
   listNamespaceTree(
     prefix: string,
     pagination?: PaginationInput,
