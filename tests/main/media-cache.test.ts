@@ -2718,7 +2718,8 @@ describe("media cache sync and queries", () => {
         expect(spy).toHaveBeenCalledTimes(1);
       } finally {
         spy.mockRestore();
-        resetMediaCacheProtocolRegistrationStateForTests();
+        // Keep the registration flag true after this assertion. Resetting to false can
+        // re-trigger the real Electron registration path in later tests.
       }
     },
   );
