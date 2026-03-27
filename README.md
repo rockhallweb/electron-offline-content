@@ -77,7 +77,7 @@ pnpm example:local:dev
 pnpm example:nasa:dev
 ```
 
-The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive paths, passthrough mode, and similar values from `process.env`, a config file, or your installer.
+The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive `storageRoot` and similar values from `process.env`, a config file, or your installer. Enable dev passthrough only when you need the escape hatch (see below).
 
 The example UIs exercise:
 
@@ -91,27 +91,16 @@ The example UIs exercise:
 
 ## Main process
 
-In offline mode, register the `media://` scheme before app readiness. In dev passthrough mode,
-the renderer uses direct remote asset URLs instead.
+Default behavior is **offline mode**: the package registers the privileged `media:` scheme when you construct the cache (no separate registration call), syncs assets to disk, and resolves `media://asset/...` URLs for the renderer.
+
+1. Call `createMediaCache(...)` in the main process **before** `app.whenReady()` so scheme registration can run in time.
+2. After `app.whenReady()`, call `registerProtocol()`, `attachIpc()`, and `start()` (or `syncNow()`).
 
 ```ts
 import { app } from "electron";
-import {
-  createMediaCache,
-  registerMediaCacheProtocolSchemes,
-} from "@rockhallweb/electron-offline-content/main";
-
-const devPassthrough = process.env.MEDIA_CACHE_DEV_PASSTHROUGH === "true";
-
-if (!devPassthrough) {
-  await registerMediaCacheProtocolSchemes();
-}
+import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
 
 const mediaCache = createMediaCache({
-  // Explicit opt-in. Keep this off unless your dev assets are publicly reachable by URL.
-  devPassthrough,
-  // Optional dev-only origin override for public assets. Only used when devPassthrough is true.
-  assetBaseUrl: devPassthrough ? "https://cdn.example.com" : undefined,
   logLevel: "info",
   onLog: (entry) => {
     console.log(entry);
@@ -145,18 +134,27 @@ const mediaCache = createMediaCache({
 });
 
 await app.whenReady();
-if (!devPassthrough) {
-  await mediaCache.registerProtocol();
-}
+await mediaCache.registerProtocol();
 await mediaCache.attachIpc();
 await mediaCache.start();
+```
+
+**Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` becomes a no-op for the default session (no `media://` handler needed).
+
+```ts
+const mediaCache = createMediaCache({
+  devPassthrough: true,
+  assetBaseUrl: "https://cdn.example.com",
+  resolveManifest: async () => {
+    /* same manifest shape as offline mode */
+    return { namespaces: [] };
+  },
+});
 ```
 
 `onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library. Namespace, item ID, prefix, and file stem arguments are validated (min 1, max 2000 characters); invalid values throw `DataValidationError`.
 
 Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields) and `dev_passthrough_ignores_sync_failure_mode` (emitted when `devPassthrough: true` and `onSyncFailure !== "throw"`; sync failures always throw in dev passthrough regardless). These warnings are only emitted when `onLog` is configured. Debug-level protocol events include `protocol_request_not_found` (no matching generation or asset for a `media://` request) and `protocol_request_file_missing` (asset exists in DB but file is absent on disk).
-
-`devPassthrough` is explicit opt-in and stays disabled unless the consumer sets it to `true`.
 
 In passthrough mode:
 
@@ -170,7 +168,7 @@ In passthrough mode:
 
 Dev passthrough in v1 is intentionally limited to public assets. Assets that require signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode yet.
 
-`pnpm pack:verify` validates that the packed library installs cleanly into `examples/local`; it does not launch Electron. The examples run in offline mode with `devPassthrough: false` unless you change the source.
+`pnpm pack:verify` validates that the packed library installs cleanly into `examples/local`; it does not launch Electron. The examples use default offline mode unless you opt into dev passthrough in source.
 
 ## Preload
 

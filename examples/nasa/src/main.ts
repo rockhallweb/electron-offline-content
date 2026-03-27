@@ -1,14 +1,11 @@
 /**
- * Main-process wiring for @rockhallweb/electron-offline-content: register the offline
- * `media://` protocol (unless dev passthrough), create the cache, sync from your manifest,
- * then expose IPC so the renderer can query status and asset URLs.
+ * Main-process wiring for @rockhallweb/electron-offline-content: create the cache (before
+ * app readiness so offline `media:` registration runs), register the protocol handler after
+ * ready, sync from your manifest, then expose IPC so the renderer can query status and URLs.
  */
 import { app, BrowserWindow } from "electron";
 import { join } from "node:path";
-import {
-  createMediaCache,
-  registerMediaCacheProtocolSchemes,
-} from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
 import { createExampleContext } from "./fetch-content.js";
 
 void bootstrap().catch((error) => {
@@ -17,14 +14,7 @@ void bootstrap().catch((error) => {
 });
 
 async function bootstrap() {
-  // Production apps often read `devPassthrough` and `storageRoot` from `process.env` or a config
-  // file; if you enable passthrough, set `assetBaseUrl` too (see package README). Literals keep
-  // this example easy to follow.
-  const devPassthrough = false;
-
   const example = await createExampleContext();
-
-  if (!devPassthrough) await registerMediaCacheProtocolSchemes();
 
   const storageRoot = join(
     app.getPath("temp"),
@@ -34,7 +24,6 @@ async function bootstrap() {
 
   const mediaCache = createMediaCache({
     storageRoot,
-    devPassthrough,
     resolveManifest: example.resolveManifest,
   });
 
@@ -78,7 +67,7 @@ async function bootstrap() {
 
   await app.whenReady();
 
-  if (!devPassthrough) await mediaCache.registerProtocol();
+  await mediaCache.registerProtocol();
 
   // Renderer talks to the cache over IPC (`window.mediaCache`); hooks use this channel.
   await mediaCache.attachIpc();

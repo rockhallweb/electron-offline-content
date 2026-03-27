@@ -1,8 +1,4 @@
-export {
-  createMediaCache,
-  registerMediaCacheProtocolSchemes,
-  type MediaCacheMain,
-} from "./media-cache.js";
+export { createMediaCache, type MediaCacheMain } from "./media-cache.js";
 export type {
   DownloadRequest,
   FileStemMatch,

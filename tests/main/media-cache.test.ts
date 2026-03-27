@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   copyFileSync,
@@ -13,10 +13,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
   MediaCache as RawMediaCache,
   createMediaCache as createRawMediaCache,
+  resetMediaCacheProtocolRegistrationStateForTests,
   type MediaCacheMain,
 } from "../../src/main/media-cache.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
@@ -45,6 +47,16 @@ class MediaCache extends RawMediaCache {
 function createMediaCache(options: Parameters<typeof createRawMediaCache>[0]) {
   return createRawMediaCache({ devPassthrough: false, ...options });
 }
+
+const electronSupportsProtocolRegistration = (() => {
+  try {
+    const req = createRequire(import.meta.url);
+    const electron = req("electron") as typeof import("electron");
+    return typeof electron.protocol?.registerSchemesAsPrivileged === "function";
+  } catch {
+    return false;
+  }
+})();
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -2682,6 +2694,28 @@ describe("media cache sync and queries", () => {
     const item = (await cache.getItem("nature", "forest")) as { kind: string } | null;
     expect(item?.kind).toBe("legacy-video");
   });
+
+  it.skipIf(!electronSupportsProtocolRegistration)(
+    "registers the privileged media scheme at most once for offline mode",
+    () => {
+      const requireElectron = createRequire(import.meta.url);
+      const electron = requireElectron("electron") as typeof import("electron");
+
+      resetMediaCacheProtocolRegistrationStateForTests();
+      const spy = vi
+        .spyOn(electron.protocol, "registerSchemesAsPrivileged")
+        .mockImplementation(() => undefined);
+
+      try {
+        new RawMediaCache({ devPassthrough: false, resolveManifest: async () => ({ namespaces: [] }) });
+        new RawMediaCache({ devPassthrough: false, resolveManifest: async () => ({ namespaces: [] }) });
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy.mockRestore();
+        resetMediaCacheProtocolRegistrationStateForTests();
+      }
+    },
+  );
 });
 
 function collectFiles(root: string): string[] {
