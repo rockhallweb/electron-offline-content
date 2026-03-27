@@ -26,7 +26,9 @@ try {
   await cp(exampleDir, copiedExampleDir, {
     recursive: true,
     filter(source) {
-      return !source.includes("node_modules") && !source.includes(".vite") && !source.includes("out");
+      return (
+        !source.includes("node_modules") && !source.includes(".vite") && !source.includes("out")
+      );
     },
   });
 
