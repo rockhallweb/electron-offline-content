@@ -215,12 +215,9 @@ select {
   gap: 10px;
 }
 
-.fact-row {
+.fact-row-term {
   border-top: 1px solid var(--line);
   padding-top: 12px;
-}
-
-.fact-row dt {
   margin: 0 0 6px;
   font-size: 11px;
   color: var(--muted);
@@ -228,7 +225,12 @@ select {
   letter-spacing: 0.16em;
 }
 
-.fact-row dd {
+.sidebar-facts .fact-row-term:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.fact-row-def {
   margin: 0;
   line-height: 1.5;
   color: var(--text);

@@ -204,9 +204,9 @@ function MetricChip({ label, value }: { label: string; value: string }) {
 
 function FactRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="fact-row">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
+    <>
+      <dt className="fact-row-term">{label}</dt>
+      <dd className="fact-row-def">{value}</dd>
+    </>
   );
 }
