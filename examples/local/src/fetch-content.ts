@@ -4,13 +4,15 @@
  */
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { MediaCacheManifest } from "@rockhallweb/electron-offline-content/main";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
 export type { ExampleClientConfig };
 
-const fixturesDir = join(process.cwd(), "fixtures", "local");
+// Resolve fixtures relative to this module, not process.cwd(), so packaged runs still work.
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "local");
 
 export interface ExampleContext {
   clientConfig: ExampleClientConfig;
