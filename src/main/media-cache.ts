@@ -316,7 +316,7 @@ export class MediaCache implements MediaCacheMain {
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
     await this.ensureInitialized();
-    if (this.devPassthrough && options?.session === undefined) {
+    if (this.devPassthrough) {
       this.protocolRegistered = true;
       this.emitLog("debug", "protocol_registration_skipped", { reason: "dev_passthrough" });
       return;

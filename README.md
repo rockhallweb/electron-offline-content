@@ -139,7 +139,7 @@ await mediaCache.attachIpc();
 await mediaCache.start();
 ```
 
-**Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` becomes a no-op for the default session (no `media://` handler needed).
+**Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` is a no-op (no `media://` handler is needed in passthrough mode).
 
 ```ts
 const mediaCache = createMediaCache({

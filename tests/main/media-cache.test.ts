@@ -2027,7 +2027,7 @@ describe("media cache sync and queries", () => {
     expect(malformed.status).toBe(404);
   });
 
-  it("returns 404 for passthrough assets over media:// because dev mode uses direct asset URLs", async () => {
+  it("skips media:// protocol registration in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
       storageRoot,
@@ -2038,10 +2038,17 @@ describe("media cache sync and queries", () => {
     await cache.start();
     expect(requestCounts["/main.mp4"]).toBeUndefined();
 
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
+    let registered = false;
+    const fakeSession = {
+      protocol: {
+        handle: () => {
+          registered = true;
+        },
+      },
+    } as unknown as RegisterProtocolOptions["session"];
+    await cache.registerProtocol({ session: fakeSession });
 
-    expect(response.status).toBe(404);
+    expect(registered).toBe(false);
     expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
