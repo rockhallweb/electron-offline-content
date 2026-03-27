@@ -6,6 +6,8 @@ This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.ym
 pnpm ci:validate
 ```
 
+`ci:validate` ends with `pnpm pack:verify`, which packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+
 The workflow is intentionally member-oriented:
 
 - `push` runs only on `main`

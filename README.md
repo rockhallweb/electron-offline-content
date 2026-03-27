@@ -6,9 +6,9 @@ A package for Electron apps to download, stage, and serve offline content from a
 
 - **Root package** — `@rockhallweb/electron-offline-content` (library source and published `dist/` output).
 - **`pnpm-workspace.yaml`** — Declares only the root package (`packages: ["."]`) so the root `pnpm-lock.yaml` stays limited to the library. Without this, pnpm can treat nested `package.json` files as extra importers and merge example dependencies into the root lockfile.
-- **Example app** — `examples/electron-react` is a standalone pnpm project: it depends on the root package via a local path (`../../`) and has its own `pnpm-lock.yaml`. A root `pnpm install` installs only the library; install example dependencies with `pnpm install:example` (or `pnpm install` inside `examples/electron-react`).
+- **Example apps** — `examples/local` and `examples/nasa` are standalone pnpm projects (each has its own `pnpm-lock.yaml`). They depend on the root package via a local path (`../../`). A root `pnpm install` installs only the library; install example dependencies with `pnpm install:example:local` / `pnpm install:example:nasa` (or `pnpm install` inside each example directory).
 
-The example is the maintainer validation target. It uses Electron Forge, React, and Vite for manual development, plus a direct Electron smoke path for deterministic automation. The linked package resolves to compiled files under `dist/`; if you run `pnpm dev` from the example directory, `predev` builds the root package when `dist/` is missing. `pnpm smoke` from the example expects `dist/` to exist (root `pnpm example:smoke` and `pnpm pack:smoke` run `pnpm build` first).
+Each example is a small Electron Forge + React + Vite app that shows how to wire the library end-to-end. The linked package resolves to compiled files under `dist/`; if you run `pnpm dev` from an example directory, `predev` builds the root package when `dist/` is missing.
 
 ## Features
 
@@ -48,54 +48,38 @@ Use the root commands for maintainership and CI:
   Run fast package-level behavior tests.
 - `pnpm build`
   Build the package outputs in `dist/`.
-- `pnpm install:example`
-  Install dependencies for `examples/electron-react` (required once before `pnpm example:dev` / `pnpm example:smoke` if you have not installed there yet; root launcher scripts also run this automatically).
-- `pnpm example:dev`
-  Launch the in-repo Electron Forge example for manual integration testing.
-- `pnpm example:demo:nasa`
-  Launch the manual demo against the NASA-backed profile with a minimal browsing interface.
-- `pnpm example:smoke`
-  Build and run the example in deterministic smoke mode against local fixtures.
-- `pnpm pack:smoke`
-  Pack the root package into a tarball, install that tarball into a temporary example copy, and run the same smoke assertions against the publishable artifact.
+- `pnpm install:example:local`
+  Install dependencies for `examples/local`.
+- `pnpm install:example:nasa`
+  Install dependencies for `examples/nasa`.
+- `pnpm example:local:dev`
+  Build the library and launch the local-fixtures Electron Forge example.
+- `pnpm example:nasa:dev`
+  Build the library and launch the NASA-hosted media Electron Forge example.
+- `pnpm pack:verify`
+  Pack the root package into a tarball, install that tarball into a temporary copy of `examples/local`, and run `tsc --noEmit` against the example’s main/preload sources (`tsconfig.pack-verify.json`) to catch publish/install resolution issues.
 - `pnpm ci:validate`
-  Run the full maintainer validation chain: lint, format check, type-check, test, build, and packed smoke.
+  Run the full maintainer validation chain: lint, format check, type-check, test, build, and `pack:verify`.
 
 GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is restricted to member-controlled branches and same-repository PRs; see [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
 
-Day-to-day development uses the path-linked example plus root `pnpm build`. `pnpm pack:smoke` is the release validation path because it catches package export mistakes, missing files, and install-time issues that path linking can hide.
+Day-to-day development uses a path-linked example plus root `pnpm build`. `pnpm pack:verify` exercises the same install path consumers get from the registry tarball (using `examples/local`) and helps catch export or packaging mistakes that path linking can hide.
 
-## Example App
+## Example apps
 
-The example app lives at `examples/electron-react`.
+- **`examples/local`** — tiny fixtures served from a loopback HTTP server; used by `pnpm pack:verify`.
+- **`examples/nasa`** — public NASA SVS URLs for heavier manual demos (not run in CI).
 
-Two content profiles are supported:
-
-- `local`
-  Default. Uses tiny local fixtures served over a local HTTP server. This is the profile used by smoke tests and CI.
-- `nasa`
-  Opt-in. Uses public NASA-hosted media for heavier manual demos. This is intentionally excluded from automated validation.
-
-Examples:
+Run:
 
 ```bash
-pnpm example:dev
-pnpm example:demo:nasa
-MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev
-pnpm example:smoke
+pnpm example:local:dev
+pnpm example:nasa:dev
 ```
 
-Example logging is configurable through the runtime config written by the launcher scripts. Manual runs default to pretty logs and smoke runs default to JSON logs.
+The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive paths, passthrough mode, and similar values from `process.env`, a config file, or your installer.
 
-Overrides:
-
-```bash
-MEDIA_CACHE_LOG_FORMAT=pretty MEDIA_CACHE_LOG_LEVEL=debug pnpm example:dev
-MEDIA_CACHE_LOG_FORMAT=pretty MEDIA_CACHE_LOG_LEVEL=debug pnpm example:demo:nasa
-MEDIA_CACHE_LOG_FORMAT=json pnpm example:smoke
-```
-
-The example UI exercises:
+The example UIs exercise:
 
 - sync status
 - exact namespace listing
@@ -186,7 +170,7 @@ In passthrough mode:
 
 Dev passthrough in v1 is intentionally limited to public assets. Assets that require signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode yet.
 
-The in-repo smoke and packed-smoke example runs explicitly force `devPassthrough: false` so CI still validates the offline cache path.
+`pnpm pack:verify` validates that the packed library installs cleanly into `examples/local`; it does not launch Electron. The examples run in offline mode with `devPassthrough: false` unless you change the source.
 
 ## Preload
 

@@ -3,9 +3,11 @@
     "coverage/**",
     "dist/**",
     "node_modules/**",
-    "examples/electron-react/.runtime/**",
-    "examples/electron-react/.smoke/**",
-    "examples/electron-react/.vite/**",
-    "examples/electron-react/out/**"
+    "examples/local/.smoke/**",
+    "examples/local/.vite/**",
+    "examples/local/out/**",
+    "examples/nasa/.smoke/**",
+    "examples/nasa/.vite/**",
+    "examples/nasa/out/**"
   ]
 }

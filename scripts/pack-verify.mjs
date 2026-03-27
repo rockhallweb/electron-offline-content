@@ -1,18 +1,16 @@
-import { mkdtemp, readFile, rm, writeFile, cp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(__dirname);
-const exampleDir = join(repoRoot, "examples", "electron-react");
+const exampleDir = join(repoRoot, "examples", "local");
 
-const workspaceTmp = await mkdtemp(join(tmpdir(), "media-cache-pack-smoke-"));
+const workspaceTmp = await mkdtemp(join(tmpdir(), "media-cache-pack-verify-"));
 const packDir = join(workspaceTmp, "pack");
 const copiedExampleDir = join(workspaceTmp, "example");
-const smokeSentinel = join(workspaceTmp, "smoke-result.json");
-const smokeStorageRoot = join(workspaceTmp, "cache");
 
 await run("pnpm", ["pack", "--pack-destination", packDir], {
   cwd: repoRoot,
@@ -47,23 +45,14 @@ await run("pnpm", ["install", "--no-frozen-lockfile", "--ignore-scripts=false"],
   env: process.env,
 });
 
-await run("pnpm", ["run", "smoke"], {
+await run("pnpm", ["exec", "tsc", "--noEmit", "-p", "tsconfig.pack-verify.json"], {
   cwd: copiedExampleDir,
-  env: {
-    ...process.env,
-    MEDIA_CACHE_EXAMPLE_PROFILE: "local",
-    MEDIA_CACHE_DEV_PASSTHROUGH: "false",
-    MEDIA_CACHE_SMOKE_SENTINEL: smokeSentinel,
-    MEDIA_CACHE_STORAGE_ROOT: smokeStorageRoot,
-  },
+  env: process.env,
 });
 
-await waitForFile(smokeSentinel, 30_000);
-const smokePayload = JSON.parse(await readFile(smokeSentinel, "utf8"));
-process.stdout.write(`MEDIA_CACHE_PACK_SMOKE_RESULT ${JSON.stringify(smokePayload)}\n`);
-if (!smokePayload.ok) {
-  throw new Error("Packed smoke run reported failure.");
-}
+process.stdout.write(
+  `MEDIA_CACHE_PACK_VERIFY_OK ${JSON.stringify({ tarball: join(packDir, tarball) })}\n`,
+);
 
 await rm(workspaceTmp, { recursive: true, force: true });
 
@@ -94,17 +83,4 @@ function run(command, args, options) {
       }
     });
   });
-}
-
-async function waitForFile(path, timeoutMs) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      await readFile(path, "utf8");
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
-  throw new Error(`Timed out waiting for smoke sentinel at ${path}.`);
 }

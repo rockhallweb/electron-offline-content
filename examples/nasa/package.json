@@ -1,13 +1,12 @@
 {
-  "name": "@rockhallweb/electron-offline-content-example",
+  "name": "@rockhallweb/electron-offline-content-example-nasa",
   "version": "0.1.0",
   "private": true,
-  "description": "Electron Forge + React example for @rockhallweb/electron-offline-content",
+  "description": "NASA-hosted media example (Electron Forge + React) for @rockhallweb/electron-offline-content",
   "main": ".vite/build/main.js",
   "scripts": {
     "predev": "node ../../scripts/ensure-root-package-built.mjs",
     "dev": "electron-forge start",
-    "smoke": "node scripts/smoke.mjs",
     "package": "electron-forge package"
   },
   "dependencies": {
@@ -25,5 +24,5 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.11"
   },
-  "productName": "Rock Hall Electron Offline Content Example"
+  "productName": "Offline Content Example (NASA)"
 }

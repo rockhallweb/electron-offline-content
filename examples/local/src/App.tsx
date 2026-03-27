@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+// These hooks call the preload bridge; wrap the tree in `<MediaCacheProvider>` (see renderer.tsx).
 import {
   useFileStemMatch,
   useMediaCacheStatus,
@@ -8,7 +9,9 @@ import {
 } from "@rockhallweb/electron-offline-content/react";
 
 interface ExampleConfig {
-  profile: "local" | "nasa";
+  demoKicker: string;
+  queueLabel: string;
+  sourceLabel: string;
   rootNamespace: string;
   itemLookup: {
     namespace: string;
@@ -25,14 +28,15 @@ declare global {
 }
 
 export function App() {
-  const config = readExampleConfig() ??
-    window.mediaCacheExample ?? {
-      profile: "local" as const,
-      rootNamespace: "nature",
-      itemLookup: { namespace: "nature", itemId: "forest-loop" },
-      fileStem: "rose-cut",
-      namespaceTreePrefix: "nature",
-    };
+  const config = window.mediaCacheExample ?? {
+    demoKicker: "Local Fixture Demo",
+    queueLabel: "Local queue",
+    sourceLabel: "Local fixtures",
+    rootNamespace: "nature",
+    itemLookup: { namespace: "nature", itemId: "forest-loop" },
+    fileStem: "rose-cut",
+    namespaceTreePrefix: "nature",
+  };
 
   const status = useMediaCacheStatus();
   const rootNamespace = useMediaNamespace(config.rootNamespace, { limit: 20 });
@@ -61,7 +65,6 @@ export function App() {
   const posterAsset = currentItem.data?.assets.find((asset) => asset.role === "poster");
   const subtitleAsset = currentItem.data?.assets.find((asset) => asset.role === "subtitle");
   const queue = tree.data?.items ?? [];
-  const queueLabel = config.profile === "nasa" ? "Mission queue" : "Local queue";
   const queryError =
     status.error ?? rootNamespace.error ?? tree.error ?? fileStemMatches.error ?? currentItem.error;
 
@@ -84,13 +87,11 @@ export function App() {
       <section className="demo-stage">
         <header className="demo-header">
           <div>
-            <p className="demo-kicker">
-              {config.profile === "nasa" ? "NASA Manual Demo" : "Local Fixture Demo"}
-            </p>
+            <p className="demo-kicker">{config.demoKicker}</p>
             <h1>Offline media, staged once, played locally.</h1>
           </div>
           <div className="demo-meta">
-            <MetricChip label="Profile" value={config.profile} />
+            <MetricChip label="Source" value={config.sourceLabel} />
             <MetricChip label="Phase" value={status.data?.phase ?? "loading"} />
             <MetricChip
               label="Generation"
@@ -149,7 +150,7 @@ export function App() {
       <section className="demo-queue">
         <div className="queue-header">
           <div>
-            <p className="queue-label">{queueLabel}</p>
+            <p className="queue-label">{config.queueLabel}</p>
             <h3>Choose a synced item</h3>
           </div>
           <p className="queue-count">{queue.length} items ready</p>
@@ -208,25 +209,4 @@ function FactRow({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
-}
-
-function readExampleConfig(): ExampleConfig | null {
-  try {
-    const encoded = new URLSearchParams(window.location.search).get("mediaCacheExampleConfig");
-    if (!encoded) {
-      return null;
-    }
-    return JSON.parse(atob(fromBase64Url(encoded))) as ExampleConfig;
-  } catch {
-    return null;
-  }
-}
-
-function fromBase64Url(value: string): string {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const remainder = normalized.length % 4;
-  if (remainder === 0) {
-    return normalized;
-  }
-  return `${normalized}${"=".repeat(4 - remainder)}`;
 }
