@@ -12,49 +12,51 @@ const workspaceTmp = await mkdtemp(join(tmpdir(), "media-cache-pack-verify-"));
 const packDir = join(workspaceTmp, "pack");
 const copiedExampleDir = join(workspaceTmp, "example");
 
-await run("pnpm", ["pack", "--pack-destination", packDir], {
-  cwd: repoRoot,
-  env: process.env,
-});
+try {
+  await run("pnpm", ["pack", "--pack-destination", packDir], {
+    cwd: repoRoot,
+    env: process.env,
+  });
 
-const tarball = (await listDir(packDir)).find((file) => file.endsWith(".tgz"));
-if (!tarball) {
-  throw new Error("pnpm pack did not produce a tarball.");
+  const tarball = (await listDir(packDir)).find((file) => file.endsWith(".tgz"));
+  if (!tarball) {
+    throw new Error("pnpm pack did not produce a tarball.");
+  }
+
+  await cp(exampleDir, copiedExampleDir, {
+    recursive: true,
+    filter(source) {
+      return !source.includes("node_modules") && !source.includes(".vite") && !source.includes("out");
+    },
+  });
+
+  await writeFile(join(copiedExampleDir, ".npmrc"), "node-linker=hoisted\n");
+
+  const packageJsonPath = join(copiedExampleDir, "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  packageJson.dependencies["@rockhallweb/electron-offline-content"] = join(packDir, tarball);
+  packageJson.pnpm = {
+    ...packageJson.pnpm,
+    onlyBuiltDependencies: ["electron", "esbuild"],
+  };
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+  await run("pnpm", ["install", "--no-frozen-lockfile", "--ignore-scripts=false"], {
+    cwd: copiedExampleDir,
+    env: process.env,
+  });
+
+  await run("pnpm", ["exec", "tsc", "--noEmit", "-p", "tsconfig.pack-verify.json"], {
+    cwd: copiedExampleDir,
+    env: process.env,
+  });
+
+  process.stdout.write(
+    `MEDIA_CACHE_PACK_VERIFY_OK ${JSON.stringify({ tarball: join(packDir, tarball) })}\n`,
+  );
+} finally {
+  await rm(workspaceTmp, { recursive: true, force: true });
 }
-
-await cp(exampleDir, copiedExampleDir, {
-  recursive: true,
-  filter(source) {
-    return !source.includes("node_modules") && !source.includes(".vite") && !source.includes("out");
-  },
-});
-
-await writeFile(join(copiedExampleDir, ".npmrc"), "node-linker=hoisted\n");
-
-const packageJsonPath = join(copiedExampleDir, "package.json");
-const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-packageJson.dependencies["@rockhallweb/electron-offline-content"] = join(packDir, tarball);
-packageJson.pnpm = {
-  ...packageJson.pnpm,
-  onlyBuiltDependencies: ["electron", "esbuild"],
-};
-await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-
-await run("pnpm", ["install", "--no-frozen-lockfile", "--ignore-scripts=false"], {
-  cwd: copiedExampleDir,
-  env: process.env,
-});
-
-await run("pnpm", ["exec", "tsc", "--noEmit", "-p", "tsconfig.pack-verify.json"], {
-  cwd: copiedExampleDir,
-  env: process.env,
-});
-
-process.stdout.write(
-  `MEDIA_CACHE_PACK_VERIFY_OK ${JSON.stringify({ tarball: join(packDir, tarball) })}\n`,
-);
-
-await rm(workspaceTmp, { recursive: true, force: true });
 
 async function listDir(path) {
   const { readdir } = await import("node:fs/promises");
