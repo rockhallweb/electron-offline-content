@@ -115,6 +115,7 @@ function ensureMediaCacheProtocolSchemesPrivileged(): void {
 /**
  * Clears the internal `media:` scheme registration flag so subsequent {@link MediaCache}
  * construction runs registration again. **Unit tests only**; do not use in application code.
+ * @internal
  */
 export function resetMediaCacheProtocolRegistrationStateForTests(): void {
   mediaCacheProtocolSchemesPrivileged = false;
