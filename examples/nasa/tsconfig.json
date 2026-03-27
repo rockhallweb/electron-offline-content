@@ -10,5 +10,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "forge.config.ts", "forge.env.d.ts", "vite.*.config.ts"]
+  "include": ["src", "forge.config.ts", "forge.env.d.ts"]
 }
