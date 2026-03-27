@@ -106,11 +106,18 @@ export type SyncFailureMode = "serve-last-snapshot" | "throw";
 /**
  * Main-process configuration: where state lives, sync and storage guardrails, logging, and how the
  * manifest and per-asset downloads are resolved. Omit `storageRoot` to use a default app cache path.
- * Set `devPassthrough` to skip downloads and hit `assetBaseUrl` instead; when false, `assetBaseUrl`
- * must not be set. Use `onLog` / `logLevel` for structured diagnostics.
+ *
+ * Default behavior is offline mode: assets sync to disk and resolved URLs use the privileged
+ * `media:` protocol. Omit `devPassthrough` for that path.
+ *
+ * **Escape hatch:** set `devPassthrough: true` to skip blob downloads and surface direct remote
+ * URLs from the manifest (optional `assetBaseUrl` rewrites origins only). When `devPassthrough` is
+ * false or omitted, `assetBaseUrl` must not be set. Use `onLog` / `logLevel` for structured
+ * diagnostics.
  */
 export interface MediaCacheOptions {
   storageRoot?: string;
+  /** When `true`, skips downloads and resolves remote asset URLs (advanced / local-dev escape hatch). */
   devPassthrough?: boolean;
   assetBaseUrl?: string | null;
   maxCacheBytes?: number;

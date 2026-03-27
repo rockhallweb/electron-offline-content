@@ -14,6 +14,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { setTimeout as sleep } from "node:timers/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
@@ -49,6 +50,8 @@ import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
+const requireElectron = createRequire(import.meta.url);
+
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
 const LOG_LEVEL_WEIGHT: Record<MediaCacheLogLevel, number> = {
@@ -57,6 +60,66 @@ const LOG_LEVEL_WEIGHT: Record<MediaCacheLogLevel, number> = {
   warn: 30,
   error: 40,
 };
+
+let mediaCacheProtocolSchemesPrivileged = false;
+
+function isModuleNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND"
+  );
+}
+
+/**
+ * Registers the privileged `media:` scheme once per process. Call happens when constructing
+ * {@link MediaCache} in offline mode so consumers do not need a separate bootstrap step.
+ *
+ * No-ops when `electron` cannot be loaded (e.g. unit tests outside Electron). When Electron is
+ * available, failures from `protocol.registerSchemesAsPrivileged` propagate (including calling
+ * too late after `app.ready`).
+ */
+function ensureMediaCacheProtocolSchemesPrivileged(): void {
+  if (mediaCacheProtocolSchemesPrivileged) {
+    return;
+  }
+
+  let protocol: import("electron").Protocol;
+  try {
+    ({ protocol } = requireElectron("electron") as typeof import("electron"));
+  } catch (error) {
+    if (isModuleNotFoundError(error)) {
+      return;
+    }
+    throw error;
+  }
+
+  if (protocol == null || typeof protocol.registerSchemesAsPrivileged !== "function") {
+    return;
+  }
+
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: "media",
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+      },
+    },
+  ]);
+  mediaCacheProtocolSchemesPrivileged = true;
+}
+
+/**
+ * Clears the internal `media:` scheme registration flag so subsequent {@link MediaCache}
+ * construction runs registration again. **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export function resetMediaCacheProtocolRegistrationStateForTests(): void {
+  mediaCacheProtocolSchemesPrivileged = false;
+}
 
 interface DownloadTarget {
   namespace: string;
@@ -85,8 +148,9 @@ interface AttachIpcOptions {
 
 /**
  * Main-process controller: syncs the manifest, stores blobs, serves `media:` URLs, and can expose
- * the same operations to renderers via IPC. Call `registerMediaCacheProtocolSchemes` once before
- * `app.ready`, then `start` (or `syncNow`), then `registerProtocol` and `attachIpc` as needed.
+ * the same operations to renderers via IPC. In offline mode (default), construct the cache before
+ * `app.whenReady()` so the privileged `media:` scheme can be registered, then after ready call
+ * {@link MediaCacheMain.registerProtocol}, `attachIpc`, and `start` (or `syncNow`).
  */
 export interface MediaCacheMain {
   /** Initializes storage, then runs an initial sync (same as calling `syncNow` after init). */
@@ -116,26 +180,6 @@ export interface MediaCacheMain {
   registerProtocol(options?: RegisterProtocolOptions): Promise<void>;
   /** Wire `ipcMain` handlers and broadcast status to all browser windows. */
   attachIpc(options?: AttachIpcOptions): Promise<void>;
-}
-
-/**
- * Registers the privileged `media:` scheme so local asset URLs can be fetched in renderers.
- * Must be called in the main process before `app.whenReady()` (or app creation patterns that
- * forbid late registration).
- */
-export async function registerMediaCacheProtocolSchemes(): Promise<void> {
-  const { protocol } = await import("electron");
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: "media",
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-      },
-    },
-  ]);
 }
 
 /** Constructs a {@link MediaCacheMain} instance with the given options (does not start sync until `start` or `syncNow`). */
@@ -194,6 +238,10 @@ export class MediaCache implements MediaCacheMain {
       error: null,
       updatedAt: this.deps.now(),
     };
+
+    if (!this.devPassthrough) {
+      ensureMediaCacheProtocolSchemesPrivileged();
+    }
   }
 
   async start(): Promise<void> {
@@ -268,6 +316,11 @@ export class MediaCache implements MediaCacheMain {
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
     await this.ensureInitialized();
+    if (this.devPassthrough) {
+      this.protocolRegistered = true;
+      this.emitLog("debug", "protocol_registration_skipped", { reason: "dev_passthrough" });
+      return;
+    }
     if (this.protocolRegistered) {
       this.emitLog("debug", "protocol_registration_skipped", { reason: "already_registered" });
       return;

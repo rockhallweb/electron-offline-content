@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   copyFileSync,
@@ -13,10 +13,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
   MediaCache as RawMediaCache,
   createMediaCache as createRawMediaCache,
+  resetMediaCacheProtocolRegistrationStateForTests,
   type MediaCacheMain,
 } from "../../src/main/media-cache.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
@@ -45,6 +47,16 @@ class MediaCache extends RawMediaCache {
 function createMediaCache(options: Parameters<typeof createRawMediaCache>[0]) {
   return createRawMediaCache({ devPassthrough: false, ...options });
 }
+
+const electronSupportsProtocolRegistration = (() => {
+  try {
+    const req = createRequire(import.meta.url);
+    const electron = req("electron") as typeof import("electron");
+    return typeof electron.protocol?.registerSchemesAsPrivileged === "function";
+  } catch {
+    return false;
+  }
+})();
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -2015,7 +2027,7 @@ describe("media cache sync and queries", () => {
     expect(malformed.status).toBe(404);
   });
 
-  it("returns 404 for passthrough assets over media:// because dev mode uses direct asset URLs", async () => {
+  it("skips media:// protocol registration in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const cache = new RawMediaCache({
       storageRoot,
@@ -2026,10 +2038,17 @@ describe("media cache sync and queries", () => {
     await cache.start();
     expect(requestCounts["/main.mp4"]).toBeUndefined();
 
-    const handler = await createProtocolHandler(cache);
-    const response = await handler(new Request("media://asset/nature/forest/main"));
+    let registered = false;
+    const fakeSession = {
+      protocol: {
+        handle: () => {
+          registered = true;
+        },
+      },
+    } as unknown as RegisterProtocolOptions["session"];
+    await cache.registerProtocol({ session: fakeSession });
 
-    expect(response.status).toBe(404);
+    expect(registered).toBe(false);
     expect(requestCounts["/main.mp4"]).toBeUndefined();
   });
 
@@ -2682,6 +2701,35 @@ describe("media cache sync and queries", () => {
     const item = (await cache.getItem("nature", "forest")) as { kind: string } | null;
     expect(item?.kind).toBe("legacy-video");
   });
+
+  it.skipIf(!electronSupportsProtocolRegistration)(
+    "registers the privileged media scheme at most once for offline mode",
+    () => {
+      const requireElectron = createRequire(import.meta.url);
+      const electron = requireElectron("electron") as typeof import("electron");
+
+      resetMediaCacheProtocolRegistrationStateForTests();
+      const spy = vi
+        .spyOn(electron.protocol, "registerSchemesAsPrivileged")
+        .mockImplementation(() => undefined);
+
+      try {
+        new RawMediaCache({
+          devPassthrough: false,
+          resolveManifest: async () => ({ namespaces: [] }),
+        });
+        new RawMediaCache({
+          devPassthrough: false,
+          resolveManifest: async () => ({ namespaces: [] }),
+        });
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy.mockRestore();
+        // Keep the registration flag true after this assertion. Resetting to false can
+        // re-trigger the real Electron registration path in later tests.
+      }
+    },
+  );
 });
 
 function collectFiles(root: string): string[] {
