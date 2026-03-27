@@ -36,12 +36,12 @@
     "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "install:example": "pnpm install --dir examples/electron-react",
-    "example:dev": "pnpm build && node scripts/run-example.mjs dev",
-    "example:demo:nasa": "MEDIA_CACHE_EXAMPLE_PROFILE=nasa pnpm example:dev",
-    "example:smoke": "pnpm build && node scripts/run-example.mjs smoke",
-    "pack:smoke": "pnpm build && node scripts/pack-smoke.mjs",
-    "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:smoke"
+    "install:example:local": "pnpm install --dir examples/local",
+    "install:example:nasa": "pnpm install --dir examples/nasa",
+    "example:local:dev": "pnpm build && node scripts/run-example.mjs local",
+    "example:nasa:dev": "pnpm build && node scripts/run-example.mjs nasa",
+    "pack:verify": "pnpm build && node scripts/pack-verify.mjs",
+    "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:verify"
   },
   "dependencies": {
     "zod": "^4.3.6"

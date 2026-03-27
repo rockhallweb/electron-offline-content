@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/fetch-content.ts",
+    "src/example-client-config.ts",
+    "forge.env.d.ts"
+  ]
+}
