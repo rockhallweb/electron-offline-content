@@ -7,23 +7,11 @@ import {
   useMediaNamespace,
   useMediaNamespaceTree,
 } from "@rockhallweb/electron-offline-content/react";
-
-interface ExampleConfig {
-  demoKicker: string;
-  queueLabel: string;
-  sourceLabel: string;
-  rootNamespace: string;
-  itemLookup: {
-    namespace: string;
-    itemId: string;
-  };
-  fileStem: string;
-  namespaceTreePrefix: string;
-}
+import type { ExampleClientConfig } from "./example-client-config.js";
 
 declare global {
   interface Window {
-    mediaCacheExample?: ExampleConfig;
+    mediaCacheExample?: ExampleClientConfig;
   }
 }
 
