@@ -7,7 +7,7 @@ import {
   useMediaNamespace,
   useMediaNamespaceTree,
 } from "@rockhallweb/electron-offline-content/react";
-import type { ExampleClientConfig } from "./example-client-config.js";
+import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
 declare global {
   interface Window {
@@ -16,15 +16,7 @@ declare global {
 }
 
 export function App() {
-  const config = window.mediaCacheExample ?? {
-    demoKicker: "Local Fixture Demo",
-    queueLabel: "Local queue",
-    sourceLabel: "Local fixtures",
-    rootNamespace: "nature",
-    itemLookup: { namespace: "nature", itemId: "forest-loop" },
-    fileStem: "rose-cut",
-    namespaceTreePrefix: "nature",
-  };
+  const config = window.mediaCacheExample ?? exampleClientConfig;
 
   const status = useMediaCacheStatus();
   const rootNamespace = useMediaNamespace(config.rootNamespace, { limit: 20 });
