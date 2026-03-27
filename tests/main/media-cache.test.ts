@@ -2707,8 +2707,14 @@ describe("media cache sync and queries", () => {
         .mockImplementation(() => undefined);
 
       try {
-        new RawMediaCache({ devPassthrough: false, resolveManifest: async () => ({ namespaces: [] }) });
-        new RawMediaCache({ devPassthrough: false, resolveManifest: async () => ({ namespaces: [] }) });
+        new RawMediaCache({
+          devPassthrough: false,
+          resolveManifest: async () => ({ namespaces: [] }),
+        });
+        new RawMediaCache({
+          devPassthrough: false,
+          resolveManifest: async () => ({ namespaces: [] }),
+        });
         expect(spy).toHaveBeenCalledTimes(1);
       } finally {
         spy.mockRestore();
