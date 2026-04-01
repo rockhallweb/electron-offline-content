@@ -1,6 +1,15 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MediaCacheProvider, useMediaCacheStatus, useMediaItem } from "../../src/react/index.js";
+import {
+  MediaCacheProvider,
+  useMediaCacheErrors,
+  useMediaCacheReady,
+  useMediaCacheStatus,
+  useMediaItem,
+  useMediaItems,
+  useMediaNamespace,
+  useMediaNamespaceTree,
+} from "../../src/react/index.js";
 import type {
   MediaCacheBridge,
   MediaCacheStatus,
@@ -82,6 +91,156 @@ describe("react hooks", () => {
       expect(screen.getByTestId("status-phase").textContent).toBe("ready");
     });
   });
+
+  it("uses flat and recursive list queries via useMediaItems", async () => {
+    let listNamespaceCalls = 0;
+    let listNamespaceTreeCalls = 0;
+    const bridge = createBridge({
+      listNamespace: async () => {
+        listNamespaceCalls += 1;
+        return { items: [buildItem("flat")], nextCursor: null };
+      },
+      listNamespaceTree: async () => {
+        listNamespaceTreeCalls += 1;
+        return { items: [buildItem("tree")], nextCursor: null };
+      },
+    });
+
+    const { rerender } = render(
+      <MediaCacheProvider bridge={bridge}>
+        <ItemsProbe namespace="nature" recursive={false} />
+      </MediaCacheProvider>,
+    );
+
+    await screen.findByText("flat");
+    expect(listNamespaceCalls).toBeGreaterThan(0);
+    expect(listNamespaceTreeCalls).toBe(0);
+
+    rerender(
+      <MediaCacheProvider bridge={bridge}>
+        <ItemsProbe namespace="nature" recursive />
+      </MediaCacheProvider>,
+    );
+    await screen.findByText("tree");
+    expect(listNamespaceTreeCalls).toBeGreaterThan(0);
+  });
+
+  it("keeps legacy list hooks as wrappers around useMediaItems", async () => {
+    let listNamespaceCalls = 0;
+    let listNamespaceTreeCalls = 0;
+    const bridge = createBridge({
+      listNamespace: async () => {
+        listNamespaceCalls += 1;
+        return { items: [buildItem("legacy-flat")], nextCursor: null };
+      },
+      listNamespaceTree: async () => {
+        listNamespaceTreeCalls += 1;
+        return { items: [buildItem("legacy-tree")], nextCursor: null };
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <LegacyListProbe />
+      </MediaCacheProvider>,
+    );
+
+    await screen.findByText("legacy-flat");
+    await screen.findByText("legacy-tree");
+    expect(listNamespaceCalls).toBeGreaterThan(0);
+    expect(listNamespaceTreeCalls).toBeGreaterThan(0);
+  });
+
+  it("refetches item queries on ready-generation updates by default", async () => {
+    let statusListener: ((status: MediaCacheStatus) => void) | null = null;
+    let calls = 0;
+    const bridge = createBridge({
+      getItem: async () => {
+        calls += 1;
+        return buildItemWithVersion("forest", calls === 1 ? "v1" : "v2");
+      },
+      subscribeStatus: (listener) => {
+        statusListener = listener;
+        return () => {
+          statusListener = null;
+        };
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <ItemVersionProbe namespace="nature" itemId="forest" />
+      </MediaCacheProvider>,
+    );
+
+    await screen.findByText("v1");
+    act(() => {
+      statusListener?.(buildStatus("ready", 1));
+    });
+    await screen.findByText("v2");
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("allows disabling sync-complete refetch for item queries", async () => {
+    let statusListener: ((status: MediaCacheStatus) => void) | null = null;
+    let calls = 0;
+    const bridge = createBridge({
+      getItem: async () => {
+        calls += 1;
+        return buildItemWithVersion("forest", calls === 1 ? "v1" : "v2");
+      },
+      subscribeStatus: (listener) => {
+        statusListener = listener;
+        return () => {
+          statusListener = null;
+        };
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <ItemVersionProbe namespace="nature" itemId="forest" refetchOnSyncComplete={false} />
+      </MediaCacheProvider>,
+    );
+
+    await screen.findByText("v1");
+    act(() => {
+      statusListener?.(buildStatus("ready", 1));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("item-version").textContent).toBe("v1");
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("exposes derived readiness and aggregated errors", async () => {
+    const bridge = createBridge({
+      getStatus: async () => ({
+        ...buildStatus("error"),
+        error: {
+          name: "SyncFailureError",
+          code: "SYNC_FAILURE",
+          message: "sync failed",
+        },
+      }),
+      getItem: async () => {
+        throw new Error("query failed");
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <ReadyAndErrorProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ready-flag").textContent).toBe("false");
+      expect(screen.getByTestId("error-flag").textContent).toBe("true");
+      expect(screen.getByTestId("sync-error-code").textContent).toBe("SYNC_FAILURE");
+      expect(screen.getByTestId("query-error-count").textContent).toBe("1");
+    });
+  });
 });
 
 function ItemProbe({ namespace, itemId }: { namespace: string; itemId: string }) {
@@ -89,9 +248,53 @@ function ItemProbe({ namespace, itemId }: { namespace: string; itemId: string })
   return <div data-testid="item-id">{item.data?.id ?? "loading"}</div>;
 }
 
+function ItemVersionProbe({
+  namespace,
+  itemId,
+  refetchOnSyncComplete,
+}: {
+  namespace: string;
+  itemId: string;
+  refetchOnSyncComplete?: boolean;
+}) {
+  const item = useMediaItem(namespace, itemId, { refetchOnSyncComplete });
+  return <div data-testid="item-version">{item.data?.version ?? "loading"}</div>;
+}
+
+function ItemsProbe({ namespace, recursive }: { namespace: string; recursive: boolean }) {
+  const items = useMediaItems(namespace, { recursive });
+  return <div>{items.data?.items[0]?.id ?? "loading"}</div>;
+}
+
+function LegacyListProbe() {
+  const namespace = useMediaNamespace("nature", { limit: 10 });
+  const tree = useMediaNamespaceTree("nature", { limit: 10 });
+  return (
+    <div>
+      <div>{namespace.data?.items[0]?.id ?? "loading-flat"}</div>
+      <div>{tree.data?.items[0]?.id ?? "loading-tree"}</div>
+    </div>
+  );
+}
+
 function StatusProbe() {
   const status = useMediaCacheStatus();
   return <div data-testid="status-phase">{status.data?.phase ?? "loading"}</div>;
+}
+
+function ReadyAndErrorProbe() {
+  const ready = useMediaCacheReady();
+  const item = useMediaItem("nature", "forest");
+  const errors = useMediaCacheErrors(item);
+
+  return (
+    <div>
+      <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
+      <div data-testid="error-flag">{String(errors.hasError)}</div>
+      <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
+      <div data-testid="query-error-count">{String(errors.queryErrors.length)}</div>
+    </div>
+  );
 }
 
 function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCacheBridge {
@@ -120,11 +323,18 @@ function buildItem(id: string): ResolvedMediaContentItem {
   };
 }
 
-function buildStatus(phase: MediaCacheStatus["phase"]): MediaCacheStatus {
+function buildItemWithVersion(id: string, version: string): ResolvedMediaContentItem {
+  return {
+    ...buildItem(id),
+    version,
+  };
+}
+
+function buildStatus(phase: MediaCacheStatus["phase"], activeGenerationId = 0): MediaCacheStatus {
   return {
     phase,
-    storagePath: null,
-    activeGenerationId: phase === "ready" ? 1 : null,
+    storagePath: "/tmp/media-cache",
+    activeGenerationId: phase === "ready" ? activeGenerationId : null,
     progress: null,
     lastRun: null,
     error: null,
