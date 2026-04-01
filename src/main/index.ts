@@ -28,6 +28,8 @@ export type {
   PaginationResult,
   MediaItemsQueryOptions,
   MediaQuerySyncOptions,
+  ResolveAssetRequestContext,
+  ResolvedMediaAsset,
   ResolvedMediaContentItem,
   SyncRunStats,
   SyncRunSummary,
