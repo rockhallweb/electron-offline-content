@@ -403,6 +403,7 @@ export class MediaCache implements MediaCacheMain {
     const ipcMain = options?.ipcMain ?? electron!.ipcMain;
 
     ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
+    ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
     ipcMain.handle(MEDIA_CACHE_IPC.getItem, async (_event, namespace: string, id: string) =>
       this.getItem(namespace, id),
     );

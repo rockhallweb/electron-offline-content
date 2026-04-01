@@ -4,8 +4,6 @@ import type { ActiveAssetRow, PendingDeletion } from "../main/database.js";
 import type {
   DownloadRequest,
   JsonValue,
-  ManifestAsset,
-  ManifestItem,
   MediaAssetDefinition,
   MediaCacheStatus,
   MediaContentDefinition,
@@ -118,38 +116,35 @@ export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
   headers: stringRecordSchema.optional(),
 });
 
-export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition | ManifestAsset> = z.object(
-  {
-    id: z.string().min(1),
-    role: z.string().min(1),
-    kind: z.union([
-      mediaKindSchema,
-      z.literal("subtitle"),
-      z.literal("caption"),
-      z.literal("poster"),
-      z.literal("thumbnail"),
-    ]),
-    version: z.string().optional(),
-    mimeType: z.string().optional(),
-    fileName: z.string().min(1).optional(),
-    byteLength: z.number().nonnegative().optional(),
-    source: mediaRemoteSourceSchema,
-    metadata: jsonObjectSchema.optional(),
-  },
-);
+export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.object({
+  id: z.string().min(1),
+  role: z.string().min(1),
+  kind: z.union([
+    mediaKindSchema,
+    z.literal("subtitle"),
+    z.literal("caption"),
+    z.literal("poster"),
+    z.literal("thumbnail"),
+  ]),
+  version: z.string().optional(),
+  mimeType: z.string().optional(),
+  fileName: z.string().min(1).optional(),
+  byteLength: z.number().nonnegative().optional(),
+  source: mediaRemoteSourceSchema,
+  metadata: jsonObjectSchema.optional(),
+});
 
-export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition | ManifestItem> =
-  z.object({
-    id: z.string().min(1),
-    version: z.string().min(1),
-    kind: mediaKindSchema,
-    title: z.string().optional(),
-    description: z.string().optional(),
-    summary: z.string().optional(),
-    blobs: stringRecordSchema.optional(),
-    metadata: jsonObjectSchema.optional(),
-    assets: z.array(mediaAssetDefinitionSchema),
-  });
+export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition> = z.object({
+  id: z.string().min(1),
+  version: z.string().min(1),
+  kind: mediaKindSchema,
+  title: z.string().optional(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  blobs: stringRecordSchema.optional(),
+  metadata: jsonObjectSchema.optional(),
+  assets: z.array(mediaAssetDefinitionSchema),
+});
 
 export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition> = z.object({
   key: z.string().min(1),

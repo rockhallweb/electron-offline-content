@@ -17,6 +17,7 @@ import {
  */
 export function defineManifest(input: MediaCacheManifest): MediaCacheManifest {
   const manifest = parseWithSchema(mediaCacheManifestSchema, input, "manifest definition");
+  // Validate semantic invariants (duplicate keys, file-name derivability); result intentionally discarded.
   void normalizeManifest(manifest);
   return manifest;
 }
