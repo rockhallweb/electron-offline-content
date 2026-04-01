@@ -10,6 +10,12 @@ export type JsonValue =
 /** Minimum severity emitted when `onLog` is configured; entries below this level are dropped. */
 export type MediaCacheLogLevel = "debug" | "info" | "warn" | "error";
 
+/**
+ * How the built-in main-process console sink formats each line when `onLog` is omitted.
+ * Callback loggers always receive structured {@link MediaCacheLogEvent} objects regardless of this setting.
+ */
+export type MediaCacheLogFormat = "english" | "json";
+
 /** One structured log line from the cache; includes standard fields plus optional diagnostic keys. */
 export interface MediaCacheLogEvent {
   [key: string]: JsonValue | undefined;
