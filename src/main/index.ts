@@ -31,6 +31,9 @@ export type {
   ResolveAssetRequestContext,
   ResolvedMediaAsset,
   ResolvedMediaContentItem,
+  SerializedMediaCacheError,
+  SyncFailureMode,
+  SyncProgress,
   SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
