@@ -97,6 +97,7 @@ function StatusProbe() {
 function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCacheBridge {
   return {
     getStatus: async () => buildStatus("idle"),
+    syncNow: async () => undefined,
     getItem: async () => null,
     listNamespace: async () => ({ items: [], nextCursor: null }),
     listNamespaceTree: async () => ({ items: [], nextCursor: null }),
@@ -115,12 +116,14 @@ function buildItem(id: string): ResolvedMediaContentItem {
     blobs: {},
     metadata: {},
     assets: [],
+    assetsByRole: {},
   };
 }
 
 function buildStatus(phase: MediaCacheStatus["phase"]): MediaCacheStatus {
   return {
     phase,
+    storagePath: null,
     activeGenerationId: phase === "ready" ? 1 : null,
     progress: null,
     lastRun: null,

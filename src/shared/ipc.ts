@@ -1,5 +1,6 @@
 export const MEDIA_CACHE_IPC = {
   getStatus: "rockhallweb:media-cache:get-status",
+  syncNow: "rockhallweb:media-cache:sync-now",
   getItem: "rockhallweb:media-cache:get-item",
   listNamespace: "rockhallweb:media-cache:list-namespace",
   listNamespaceTree: "rockhallweb:media-cache:list-namespace-tree",

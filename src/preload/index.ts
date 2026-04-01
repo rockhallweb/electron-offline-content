@@ -9,6 +9,7 @@ import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "..
 export function createMediaCacheBridge(): MediaCacheBridge {
   return {
     getStatus: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.getStatus),
+    syncNow: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.syncNow),
     getItem: (namespace, id) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getItem, namespace, id),
     listNamespace: (namespace, pagination?: PaginationInput) =>
       ipcRenderer.invoke(MEDIA_CACHE_IPC.listNamespace, namespace, pagination),
