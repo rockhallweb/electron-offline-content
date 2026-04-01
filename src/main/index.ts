@@ -1,12 +1,21 @@
 export { createMediaCache, type MediaCacheMain } from "./media-cache.js";
+export { defineManifest, defineManifestAsset, defineManifestItem } from "./producer.js";
 export type {
   DownloadRequest,
   FileStemMatch,
+  FileStemMatchQueryOptions,
   JsonValue,
+  ManifestAsset,
   ManifestInput,
+  ManifestItem,
+  MediaCacheAppPath,
+  MediaCacheErrors,
   MediaCacheLogEvent,
+  MediaCacheLogFormat,
   MediaCacheLogHandler,
   MediaCacheLogLevel,
+  MediaCacheReadyState,
+  MediaCacheStoragePath,
   MediaAssetDefinition,
   MediaCacheBridge,
   MediaCacheManifest,
@@ -17,7 +26,10 @@ export type {
   MediaNamespaceDefinition,
   PaginationInput,
   PaginationResult,
+  MediaItemsQueryOptions,
+  MediaQuerySyncOptions,
   ResolvedMediaContentItem,
+  SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
 export {
