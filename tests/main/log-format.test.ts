@@ -86,7 +86,7 @@ describe("formatMediaCacheConsoleLine", () => {
       ).toBe("[media-cache] ERROR Sync failed: STORAGE_LIMIT — Not enough disk space (run #2)");
     });
 
-    it("asset_download_started includes version", () => {
+    it("asset_download_started includes version without duplicating prefix", () => {
       expect(
         formatMediaCacheConsoleLine(
           entry({
@@ -100,7 +100,7 @@ describe("formatMediaCacheConsoleLine", () => {
           }),
           "english",
         ),
-      ).toBe("[media-cache] DEBUG Downloading nature/forest/main vv2");
+      ).toBe("[media-cache] DEBUG Downloading nature/forest/main v2");
     });
 
     it("storage_limit_exceeded formats byte values", () => {
