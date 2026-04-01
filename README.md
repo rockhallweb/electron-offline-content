@@ -77,7 +77,7 @@ pnpm example:local:dev
 pnpm example:nasa:dev
 ```
 
-The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive `storageRoot` and similar values from `process.env`, a config file, or your installer. Enable dev passthrough only when you need the escape hatch (see below).
+The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive `storagePath` (or legacy `storageRoot`) and similar values from `process.env`, a config file, or your installer. Enable dev passthrough only when you need the escape hatch (see below).
 
 The example UIs exercise:
 
@@ -94,50 +94,56 @@ The example UIs exercise:
 Default behavior is **offline mode**: the package registers the privileged `media:` scheme when you construct the cache (no separate registration call), syncs assets to disk, and resolves `media://asset/...` URLs for the renderer.
 
 1. Call `createMediaCache(...)` in the main process **before** `app.whenReady()` so scheme registration can run in time.
-2. After `app.whenReady()`, call `registerProtocol()`, `attachIpc()`, and `start()` (or `syncNow()`).
+2. After `app.whenReady()`, call `start()` for the default one-call setup (protocol + IPC + initial sync).
 
 ```ts
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, defineManifest } from "@rockhallweb/electron-offline-content/main";
 
 const mediaCache = createMediaCache({
-  logLevel: "info",
-  onLog: (entry) => {
-    console.log(entry);
+  storagePath: {
+    appPath: "temp",
+    segments: ["my-app", "offline-media"],
   },
-  resolveManifest: async () => ({
-    namespaces: [
-      {
-        key: "nature",
-        items: [
-          {
-            id: "forest",
-            version: "v1",
-            kind: "video",
-            title: "Forest",
-            assets: [
-              {
-                id: "main",
-                role: "primary",
-                kind: "video",
-                fileName: "forest.mp4",
-                source: {
-                  url: "https://cdn.example.com/forest.v1.mp4",
+  // Built-in main-process console: human-readable English by default when `onLog` is omitted.
+  // Use `logFormat: "json"` for one JSON object per line, or `onLog` for a custom sink.
+  resolveManifest: async () =>
+    defineManifest({
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v1",
+              kind: "video",
+              title: "Forest",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: "https://cdn.example.com/forest.v1.mp4",
+                  },
                 },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  }),
+              ],
+            },
+          ],
+        },
+      ],
+    }),
 });
 
 await app.whenReady();
-await mediaCache.registerProtocol();
-await mediaCache.attachIpc();
 await mediaCache.start();
 ```
+
+`defineManifest(...)` is the recommended producer chokepoint. It validates input with Zod and
+runs internal manifest normalization checks. `defineManifestItem(...)` and
+`defineManifestAsset(...)` are still exported for advanced incremental builder flows.
+When `fileName` is omitted, the package derives it from the asset source URL basename by default.
+Provide `fileName` only when you need to override that default.
 
 **Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` is a no-op (no `media://` handler is needed in passthrough mode).
 
@@ -152,9 +158,9 @@ const mediaCache = createMediaCache({
 });
 ```
 
-`onLog` receives the structured event object directly, so consumers can hand it off to a logger implementation of their choice without this package depending on a specific logging library. Namespace, item ID, prefix, and file stem arguments are validated (min 1, max 2000 characters); invalid values throw `DataValidationError`.
+When `onLog` is omitted and `NODE_ENV` is not `production` (Electron dev often leaves `NODE_ENV` unset, which counts as non-production), the package prints to the main-process console—except under Vitest (`process.env.VITEST`). Lines are **human-readable English** by default (`logFormat` defaults to `"english"`). Set `logFormat: "json"` for a single JSON object per line (same shape as the `MediaCacheLogEvent` type). Pass `onLog` to replace the built-in sink entirely; your callback always receives structured entries. Default `logLevel` is `debug` for the built-in console and `info` when `onLog` is set (unless you override `logLevel`). Namespace, item ID, prefix, and file stem arguments are validated (min 1, max 2000 characters); invalid values throw `DataValidationError`.
 
-Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields) and `dev_passthrough_ignores_sync_failure_mode` (emitted when `devPassthrough: true` and `onSyncFailure !== "throw"`; sync failures always throw in dev passthrough regardless). These warnings are only emitted when `onLog` is configured. Debug-level protocol events include `protocol_request_not_found` (no matching generation or asset for a `media://` request) and `protocol_request_file_missing` (asset exists in DB but file is absent on disk).
+Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields) and `dev_passthrough_ignores_sync_failure_mode` (emitted when `devPassthrough: true` and `onSyncFailure !== "throw"`; sync failures always throw in dev passthrough regardless). These warnings appear whenever a log sink is active (default dev console or `onLog`). Debug-level protocol events include `protocol_request_not_found` (no matching generation or asset for a `media://` request) and `protocol_request_file_missing` (asset exists in DB but file is absent on disk).
 
 In passthrough mode:
 
@@ -183,22 +189,29 @@ exposeMediaCacheBridge();
 ```tsx
 import {
   MediaCacheProvider,
-  useMediaCacheStatus,
-  useMediaNamespaceTree,
+  useMediaCacheErrors,
+  useMediaItems,
 } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
-  const status = useMediaCacheStatus();
-  const items = useMediaNamespaceTree("nature", { limit: 20 });
+  const items = useMediaItems("nature", { recursive: true, limit: 20 });
+  const errors = useMediaCacheErrors(items);
 
-  if (status.loading || items.loading) {
+  if (items.loading) {
     return <div>Loading…</div>;
+  }
+  if (errors.primaryError) {
+    return <div>{errors.primaryError.message}</div>;
   }
 
   return (
     <div>
       {items.data?.items.map((item) => (
-        <video key={`${item.namespace}/${item.id}`} src={item.assets[0]?.url} controls />
+        <video
+          key={`${item.namespace}/${item.id}`}
+          src={item.assetsByRole.primary?.url ?? item.assets[0]?.url}
+          controls
+        />
       ))}
     </div>
   );

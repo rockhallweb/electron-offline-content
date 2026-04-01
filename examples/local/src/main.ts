@@ -17,7 +17,10 @@ async function bootstrap() {
   const example = await createExampleContext();
 
   const mediaCache = createMediaCache({
-    storageRoot: join(app.getPath("temp"), "rockhallweb-electron-offline-content-example", "local"),
+    storagePath: {
+      appPath: "temp",
+      segments: ["rockhallweb-electron-offline-content-example", "local"],
+    },
     resolveManifest: example.resolveManifest,
   });
 
@@ -61,10 +64,7 @@ async function bootstrap() {
 
   await app.whenReady();
 
-  await mediaCache.registerProtocol();
-
-  // Renderer talks to the cache over IPC (`window.mediaCache`); hooks use this channel.
-  await mediaCache.attachIpc();
+  // `start()` wires protocol + IPC + initial sync for the default happy path.
   await mediaCache.start();
 
   createWindow();
