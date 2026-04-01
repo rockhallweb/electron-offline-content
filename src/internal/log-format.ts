@@ -17,7 +17,8 @@ function formatBytes(v: JsonValue | undefined): string {
   if (typeof v !== "number") return str(v);
   if (v < 1024) return `${v} B`;
   if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
-  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(v / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 type MessageFn = (e: MediaCacheLogEvent) => string;
