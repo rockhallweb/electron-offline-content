@@ -876,6 +876,7 @@ export class MediaCacheDatabase {
         ),
       };
       item.assets.push(resolvedAsset);
+      // First asset for a role wins; duplicates remain in `assets` (manifest order).
       item.assetsByRole[resolvedAsset.role] ??= resolvedAsset;
     }
 

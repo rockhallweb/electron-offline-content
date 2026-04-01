@@ -9,7 +9,7 @@ export function deriveAssetFileName(source: DownloadRequest): string {
   const candidate = segments.at(-1);
   if (!candidate) {
     throw new ManifestValidationError(
-      `Asset source URL "${source.url}" must include a filename in the path.`,
+      `Asset source URL "${source.url}" must include a filename in the path, or set an explicit "fileName" on the asset.`,
     );
   }
 

@@ -443,7 +443,10 @@ export interface ResolvedMediaContentItem {
   metadata: Record<string, JsonValue>;
   /** All resolved assets for this item, in manifest order. */
   assets: ResolvedMediaAsset[];
-  /** Convenience role index for direct lookup (for example `assetsByRole.primary`). */
+  /**
+   * Convenience role index for direct lookup (for example `assetsByRole.primary`).
+   * If multiple assets share the same role, the first asset in manifest order wins.
+   */
   assetsByRole: Record<string, ResolvedMediaAsset | undefined>;
 }
 
