@@ -83,7 +83,7 @@ const EVENT_MESSAGES: Record<string, MessageFn> = {
   sync_diffed: (e) =>
     `Diff complete: ${str(e.total_assets)} asset(s) total, ${str(e.download_count)} to download, ${str(e.skipped_assets)} already cached (run #${str(e.run_id)})`,
 
-  asset_download_started: (e) => `Downloading ${assetPath(e)} v${str(e.resolved_version)}`,
+  asset_download_started: (e) => `Downloading ${assetPath(e)} ${str(e.resolved_version)}`,
 
   asset_download_completed: (e) => `Downloaded ${assetPath(e)} → ${str(e.relative_path)}`,
 

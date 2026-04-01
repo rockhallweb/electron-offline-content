@@ -7,7 +7,6 @@ export default defineConfig([
       "main/database": "src/main/database.ts",
       "main/default-storage": "src/main/default-storage.ts",
       "main/media-cache": "src/main/media-cache.ts",
-      "react/index": "src/react/index.tsx",
       "preload/index": "src/preload/index.ts",
       "shared/errors": "src/shared/errors.ts",
       "shared/ipc": "src/shared/ipc.ts",
@@ -29,6 +28,24 @@ export default defineConfig([
     splitting: false,
     treeshake: true,
     platform: "node",
+    outExtension({ format }) {
+      return {
+        js: format === "esm" ? ".js" : ".cjs",
+      };
+    },
+  },
+  {
+    entry: {
+      "react/index": "src/react/index.tsx",
+    },
+    dts: true,
+    format: ["esm", "cjs"],
+    sourcemap: true,
+    target: "es2022",
+    bundle: false,
+    splitting: false,
+    treeshake: true,
+    platform: "browser",
     outExtension({ format }) {
       return {
         js: format === "esm" ? ".js" : ".cjs",
