@@ -5,8 +5,7 @@
  */
 import { app, BrowserWindow } from "electron";
 import { join } from "node:path";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
-import { createExampleContext } from "./fetch-content.js";
+import { mediaCache } from "./offline-media.js";
 
 void bootstrap().catch((error) => {
   console.error(error);
@@ -14,24 +13,11 @@ void bootstrap().catch((error) => {
 });
 
 async function bootstrap() {
-  const example = await createExampleContext();
-
-  const storageRoot = join(
-    app.getPath("temp"),
-    "rockhallweb-electron-offline-content-example",
-    "nasa",
-  );
-
-  const mediaCache = createMediaCache({
-    storageRoot,
-    resolveManifest: example.resolveManifest,
-  });
-
   const createWindow = (): BrowserWindow => {
     const window = new BrowserWindow({
       width: 1380,
       height: 920,
-      backgroundColor: "#0d1116",
+      backgroundColor: "#000000",
       titleBarStyle: "hiddenInset",
       webPreferences: {
         preload: join(__dirname, "preload.js"),
@@ -57,21 +43,11 @@ async function bootstrap() {
     }
   });
 
-  app.on("before-quit", () => void example.dispose());
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
-
   await app.whenReady();
 
+  // Keep sync renderer-triggered so users explicitly download content in the demo UI.
   await mediaCache.registerProtocol();
-
-  // Renderer talks to the cache over IPC (`window.mediaCache`); hooks use this channel.
   await mediaCache.attachIpc();
-  await mediaCache.start();
 
   createWindow();
 }
