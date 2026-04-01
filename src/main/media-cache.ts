@@ -39,6 +39,7 @@ import type {
   PaginationInput,
   ResolvedMediaContentItem,
   SyncProgress,
+  SyncRunStats,
 } from "../shared/types.js";
 import {
   optionalFindByFileStemOptionsSchema,
@@ -46,7 +47,7 @@ import {
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
-import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
+import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
 
@@ -232,6 +233,7 @@ export class MediaCache implements MediaCacheMain {
     }
     this.status = {
       phase: "idle",
+      storagePath: null,
       activeGenerationId: null,
       progress: null,
       lastRun: null,

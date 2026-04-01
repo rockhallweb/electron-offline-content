@@ -4,6 +4,7 @@ export default defineConfig([
   {
     entry: {
       "main/index": "src/main/index.ts",
+      "main/producer": "src/main/producer.ts",
       "main/database": "src/main/database.ts",
       "main/default-storage": "src/main/default-storage.ts",
       "main/media-cache": "src/main/media-cache.ts",

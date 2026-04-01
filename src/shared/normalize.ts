@@ -1,7 +1,7 @@
 import { ManifestValidationError } from "./errors.js";
 import { fileStem } from "./stem.js";
+import { deriveAssetFileName } from "../internal/asset-file-name.js";
 import type {
-  DownloadRequest,
   JsonValue,
   ManifestInput,
   MediaAssetDefinition,
@@ -77,7 +77,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
         }
         assetSeen.add(asset.id);
 
-        const normalizedFileName = asset.fileName ?? deriveFileName(asset.source);
+        const normalizedFileName = asset.fileName ?? deriveAssetFileName(asset.source);
         return {
           ...asset,
           normalizedFileName,
@@ -103,6 +103,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
 
   return {
     snapshotId: manifest.snapshotId,
+    retrievedAt: manifest.retrievedAt ?? manifest.generatedAt,
     generatedAt: manifest.generatedAt,
     namespaces,
   };
@@ -130,18 +131,4 @@ function toManifest(input: ManifestInput): MediaCacheManifest {
   }
 
   return input;
-}
-
-function deriveFileName(source: DownloadRequest): string {
-  const parsed = new URL(source.url);
-  const path = parsed.pathname ?? "";
-  const segments = path.split("/").filter(Boolean);
-  const candidate = segments.at(-1);
-  if (!candidate) {
-    throw new ManifestValidationError(
-      `Asset source URL "${source.url}" must include a filename or explicit fileName.`,
-    );
-  }
-
-  return decodeURIComponent(candidate);
 }
