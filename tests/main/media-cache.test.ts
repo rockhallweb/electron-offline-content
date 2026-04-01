@@ -21,6 +21,7 @@ import {
   resetMediaCacheProtocolRegistrationStateForTests,
   type MediaCacheMain,
 } from "../../src/main/media-cache.js";
+import { defineManifest, defineManifestAsset, defineManifestItem } from "../../src/main/index.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
@@ -81,6 +82,29 @@ describe("manifest normalization", () => {
     expect(manifest.namespaces).toHaveLength(1);
     expect(manifest.namespaces[0]?.key).toBe("default");
     expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe("file.mp4");
+  });
+
+  it("prefers explicit fileName over URL-derived defaults", () => {
+    const manifest = normalizeManifest([
+      {
+        id: "item-1",
+        version: "v1",
+        kind: "video",
+        assets: [
+          {
+            id: "main",
+            role: "primary",
+            kind: "video",
+            fileName: "custom-name.mp4",
+            source: {
+              url: "https://example.com/file.mp4",
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe("custom-name.mp4");
   });
 
   it("rejects duplicate namespace keys, item ids, and asset ids", () => {
@@ -149,6 +173,89 @@ describe("manifest normalization", () => {
                 ],
               },
             ],
+          },
+        ],
+      }),
+    ).toThrow(ManifestValidationError);
+  });
+});
+
+describe("producer manifest helpers", () => {
+  it("validates and returns manifest assets and items", () => {
+    const asset = defineManifestAsset({
+      id: "main",
+      role: "primary",
+      kind: "video",
+      source: {
+        url: "https://cdn.example.com/forest.mp4",
+      },
+    });
+    const item = defineManifestItem({
+      id: "forest",
+      version: "v1",
+      kind: "video",
+      assets: [asset],
+    });
+    const manifest = defineManifest({
+      namespaces: [
+        {
+          key: "nature",
+          items: [item],
+        },
+      ],
+    });
+
+    expect(manifest.namespaces[0]?.items[0]?.id).toBe("forest");
+    expect(manifest.namespaces[0]?.items[0]?.assets[0]?.id).toBe("main");
+  });
+
+  it("derives fileName by default and keeps explicit overrides", () => {
+    const derivedAsset = defineManifestAsset({
+      id: "main",
+      role: "primary",
+      kind: "video",
+      source: {
+        url: "https://cdn.example.com/videos/forest.mp4",
+      },
+    });
+    expect(derivedAsset.fileName).toBe("forest.mp4");
+
+    const explicitAsset = defineManifestAsset({
+      id: "main",
+      role: "primary",
+      kind: "video",
+      fileName: "custom-forest.mp4",
+      source: {
+        url: "https://cdn.example.com/videos/forest.mp4",
+      },
+    });
+    expect(explicitAsset.fileName).toBe("custom-forest.mp4");
+  });
+
+  it("throws DataValidationError for invalid producer helper input", () => {
+    expect(() =>
+      defineManifestAsset({
+        id: "",
+        role: "primary",
+        kind: "video",
+        source: {
+          url: "not-a-url",
+        },
+      }),
+    ).toThrow(DataValidationError);
+  });
+
+  it("throws ManifestValidationError when semantic manifest checks fail", () => {
+    expect(() =>
+      defineManifest({
+        namespaces: [
+          {
+            key: "dup",
+            items: [],
+          },
+          {
+            key: "dup",
+            items: [],
           },
         ],
       }),
@@ -418,6 +525,8 @@ describe("media cache sync and queries", () => {
     const item = await cache.getItem("nature", "forest");
     expect(item?.title).toBe("Forest");
     expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
+    expect(item?.assetsByRole.primary?.id).toBe("main");
+    expect(item?.assetsByRole.poster?.id).toBe("poster");
 
     const namespaceList = await cache.listNamespace("nature", { limit: 10 });
     expect(namespaceList.items.map((entry) => entry.id)).toEqual(["forest"]);
@@ -432,6 +541,28 @@ describe("media cache sync and queries", () => {
     expect(fileStem.items).toHaveLength(1);
     expect(fileStem.items[0]?.item.id).toBe("rose");
     expect(fileStem.items[0]?.matchedAssetIds).toEqual(["main"]);
+  });
+
+  it("start() orchestrates protocol registration, IPC attach, then sync", async () => {
+    const cache = createMediaCache({
+      storageRoot: createStorageRoot(),
+      resolveManifest: () => manifests,
+    });
+    const registerSpy = vi.spyOn(cache, "registerProtocol");
+    const attachSpy = vi.spyOn(cache, "attachIpc");
+    const syncSpy = vi.spyOn(cache, "syncNow");
+
+    await cache.start();
+
+    expect(registerSpy).toHaveBeenCalledTimes(1);
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    expect(syncSpy).toHaveBeenCalledTimes(1);
+    expect(registerSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      attachSpy.mock.invocationCallOrder[0]!,
+    );
+    expect(attachSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      syncSpy.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("disables passthrough by default when devPassthrough is not set", async () => {
@@ -451,15 +582,54 @@ describe("media cache sync and queries", () => {
     expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
   });
 
+  it("enables passthrough when devPassthrough is omitted and NODE_ENV is development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    try {
+      requestCounts = {};
+      const logs: MediaCacheLogEvent[] = [];
+      const cache = new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        onSyncFailure: "throw",
+        onLog: (e) => {
+          logs.push(e);
+        },
+        resolveManifest: () => manifests,
+      });
+
+      await cache.start();
+
+      expect(requestCounts["/main.mp4"]).toBeUndefined();
+      expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+      expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(0);
+      expect(logs.find((e) => e.event === "dev_passthrough_active")).toMatchObject({
+        level: "info",
+        event: "dev_passthrough_active",
+        source: "node_env",
+        node_env: "development",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("lets explicit devPassthrough override the default", async () => {
+    const passthroughLogs: MediaCacheLogEvent[] = [];
     const passthroughCache = new RawMediaCache({
       storageRoot: createStorageRoot(),
       devPassthrough: true,
       onSyncFailure: "throw",
+      onLog: (e) => {
+        passthroughLogs.push(e);
+      },
       resolveManifest: () => manifests,
     });
 
     await passthroughCache.start();
+    expect(passthroughLogs.find((e) => e.event === "dev_passthrough_active")).toMatchObject({
+      level: "info",
+      event: "dev_passthrough_active",
+      source: "option",
+    });
     expect(requestCounts["/main.mp4"]).toBeUndefined();
 
     requestCounts = {};
@@ -2064,6 +2234,18 @@ describe("media cache sync and queries", () => {
     ).toThrow("assetBaseUrl has no effect when devPassthrough is false");
   });
 
+  it("throws when logFormat is not english or json", () => {
+    expect(
+      () =>
+        new MediaCache({
+          storageRoot: createStorageRoot(),
+          // @ts-expect-error intentional invalid option for runtime validation
+          logFormat: "structured",
+          resolveManifest: () => manifests,
+        }),
+    ).toThrow("Invalid MediaCacheOptions.logFormat");
+  });
+
   it("emits dev_passthrough_ignores_sync_failure_mode when both devPassthrough and serve-last-snapshot are set", () => {
     const logs: MediaCacheLogEvent[] = [];
     new RawMediaCache({
@@ -2301,6 +2483,11 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     expect(logs.some((entry) => entry.event === "cache_initialized")).toBe(true);
+    expect(logs.some((entry) => entry.event === "cache_storage_location")).toBe(true);
+    expect(logs.find((entry) => entry.event === "cache_storage_location")).toMatchObject({
+      level: "info",
+      storage_root: storageRoot,
+    });
     expect(logs.some((entry) => entry.event === "sync_started")).toBe(true);
     expect(logs.some((entry) => entry.event === "sync_completed")).toBe(true);
     expect(logs.some((entry) => entry.event === "asset_download_started")).toBe(true);
@@ -2351,6 +2538,62 @@ describe("media cache sync and queries", () => {
       }
       rmSync(homeRoot, { recursive: true, force: true });
     }
+  });
+
+  it("requires storagePathSegments when storageAppPath is set", async () => {
+    const cache = new MediaCache({
+      storageAppPath: "temp",
+      resolveManifest: () => ({ namespaces: [] }),
+    });
+
+    await expect(cache.start()).rejects.toThrow(
+      "storagePathSegments is required when storageAppPath is set",
+    );
+  });
+
+  it("rejects storagePathSegments without storageAppPath", async () => {
+    const cache = new MediaCache({
+      storagePathSegments: [],
+      resolveManifest: () => ({ namespaces: [] }),
+    });
+
+    await expect(cache.start()).rejects.toThrow("storagePathSegments requires storageAppPath.");
+  });
+
+  it("rejects mixing storageRoot with storageAppPath configuration", async () => {
+    const cache = new MediaCache({
+      storageRoot: createStorageRoot(),
+      storageAppPath: "temp",
+      storagePathSegments: [],
+      resolveManifest: () => ({ namespaces: [] }),
+    });
+
+    await expect(cache.start()).rejects.toThrow(
+      "storageRoot cannot be combined with storageAppPath/storagePathSegments",
+    );
+  });
+
+  it("rejects mixing storageRoot with storagePath", async () => {
+    const cache = new MediaCache({
+      storageRoot: createStorageRoot(),
+      storagePath: { appPath: "temp", segments: [] },
+      resolveManifest: () => ({ namespaces: [] }),
+    });
+
+    await expect(cache.start()).rejects.toThrow("storageRoot cannot be combined with storagePath");
+  });
+
+  it("rejects mixing storagePath with legacy storageAppPath/storagePathSegments", async () => {
+    const cache = new MediaCache({
+      storagePath: { appPath: "temp", segments: [] },
+      storageAppPath: "temp",
+      storagePathSegments: [],
+      resolveManifest: () => ({ namespaces: [] }),
+    });
+
+    await expect(cache.start()).rejects.toThrow(
+      "storagePath cannot be combined with storageAppPath/storagePathSegments",
+    );
   });
 
   it("ignores invalid stored status snapshots and logs a warning", async () => {
@@ -2580,6 +2823,18 @@ describe("media cache sync and queries", () => {
       items: expect.any(Array),
     });
     expect(dbCalled).toBe(true);
+  });
+
+  it("exposes syncNow over IPC", async () => {
+    const cache = createMediaCache({
+      storageRoot: createStorageRoot(),
+      resolveManifest: () => manifests,
+    });
+    const syncSpy = vi.spyOn(cache, "syncNow").mockResolvedValue(undefined);
+    const handlers = await createIpcHandlers(cache);
+
+    await expect(handlers.get(MEDIA_CACHE_IPC.syncNow)!()).resolves.toBeUndefined();
+    expect(syncSpy).toHaveBeenCalledTimes(1);
   });
 
   it("rejects empty string and oversized identifiers with DataValidationError", async () => {
