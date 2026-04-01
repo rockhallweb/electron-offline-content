@@ -111,9 +111,12 @@ const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
 ]);
 
 export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
-  url: z.string().url().refine((u) => /^https?:\/\//i.test(u), {
-    message: "Asset source URL must use http or https",
-  }),
+  url: z
+    .string()
+    .url()
+    .refine((u) => /^https?:\/\//i.test(u), {
+      message: "Asset source URL must use http or https",
+    }),
   method: z.literal("GET").optional(),
   headers: stringRecordSchema.optional(),
 });
