@@ -34,7 +34,7 @@ export function defineManifestItem(input: ManifestItem): ManifestItem {
   return parseWithSchema(mediaContentDefinitionSchema, input, "manifest item definition");
 }
 
-/** Validates and returns one producer manifest asset definition. */
+/** Validates, derives `fileName` from the source URL when absent, and returns the asset. */
 export function defineManifestAsset(input: ManifestAsset): ManifestAsset {
   const asset = parseWithSchema(mediaAssetDefinitionSchema, input, "manifest asset definition");
   if (asset.fileName) {
