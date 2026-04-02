@@ -142,7 +142,10 @@ export type ManifestAsset = MediaAssetDefinition;
 
 /** Remote request template used during sync to fetch an asset (URL plus optional headers). */
 export interface MediaRemoteSource {
-  /** Absolute URL to download the asset. Query strings and path are treated as part of the resource identity. */
+  /**
+   * Absolute URL to download the asset. Query strings and path are treated as part of the resource
+   * identity. Runtime validation only accepts `http` and `https` URLs.
+   */
   url: string;
   /** HTTP method; only `GET` is supported today. Omit for default GET behavior. */
   method?: "GET";

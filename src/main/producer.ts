@@ -14,6 +14,7 @@ import {
  * This helper is a type-safe chokepoint for manifest authoring:
  * - validates manifest shape with Zod
  * - runs internal semantic normalization checks (duplicates, file-name derivation, etc.)
+ * - returns the parsed manifest unchanged (unlike {@link defineManifestAsset}, no enrichment)
  */
 export function defineManifest(input: MediaCacheManifest): MediaCacheManifest {
   const manifest = parseWithSchema(mediaCacheManifestSchema, input, "manifest definition");
