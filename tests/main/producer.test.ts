@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { defineManifest, defineManifestAsset } from "../../src/main/producer.js";
+import {
+  defineManifest,
+  defineManifestAsset,
+  defineManifestItem,
+} from "../../src/main/producer.js";
 import { DataValidationError } from "../../src/shared/errors.js";
 
 describe("producer helpers", () => {
@@ -68,6 +72,40 @@ describe("producer helpers", () => {
         source: {
           url: "https://example.com/media/video.mp4",
         },
+      }),
+    ).toThrow(DataValidationError);
+  });
+
+  it("defineManifestItem accepts valid item input unchanged", () => {
+    const item = defineManifestItem({
+      id: "forest",
+      version: "v1",
+      kind: "video",
+      assets: [
+        {
+          id: "main",
+          role: "primary",
+          kind: "video",
+          source: {
+            url: "https://example.com/media/video.mp4",
+          },
+        },
+      ],
+    });
+
+    expect(item.id).toBe("forest");
+    expect(item.version).toBe("v1");
+    expect(item.assets).toHaveLength(1);
+    expect(item.assets[0]?.id).toBe("main");
+  });
+
+  it("defineManifestItem rejects invalid item input", () => {
+    expect(() =>
+      defineManifestItem({
+        id: "",
+        version: "v1",
+        kind: "video",
+        assets: [],
       }),
     ).toThrow(DataValidationError);
   });

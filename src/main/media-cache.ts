@@ -492,6 +492,10 @@ export class MediaCache implements MediaCacheMain {
       }
       this.status.activeGenerationId = activeGenerationId;
     }
+    this.status = {
+      ...this.status,
+      storagePath: this.storageRoot,
+    };
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,

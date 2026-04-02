@@ -295,6 +295,7 @@ export class MediaCacheDatabase {
         )
         .run(
           manifest.snapshotId ?? null,
+          // `generated_at` is a legacy column name; we persist the normalized effective retrieval time.
           manifest.retrievedAt ?? null,
           now,
           manifest.namespaces.length,
