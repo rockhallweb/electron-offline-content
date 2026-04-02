@@ -295,7 +295,7 @@ export class MediaCacheDatabase {
         )
         .run(
           manifest.snapshotId ?? null,
-          manifest.retrievedAt ?? manifest.generatedAt ?? null,
+          manifest.retrievedAt ?? null,
           now,
           manifest.namespaces.length,
           manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
