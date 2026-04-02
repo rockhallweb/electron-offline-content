@@ -237,23 +237,21 @@ export interface MediaCacheOptions {
   /**
    * Legacy absolute storage root override.
    *
-   * Prefer `storagePath` so consumers do not need to import `node:path`.
+   * The only storage-location override wired in this version.
    */
   storageRoot?: string;
   /**
-   * Preferred package-managed storage configuration.
-   * Internally resolves to `join(app.getPath(appPath), ...segments)`.
+   * Reserved for a future release: package-managed storage configuration.
+   * Not currently consumed by `createMediaCache` in this version.
    */
   storagePath?: MediaCacheStoragePath;
   /**
-   * Optional `app.getPath` selector used to build `storageRoot` internally.
-   * Requires `storagePathSegments` (pass `[]` to target the selected app path directly).
+   * Reserved for a future release and not currently consumed.
    * @deprecated Use `storagePath` instead.
    */
   storageAppPath?: MediaCacheAppPath;
   /**
-   * Path segments joined under `app.getPath(storageAppPath)`.
-   * Must be provided whenever `storageAppPath` is set, and may be an empty array.
+   * Reserved for a future release and not currently consumed.
    * @deprecated Use `storagePath` instead.
    */
   storagePathSegments?: string[];

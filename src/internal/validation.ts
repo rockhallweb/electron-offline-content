@@ -131,7 +131,7 @@ export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.obj
     z.literal("poster"),
     z.literal("thumbnail"),
   ]),
-  version: z.string().optional(),
+  version: z.string().min(1).optional(),
   mimeType: z.string().optional(),
   fileName: z.string().min(1).optional(),
   byteLength: z.number().nonnegative().optional(),

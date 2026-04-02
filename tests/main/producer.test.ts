@@ -57,4 +57,18 @@ describe("producer helpers", () => {
 
     expect(asset.fileName).toBe("video.mp4");
   });
+
+  it("defineManifestAsset rejects empty asset version strings", () => {
+    expect(() =>
+      defineManifestAsset({
+        id: "main",
+        role: "primary",
+        kind: "video",
+        version: "",
+        source: {
+          url: "https://example.com/media/video.mp4",
+        },
+      }),
+    ).toThrow(DataValidationError);
+  });
 });
