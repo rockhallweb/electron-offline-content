@@ -247,12 +247,12 @@ export interface MediaCacheOptions {
   storagePath?: MediaCacheStoragePath;
   /**
    * Reserved for a future release and not currently consumed.
-   * @deprecated Use `storagePath` instead.
+   * @deprecated Reserved for a future `storagePath` migration; use `storageRoot` in this release.
    */
   storageAppPath?: MediaCacheAppPath;
   /**
    * Reserved for a future release and not currently consumed.
-   * @deprecated Use `storagePath` instead.
+   * @deprecated Reserved for a future `storagePath` migration; use `storageRoot` in this release.
    */
   storagePathSegments?: string[];
   /**

@@ -25,6 +25,7 @@ export function defineManifest(input: MediaCacheManifest): MediaCacheManifest {
 
 /**
  * Validates a manifest item against the schema and returns it unchanged.
+ * Semantic invariants (for example duplicate asset IDs) are enforced by `defineManifest`.
  *
  * Object literal keys are documented on {@link ManifestItem} (`MediaContentDefinition`) for IDE hover.
  *
