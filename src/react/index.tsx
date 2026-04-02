@@ -395,6 +395,8 @@ function useAsyncResource<T>(
 
   useRefetchOnReadyGeneration(bridge, options?.refetchOnSyncComplete ?? true, () => void refresh());
 
+  // Intentionally no dependency array: this runs after each render so we can
+  // compare refreshDeps ourselves while always invoking the latest loader.
   useEffect(() => {
     const previousDeps = previousRefreshDeps.current;
     const shouldRefresh =
