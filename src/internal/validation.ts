@@ -71,7 +71,7 @@ export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
   completedAssets: nonNegativeIntegerSchema,
   downloadedAssets: nonNegativeIntegerSchema,
   skippedAssets: nonNegativeIntegerSchema,
-  bytesDownloaded: nonNegativeIntegerSchema,
+  bytesDownloaded: nonNegativeNumberSchema,
 });
 
 export const syncRunSummarySchema: z.ZodType<SyncRunSummary> = z.object({
