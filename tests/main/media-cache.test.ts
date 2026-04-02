@@ -2012,6 +2012,23 @@ describe("media cache sync and queries", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("registers a syncNow IPC handler that triggers a sync run", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    const handlers = await createIpcHandlers(cache);
+    const syncNowHandler = handlers.get(MEDIA_CACHE_IPC.syncNow);
+    expect(syncNowHandler).toBeTypeOf("function");
+
+    await expect(syncNowHandler!()).resolves.toBeUndefined();
+    const status = await cache.getStatus();
+    expect(status.lastRun?.status).toBe("success");
+    expect(status.activeGenerationId).not.toBeNull();
+  });
+
   it("returns 404 for media:// URLs with malformed percent-encoding in path", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({

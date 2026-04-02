@@ -1,8 +1,8 @@
 import { ManifestValidationError } from "../shared/errors.js";
-import type { DownloadRequest } from "../shared/types.js";
+import type { MediaRemoteSource } from "../shared/types.js";
 
-/** Derives a file name from the request URL path. Throws when the URL has no final path segment. */
-export function deriveAssetFileName(source: DownloadRequest): string {
+/** Derives a file name from the manifest source URL path. */
+export function deriveAssetFileName(source: MediaRemoteSource): string {
   const parsed = new URL(source.url);
   const path = parsed.pathname;
   const segments = path.split("/").filter(Boolean);
