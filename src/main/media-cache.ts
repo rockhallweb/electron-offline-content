@@ -54,6 +54,13 @@ import {
 import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
+import type { StorageRootLockHandle } from "./storage-root-lock.js";
+import {
+  acquireStorageRootLock,
+  disableStorageRootLockForTests,
+  enableStorageRootLockForTests,
+  resetStorageRootLocksForTests,
+} from "./storage-root-lock.js";
 
 const requireElectron = createRequire(import.meta.url);
 
@@ -131,6 +138,27 @@ export function resetMediaCacheProtocolRegistrationStateForTests(): void {
   mediaCacheProtocolSchemesPrivileged = false;
 }
 
+/**
+ * Clears any held storage-root locks so tests can run multiple scenarios in one process.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const resetMediaCacheStorageRootLocksForTests = resetStorageRootLocksForTests;
+
+/**
+ * Disables storage-root exclusivity checks so tests can exercise multiple cache instances freely.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const disableMediaCacheStorageRootLockForTests = disableStorageRootLockForTests;
+
+/**
+ * Re-enables storage-root exclusivity checks after test-only overrides.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const enableMediaCacheStorageRootLockForTests = enableStorageRootLockForTests;
+
 interface DownloadTarget {
   namespace: string;
   itemId: string;
@@ -161,9 +189,16 @@ interface AttachIpcOptions {
  * the same operations to renderers via IPC. In offline mode (default), construct the cache before
  * `app.whenReady()` so the privileged `media:` scheme can be registered, then after ready call
  * {@link MediaCacheMain.start} for the one-call happy path.
+ *
+ * `MediaCache` requires exclusive ownership of its resolved `storageRoot`. The first process that
+ * acquires that root remains the owner for the process lifetime. A second process (or cache
+ * instance) targeting the same root throws {@link import("../shared/errors.js").StorageOwnershipError}.
  */
 export interface MediaCacheMain {
-  /** One-call setup: register protocol, attach IPC, initialize storage, then run initial sync. */
+  /**
+   * One-call setup: register protocol, attach IPC, initialize storage, then run initial sync.
+   * Cache-root ownership is enforced during initialization, before SQLite or blob writes begin.
+   */
   start(): Promise<void>;
   /** Runs or joins the current sync; concurrent callers share one run. */
   syncNow(): Promise<void>;
@@ -206,6 +241,7 @@ export class MediaCache implements MediaCacheMain {
   private readonly logFormat: MediaCacheLogFormat;
   private readonly devPassthrough: boolean;
   private readonly assetBaseUrlOrigin: string | null;
+  private storageRootLock: StorageRootLockHandle | null = null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -491,6 +527,7 @@ export class MediaCache implements MediaCacheMain {
     this.storageRoot =
       (await resolveStorageRootFromOptions(this.options)) ?? (await defaultStorageRoot());
     mkdirSync(this.storageRoot, { recursive: true });
+    this.storageRootLock ??= acquireStorageRootLock(this.storageRoot, this);
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 

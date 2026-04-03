@@ -93,8 +93,16 @@ The example UIs exercise:
 
 Default behavior is **offline mode**: the package registers the privileged `media:` scheme when you construct the cache (no separate registration call), syncs assets to disk, and resolves `media://asset/...` URLs for the renderer.
 
-1. Call `createMediaCache(...)` in the main process **before** `app.whenReady()` so scheme registration can run in time.
-2. After `app.whenReady()`, call `start()` for the default one-call setup (protocol + IPC + initial sync).
+1. In kiosk-style apps, call `app.requestSingleInstanceLock()` as early as possible so only one Electron app instance keeps running.
+2. Call `createMediaCache(...)` in the main process **before** `app.whenReady()` so scheme registration can run in time.
+3. After `app.whenReady()`, call `start()` for the default one-call setup (protocol + IPC + initial sync).
+
+`MediaCache` requires exclusive ownership of its `storageRoot`. In kiosk-style apps, the first
+process to acquire that root wins. If `start()` fails after ownership is established, reuse that
+same instance or restart the app/process instead of constructing a replacement cache for the same
+root. The package enforces cache-root exclusivity itself; `app.requestSingleInstanceLock()` is
+still strongly recommended so consumers avoid launching a second Electron app instance in the first
+place.
 
 ```ts
 import { app } from "electron";

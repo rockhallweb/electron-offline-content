@@ -20,6 +20,14 @@ export class ManifestValidationError extends MediaCacheError {
   }
 }
 
+/** Another process or cache instance already owns the configured storage root. */
+export class StorageOwnershipError extends MediaCacheError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, "STORAGE_OWNERSHIP_ERROR", options);
+    this.name = "StorageOwnershipError";
+  }
+}
+
 /**
  * Cache would exceed `maxCacheBytes`, violate `reserveFreeBytes`, disk is full (`ENOSPC`), or a
  * commit would leave insufficient free space.

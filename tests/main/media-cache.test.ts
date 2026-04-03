@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   copyFileSync,
@@ -15,10 +16,14 @@ import {
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  disableMediaCacheStorageRootLockForTests,
+  enableMediaCacheStorageRootLockForTests,
   MediaCache as RawMediaCache,
   createMediaCache as createRawMediaCache,
   resetMediaCacheProtocolRegistrationStateForTests,
+  resetMediaCacheStorageRootLocksForTests,
   type MediaCacheMain,
 } from "../../src/main/media-cache.js";
 import { defineManifest, defineManifestAsset, defineManifestItem } from "../../src/main/index.js";
@@ -26,6 +31,7 @@ import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
   ManifestValidationError,
+  StorageOwnershipError,
   StorageLimitError,
 } from "../../src/shared/errors.js";
 import { MEDIA_CACHE_IPC } from "../../src/shared/ipc.js";
@@ -58,6 +64,10 @@ const electronSupportsProtocolRegistration = (() => {
     return false;
   }
 })();
+
+const storageRootLockFixturePath = fileURLToPath(
+  new URL("./fixtures/hold-storage-root-lock.mjs", import.meta.url),
+);
 
 describe("manifest normalization", () => {
   it("normalizes flat arrays into the default namespace", () => {
@@ -426,6 +436,8 @@ describe("media cache sync and queries", () => {
   });
 
   beforeEach(() => {
+    disableMediaCacheStorageRootLockForTests();
+    resetMediaCacheStorageRootLocksForTests();
     requestCounts = {};
     requestMethods = {};
     requestRanges = {};
@@ -506,6 +518,46 @@ describe("media cache sync and queries", () => {
     return mkdtempSync(join(tmpdir(), "media-cache-test-"));
   }
 
+async function startExternalStorageRootLock(storageRoot: string): Promise<{ stop(): Promise<void> }> {
+  const child = spawn(process.execPath, [storageRootLockFixturePath, storageRoot], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onExit = (code: number | null) => {
+      reject(new Error(`storage-root lock fixture exited before ready (code: ${code ?? "null"})`));
+    };
+    const onStdout = (chunk: Buffer) => {
+      if (chunk.toString("utf8").includes("READY")) {
+        child.stdout.off("data", onStdout);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    const onStderr = (chunk: Buffer) => {
+      reject(new Error(`storage-root lock fixture stderr: ${chunk.toString("utf8").trim()}`));
+    };
+
+    child.once("exit", onExit);
+    child.stdout.on("data", onStdout);
+    child.stderr.once("data", onStderr);
+  });
+
+  return {
+    async stop() {
+      if (child.killed || child.exitCode !== null) {
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        child.once("exit", () => resolve());
+        child.once("error", reject);
+        child.kill("SIGTERM");
+      });
+    },
+  };
+}
+
   function createNoSleepCache(options: ConstructorParameters<typeof MediaCache>[0]) {
     return new MediaCache(options, {
       sleep: async () => undefined,
@@ -565,6 +617,89 @@ describe("media cache sync and queries", () => {
     expect(attachSpy.mock.invocationCallOrder[0]).toBeLessThan(
       syncSpy.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("rejects a second cache instance on the same storageRoot in the same process", async () => {
+    try {
+      enableMediaCacheStorageRootLockForTests();
+      const storageRoot = createStorageRoot();
+      const first = new RawMediaCache({
+        storageRoot,
+        resolveManifest: () => manifests,
+      });
+      const second = new RawMediaCache({
+        storageRoot,
+        resolveManifest: () => manifests,
+      });
+
+      await expect(first.syncNow()).resolves.toBeUndefined();
+      await expect(second.syncNow()).rejects.toThrow(StorageOwnershipError);
+    } finally {
+      disableMediaCacheStorageRootLockForTests();
+    }
+  });
+
+  it("allows different storageRoots to operate independently", async () => {
+    try {
+      enableMediaCacheStorageRootLockForTests();
+      const first = new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        resolveManifest: () => manifests,
+      });
+      const second = new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        resolveManifest: () => manifests,
+      });
+
+      await expect(first.syncNow()).resolves.toBeUndefined();
+      await expect(second.syncNow()).resolves.toBeUndefined();
+    } finally {
+      disableMediaCacheStorageRootLockForTests();
+    }
+  });
+
+  it("retains storageRoot ownership when start() fails", async () => {
+    try {
+      enableMediaCacheStorageRootLockForTests();
+      const storageRoot = createStorageRoot();
+      const failingCache = new RawMediaCache({
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveManifest: async () => {
+          throw new Error("manifest unavailable");
+        },
+      });
+      const succeedingCache = new RawMediaCache({
+        storageRoot,
+        resolveManifest: () => manifests,
+      });
+
+      await expect(failingCache.start()).rejects.toThrow("manifest unavailable");
+      await expect(succeedingCache.syncNow()).rejects.toThrow(StorageOwnershipError);
+    } finally {
+      disableMediaCacheStorageRootLockForTests();
+    }
+  });
+
+  it("rejects a second process that targets the same storageRoot", async () => {
+    try {
+      enableMediaCacheStorageRootLockForTests();
+      const storageRoot = createStorageRoot();
+      const lockHolder = await startExternalStorageRootLock(storageRoot);
+
+      try {
+        const cache = new RawMediaCache({
+          storageRoot,
+          resolveManifest: () => manifests,
+        });
+
+        await expect(cache.syncNow()).rejects.toThrow(StorageOwnershipError);
+      } finally {
+        await lockHolder.stop();
+      }
+    } finally {
+      disableMediaCacheStorageRootLockForTests();
+    }
   });
 
   it("disables passthrough by default when devPassthrough is not set", async () => {
