@@ -527,6 +527,8 @@ describe("media cache sync and queries", () => {
     expect(item?.assets[0]?.url).toBe("media://asset/nature/forest/main");
     expect(item?.assetsByRole.primary?.id).toBe("main");
     expect(item?.assetsByRole.poster?.id).toBe("poster");
+    const status = await cache.getStatus();
+    expect(status.storageRoot).toBe(storageRoot);
 
     const namespaceList = await cache.listNamespace("nature", { limit: 10 });
     expect(namespaceList.items.map((entry) => entry.id)).toEqual(["forest"]);
@@ -2525,6 +2527,8 @@ describe("media cache sync and queries", () => {
             : join(homeRoot, ".cache", "electron-offline-content", "media-cache");
       expect(activeStorageRoot).toBe(expectedStorageRoot);
       expect(existsSync(activeStorageRoot!)).toBe(true);
+      const status = await cache.getStatus();
+      expect(status.storageRoot).toBe(expectedStorageRoot);
     } finally {
       if (originalHome === undefined) {
         delete process.env.HOME;

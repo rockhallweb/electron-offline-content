@@ -261,7 +261,7 @@ export class MediaCache implements MediaCacheMain {
     }
     this.status = {
       phase: "idle",
-      storagePath: null,
+      storageRoot: null,
       activeGenerationId: null,
       progress: null,
       lastRun: null,
@@ -496,7 +496,7 @@ export class MediaCache implements MediaCacheMain {
 
     this.status = {
       ...this.status,
-      storagePath: this.storageRoot,
+      storageRoot: this.storageRoot,
     };
 
     if (!this.devPassthrough) {
@@ -551,6 +551,10 @@ export class MediaCache implements MediaCacheMain {
       }
       this.status.activeGenerationId = activeGenerationId;
     }
+    this.status = {
+      ...this.status,
+      storageRoot: this.storageRoot,
+    };
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
