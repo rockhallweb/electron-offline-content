@@ -334,7 +334,7 @@ export interface MediaCacheStatus {
   /** High-level lifecycle: idle, active sync, ready to serve, or terminal error from last run. */
   phase: "idle" | "syncing" | "ready" | "error";
   /** Resolved local storage root where cached blobs and sqlite metadata live. */
-  storagePath: string | null;
+  storageRoot: string | null;
   /** Monotonic generation id for the committed snapshot currently active, or `null` before first success. */
   activeGenerationId: number | null;
   /** Live sync progress while `phase === "syncing"`; `null` when no run is in flight. */

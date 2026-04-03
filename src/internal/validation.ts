@@ -84,15 +84,16 @@ export const syncRunSummarySchema: z.ZodType<SyncRunSummary> = z.object({
   stats: syncRunStatsSchema,
 });
 
-export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
-  phase: z.enum(["idle", "syncing", "ready", "error"]),
-  storagePath: z.string().nullable().default(null),
-  activeGenerationId: nonNegativeIntegerSchema.nullable(),
-  progress: syncProgressSchema.nullable(),
-  lastRun: syncRunSummarySchema.nullable(),
-  error: serializedMediaCacheErrorSchema.nullable(),
-  updatedAt: nonNegativeIntegerSchema,
-});
+export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z
+  .object({
+    phase: z.enum(["idle", "syncing", "ready", "error"]),
+    storageRoot: z.string().nullable().default(null),
+    activeGenerationId: nonNegativeIntegerSchema.nullable(),
+    progress: syncProgressSchema.nullable(),
+    lastRun: syncRunSummarySchema.nullable(),
+    error: serializedMediaCacheErrorSchema.nullable(),
+    updatedAt: nonNegativeIntegerSchema,
+  });
 
 export const downloadRequestSchema: z.ZodType<DownloadRequest> = z.object({
   url: z.string(),

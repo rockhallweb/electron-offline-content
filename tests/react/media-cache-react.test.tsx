@@ -123,7 +123,7 @@ function buildItem(id: string): ResolvedMediaContentItem {
 function buildStatus(phase: MediaCacheStatus["phase"]): MediaCacheStatus {
   return {
     phase,
-    storagePath: null,
+    storageRoot: null,
     activeGenerationId: phase === "ready" ? 1 : null,
     progress: null,
     lastRun: null,
