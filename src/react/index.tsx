@@ -41,6 +41,8 @@ interface AsyncState<T> {
   refresh: () => Promise<void>;
 }
 
+type MediaCacheStatusState = Pick<AsyncState<MediaCacheStatus>, "data" | "error">;
+
 /**
  * Provides a {@link MediaCacheBridge} to all descendant hooks.
  *
@@ -328,26 +330,29 @@ export function useMediaCacheReady(): AsyncState<MediaCacheReadyState> {
 /**
  * Aggregates sync and query errors into one UI-friendly error object.
  *
- * Pass any number of hook results (for example item/list/search states) to include
- * their `error` fields alongside sync-level failures.
+ * Pass a shared status result from {@link useMediaCacheStatus} plus any number of query states
+ * (for example item/list/search hooks). This avoids creating a second status subscription just to
+ * derive error UI.
  *
+ * @param status - Shared result from `useMediaCacheStatus()`.
  * @param queryStates - Hook states containing an `error` field (typically from media query hooks).
  * @returns `MediaCacheErrors` with `syncError`, `statusError`, `queryErrors`, and `primaryError`.
  * @example
  * ```tsx
+ * const status = useMediaCacheStatus();
  * const item = useMediaItem("space", "hubble-cosmos");
  * const list = useMediaItems("space", { limit: 20 });
- * const errors = useMediaCacheErrors(item, list);
+ * const errors = useMediaCacheErrors(status, item, list);
  * ```
  */
 export function useMediaCacheErrors(
+  status: MediaCacheStatusState,
   ...queryStates: Array<{ error: Error | null }>
 ): MediaCacheErrors {
-  const status = useMediaCacheStatus();
   const queryErrors = queryStates.flatMap((state) => (state.error ? [state.error] : []));
   const syncError = status.data?.error ?? null;
   const statusError = status.error;
-  const primaryError = statusError ?? queryErrors[0] ?? syncError;
+  const primaryError = statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
 
   return {
     syncError,
@@ -417,6 +422,16 @@ function useAsyncResource<T>(
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function toPrimaryError(syncError: MediaCacheStatus["error"]): Error | null {
+  if (!syncError) {
+    return null;
+  }
+
+  const error = new Error(syncError.message);
+  error.name = syncError.name;
+  return error;
 }
 
 function useRefetchOnReadyGeneration(

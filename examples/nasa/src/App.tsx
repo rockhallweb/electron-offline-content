@@ -58,7 +58,7 @@ export function App() {
     posterUrl: item.assetsByRole.poster?.url ?? null,
     leadKind: item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
   }));
-  const errors = useMediaCacheErrors(rootNamespace, tree, fileStemMatches, currentItem);
+  const errors = useMediaCacheErrors(status, rootNamespace, tree, fileStemMatches, currentItem);
 
   const phase = status.data?.phase ?? (status.loading ? "loading" : "idle");
   const generation = String(ready.data?.activeGenerationId ?? "none");

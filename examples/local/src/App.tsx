@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   useMediaCacheErrors,
   useMediaCacheReady,
+  useMediaCacheStatus,
   useFileStemMatch,
   useMediaItem,
   useMediaItems,
@@ -18,6 +19,7 @@ declare global {
 export function App() {
   const config = window.mediaCacheExample ?? exampleClientConfig;
 
+  const status = useMediaCacheStatus();
   const ready = useMediaCacheReady();
   const rootNamespace = useMediaItems(config.rootNamespace, { limit: 20 });
   const tree = useMediaItems(config.namespaceTreePrefix, { recursive: true, limit: 40 });
@@ -43,7 +45,7 @@ export function App() {
   const posterAsset = currentItem.data?.assetsByRole.poster;
   const subtitleAsset = currentItem.data?.assetsByRole.subtitle;
   const queue = tree.data?.items ?? [];
-  const errors = useMediaCacheErrors(rootNamespace, tree, fileStemMatches, currentItem);
+  const errors = useMediaCacheErrors(status, rootNamespace, tree, fileStemMatches, currentItem);
 
   const panelCard =
     "border border-line bg-[linear-gradient(180deg,rgba(10,16,25,0.8)_0%,rgba(8,12,18,0.86)_100%)] shadow-demo backdrop-blur-[18px]";

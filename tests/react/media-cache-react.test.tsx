@@ -238,7 +238,54 @@ describe("react hooks", () => {
       expect(screen.getByTestId("ready-flag").textContent).toBe("false");
       expect(screen.getByTestId("error-flag").textContent).toBe("true");
       expect(screen.getByTestId("sync-error-code").textContent).toBe("SYNC_FAILURE");
+      expect(screen.getByTestId("primary-error-message").textContent).toBe("query failed");
       expect(screen.getByTestId("query-error-count").textContent).toBe("1");
+    });
+  });
+
+  it("lets useMediaCacheErrors reuse a caller-provided status subscription", async () => {
+    let subscribeStatusCalls = 0;
+    const bridge = createBridge({
+      getStatus: async () => buildStatus("ready", 1),
+      subscribeStatus: () => {
+        subscribeStatusCalls += 1;
+        return () => undefined;
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <StatusBackedErrorProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status-backed-error-ready").textContent).toBe("ready");
+    });
+    expect(subscribeStatusCalls).toBe(1);
+  });
+
+  it("converts sync errors into Error primaryError values", async () => {
+    const bridge = createBridge({
+      getStatus: async () => ({
+        ...buildStatus("error"),
+        error: {
+          name: "SyncFailureError",
+          code: "SYNC_FAILURE",
+          message: "sync failed",
+        },
+      }),
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <SyncPrimaryErrorProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-primary-error-name").textContent).toBe("SyncFailureError");
+      expect(screen.getByTestId("sync-primary-error-message").textContent).toBe("sync failed");
     });
   });
 });
@@ -283,16 +330,41 @@ function StatusProbe() {
 }
 
 function ReadyAndErrorProbe() {
+  const status = useMediaCacheStatus();
   const ready = useMediaCacheReady();
   const item = useMediaItem("nature", "forest");
-  const errors = useMediaCacheErrors(item);
+  const errors = useMediaCacheErrors(status, item);
 
   return (
     <div>
       <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
       <div data-testid="error-flag">{String(errors.hasError)}</div>
       <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
+      <div data-testid="primary-error-message">{errors.primaryError?.message ?? "none"}</div>
       <div data-testid="query-error-count">{String(errors.queryErrors.length)}</div>
+    </div>
+  );
+}
+
+function StatusBackedErrorProbe() {
+  const status = useMediaCacheStatus();
+  const errors = useMediaCacheErrors(status);
+
+  return (
+    <div data-testid="status-backed-error-ready">
+      {errors.hasError ? "error" : (status.data?.phase ?? "loading")}
+    </div>
+  );
+}
+
+function SyncPrimaryErrorProbe() {
+  const status = useMediaCacheStatus();
+  const errors = useMediaCacheErrors(status);
+
+  return (
+    <div>
+      <div data-testid="sync-primary-error-name">{errors.primaryError?.name ?? "none"}</div>
+      <div data-testid="sync-primary-error-message">{errors.primaryError?.message ?? "none"}</div>
     </div>
   );
 }

@@ -202,12 +202,14 @@ exposeMediaCacheBridge();
 import {
   MediaCacheProvider,
   useMediaCacheErrors,
+  useMediaCacheStatus,
   useMediaItems,
 } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
+  const status = useMediaCacheStatus();
   const items = useMediaItems("nature", { recursive: true, limit: 20 });
-  const errors = useMediaCacheErrors(items);
+  const errors = useMediaCacheErrors(status, items);
 
   if (items.loading) {
     return <div>Loading…</div>;

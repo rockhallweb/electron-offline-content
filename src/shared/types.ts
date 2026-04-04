@@ -571,6 +571,6 @@ export interface MediaCacheErrors {
   queryErrors: Error[];
   /** `true` if any of the above are non-null/non-empty. */
   hasError: boolean;
-  /** First error the hook considers most relevant for display. */
-  primaryError: Error | SerializedMediaCacheError | null;
+  /** First error the hook considers most relevant for display; sync errors are converted to `Error`. */
+  primaryError: Error | null;
 }

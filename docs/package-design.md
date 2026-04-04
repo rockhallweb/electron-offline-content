@@ -498,7 +498,7 @@ useMediaCacheStatus()
 useMediaItems(namespaceOrPrefix: string, options?: { recursive?: boolean })
 useMediaItem(namespace: string, id: string)
 useMediaCacheReady()
-useMediaCacheErrors(...)
+useMediaCacheErrors(status, ...)
 ```
 
 This keeps the consumer focused on rendering content rather than reconstructing local
