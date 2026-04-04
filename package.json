@@ -44,6 +44,9 @@
     "ci:examples": "pnpm install --frozen-lockfile --dir examples/local && pnpm --dir examples/local run lint && pnpm --dir examples/local run format:check && pnpm --dir examples/local run knip && pnpm install --frozen-lockfile --dir examples/nasa && pnpm --dir examples/nasa run lint && pnpm --dir examples/nasa run format:check && pnpm --dir examples/nasa run knip",
     "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:verify"
   },
+  "dependencies": {
+    "zod": "^4.3.0"
+  },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.5.2",
@@ -60,9 +63,6 @@
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "zod": "^4.3.0"
   },
   "peerDependencies": {
     "electron": ">=40.0.0",

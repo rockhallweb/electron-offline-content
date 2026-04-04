@@ -531,11 +531,6 @@ export class MediaCache implements MediaCacheMain {
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
 
-    this.status = {
-      ...this.status,
-      storageRoot: this.storageRoot,
-    };
-
     if (!this.devPassthrough) {
       this.emitLog("info", "cache_storage_location", {
         storage_root: this.storageRoot,

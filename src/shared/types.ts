@@ -264,6 +264,7 @@ export interface MediaCacheOptions {
   /**
    * When `true`, skips downloads and resolves remote asset URLs (advanced / local-dev escape hatch).
    * When omitted, defaults to `true` if `process.env.NODE_ENV === "development"`, otherwise `false`.
+   * Set `devPassthrough: false` to preserve offline-mode behavior during development or upgrades.
    */
   devPassthrough?: boolean;
   /**

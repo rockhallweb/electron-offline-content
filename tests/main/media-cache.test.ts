@@ -518,45 +518,49 @@ describe("media cache sync and queries", () => {
     return mkdtempSync(join(tmpdir(), "media-cache-test-"));
   }
 
-async function startExternalStorageRootLock(storageRoot: string): Promise<{ stop(): Promise<void> }> {
-  const child = spawn(process.execPath, [storageRootLockFixturePath, storageRoot], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  async function startExternalStorageRootLock(
+    storageRoot: string,
+  ): Promise<{ stop(): Promise<void> }> {
+    const child = spawn(process.execPath, [storageRootLockFixturePath, storageRoot], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-  await new Promise<void>((resolve, reject) => {
-    const onExit = (code: number | null) => {
-      reject(new Error(`storage-root lock fixture exited before ready (code: ${code ?? "null"})`));
+    await new Promise<void>((resolve, reject) => {
+      const onExit = (code: number | null) => {
+        reject(
+          new Error(`storage-root lock fixture exited before ready (code: ${code ?? "null"})`),
+        );
+      };
+      const onStdout = (chunk: Buffer) => {
+        if (chunk.toString("utf8").includes("READY")) {
+          child.stdout.off("data", onStdout);
+          child.off("exit", onExit);
+          resolve();
+        }
+      };
+      const onStderr = (chunk: Buffer) => {
+        reject(new Error(`storage-root lock fixture stderr: ${chunk.toString("utf8").trim()}`));
+      };
+
+      child.once("exit", onExit);
+      child.stdout.on("data", onStdout);
+      child.stderr.once("data", onStderr);
+    });
+
+    return {
+      async stop() {
+        if (child.killed || child.exitCode !== null) {
+          return;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          child.once("exit", () => resolve());
+          child.once("error", reject);
+          child.kill("SIGTERM");
+        });
+      },
     };
-    const onStdout = (chunk: Buffer) => {
-      if (chunk.toString("utf8").includes("READY")) {
-        child.stdout.off("data", onStdout);
-        child.off("exit", onExit);
-        resolve();
-      }
-    };
-    const onStderr = (chunk: Buffer) => {
-      reject(new Error(`storage-root lock fixture stderr: ${chunk.toString("utf8").trim()}`));
-    };
-
-    child.once("exit", onExit);
-    child.stdout.on("data", onStdout);
-    child.stderr.once("data", onStderr);
-  });
-
-  return {
-    async stop() {
-      if (child.killed || child.exitCode !== null) {
-        return;
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        child.once("exit", () => resolve());
-        child.once("error", reject);
-        child.kill("SIGTERM");
-      });
-    },
-  };
-}
+  }
 
   function createNoSleepCache(options: ConstructorParameters<typeof MediaCache>[0]) {
     return new MediaCache(options, {

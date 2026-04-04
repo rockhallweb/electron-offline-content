@@ -188,7 +188,8 @@ function createOwnershipError(
 ): StorageOwnershipError {
   if (metadata) {
     return new StorageOwnershipError(
-      `Storage root "${storageRoot}" is already in use by process ${metadata.pid} on host ${metadata.hostname}. Lock file: ${lockFilePath}`,
+      `Storage root "${storageRoot}" is already in use by process ${metadata.pid} on host ${metadata.hostname}. Lock file: ${lockFilePath}. ` +
+        "If the recorded process is gone but belonged to another OS user, delete the lock file manually.",
     );
   }
 
@@ -199,9 +200,7 @@ function createOwnershipError(
 
 function isAlreadyExistsError(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "EEXIST"
+    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST"
   );
 }
 
@@ -214,6 +213,8 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
+    // `EPERM` means another OS user may own the PID. Treat that as alive so we never steal a
+    // lock from a running process; cross-user stale locks must be removed manually.
     return !(
       error instanceof Error &&
       "code" in error &&

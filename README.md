@@ -155,6 +155,10 @@ Provide `fileName` only when you need to override that default.
 
 **Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` is a no-op (no `media://` handler is needed in passthrough mode).
 
+When `devPassthrough` is omitted, the package now auto-enables passthrough when
+`NODE_ENV === "development"`. If you want to keep offline-mode behavior during development or
+while upgrading an existing app, set `devPassthrough: false` explicitly.
+
 ```ts
 const mediaCache = createMediaCache({
   devPassthrough: true,
