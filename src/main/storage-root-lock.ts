@@ -43,11 +43,9 @@ export function acquireStorageRootLock(
     if (activeLock.owner === owner) {
       return activeLock.handle;
     }
-    throw createOwnershipError(storageRoot, join(storageRoot, STORAGE_ROOT_LOCK_FILE_NAME), {
-      hostname: LOCAL_HOSTNAME,
-      pid: process.pid,
-      storageRoot,
-    });
+    // Same-process collision: the active lock may not have written a file yet, so avoid a
+    // misleading PID/hostname message that points back to the current process.
+    throw createOwnershipError(storageRoot, join(storageRoot, STORAGE_ROOT_LOCK_FILE_NAME), null);
   }
 
   installCleanupHook();

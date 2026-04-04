@@ -638,6 +638,9 @@ describe("media cache sync and queries", () => {
 
       await expect(first.syncNow()).resolves.toBeUndefined();
       await expect(second.syncNow()).rejects.toThrow(StorageOwnershipError);
+      await expect(second.syncNow()).rejects.not.toThrow(
+        new RegExp(`already in use by process ${process.pid}`),
+      );
     } finally {
       disableMediaCacheStorageRootLockForTests();
     }
