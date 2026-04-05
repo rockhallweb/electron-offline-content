@@ -8,6 +8,7 @@ import type {
   PaginationInput,
   PaginationResult,
   ResolvedMediaContentItem,
+  SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
 import type { NormalizedManifest } from "../shared/normalize.js";
@@ -65,13 +66,6 @@ export interface PendingDeletion {
 
 export interface ProtocolAssetTarget {
   absolutePath: string | null;
-}
-
-export interface SyncRunStats {
-  totalAssets: number;
-  downloadedAssets: number;
-  skippedAssets: number;
-  bytesDownloaded: number;
 }
 
 export class MediaCacheDatabase {
@@ -301,7 +295,7 @@ export class MediaCacheDatabase {
         )
         .run(
           manifest.snapshotId ?? null,
-          manifest.generatedAt ?? null,
+          manifest.retrievedAt ?? manifest.generatedAt ?? null,
           now,
           manifest.namespaces.length,
           manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
@@ -856,11 +850,12 @@ export class MediaCacheDatabase {
             `item metadata for "${row.namespace}/${row.itemId}"`,
           ),
           assets: [],
+          assetsByRole: {},
         };
         items.set(key, item);
       }
 
-      item.assets.push({
+      const resolvedAsset = {
         id: row.assetId,
         role: row.assetRole,
         kind: row.assetKind,
@@ -879,7 +874,9 @@ export class MediaCacheDatabase {
           jsonObjectSchema,
           `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
         ),
-      });
+      };
+      item.assets.push(resolvedAsset);
+      item.assetsByRole[resolvedAsset.role] ??= resolvedAsset;
     }
 
     return [...items.values()];

@@ -12,8 +12,8 @@
   "include": [
     "src/main.ts",
     "src/preload.ts",
-    "src/fetch-content.ts",
-    "src/example-client-config.ts",
+    "src/offline-media.ts",
+    "src/transformations.ts",
     "forge.env.d.ts"
   ]
 }

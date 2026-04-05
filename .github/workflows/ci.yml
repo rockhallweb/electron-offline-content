@@ -55,3 +55,6 @@ jobs:
 
       - name: Run maintainer validation
         run: xvfb-run -a pnpm ci:validate
+
+      - name: Verify example apps (lint, format, knip)
+        run: pnpm ci:examples

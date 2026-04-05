@@ -41,10 +41,11 @@
     "example:local:dev": "pnpm build && node scripts/run-example.mjs local",
     "example:nasa:dev": "pnpm build && node scripts/run-example.mjs nasa",
     "pack:verify": "pnpm build && node scripts/pack-verify.mjs",
+    "ci:examples": "pnpm install --frozen-lockfile --dir examples/local && pnpm --dir examples/local run lint && pnpm --dir examples/local run format:check && pnpm --dir examples/local run knip && pnpm install --frozen-lockfile --dir examples/nasa && pnpm --dir examples/nasa run lint && pnpm --dir examples/nasa run format:check && pnpm --dir examples/nasa run knip",
     "ci:validate": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm build && pnpm pack:verify"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.3.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",

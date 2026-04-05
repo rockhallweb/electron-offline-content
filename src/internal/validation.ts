@@ -1,12 +1,20 @@
 import { z } from "zod";
 import { DataValidationError } from "../shared/errors.js";
-import type { ActiveAssetRow, PendingDeletion, SyncRunStats } from "../main/database.js";
+import type { ActiveAssetRow, PendingDeletion } from "../main/database.js";
 import type {
   DownloadRequest,
   JsonValue,
+  ManifestItem,
+  MediaAssetDefinition,
   MediaCacheStatus,
+  MediaContentDefinition,
+  MediaKind,
+  MediaNamespaceDefinition,
+  MediaCacheManifest,
+  MediaRemoteSource,
   SerializedMediaCacheError,
   SyncProgress,
+  SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
 
@@ -79,6 +87,7 @@ export const syncRunSummarySchema: z.ZodType<SyncRunSummary> = z.object({
 
 export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
   phase: z.enum(["idle", "syncing", "ready", "error"]),
+  storageRoot: z.string().nullable().default(null),
   activeGenerationId: nonNegativeIntegerSchema.nullable(),
   progress: syncProgressSchema.nullable(),
   lastRun: syncRunSummarySchema.nullable(),
@@ -90,6 +99,67 @@ export const downloadRequestSchema: z.ZodType<DownloadRequest> = z.object({
   url: z.string(),
   method: z.literal("GET").optional(),
   headers: z.record(z.string(), z.string()).optional(),
+});
+
+const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
+  "video",
+  "image",
+  "audio",
+  "document",
+  "html",
+  "text",
+  "binary",
+]);
+
+export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
+  url: z.string().url(),
+  method: z.literal("GET").optional(),
+  headers: stringRecordSchema.optional(),
+});
+
+export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.object({
+  id: z.string().min(1),
+  role: z.string().min(1),
+  kind: z.union([
+    mediaKindSchema,
+    z.literal("subtitle"),
+    z.literal("caption"),
+    z.literal("poster"),
+    z.literal("thumbnail"),
+  ]),
+  version: z.string().optional(),
+  mimeType: z.string().optional(),
+  fileName: z.string().min(1).optional(),
+  byteLength: z.number().nonnegative().optional(),
+  source: mediaRemoteSourceSchema,
+  metadata: jsonObjectSchema.optional(),
+});
+
+export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition | ManifestItem> =
+  z.object({
+    id: z.string().min(1),
+    version: z.string().min(1),
+    kind: mediaKindSchema,
+    title: z.string().optional(),
+    description: z.string().optional(),
+    summary: z.string().optional(),
+    blobs: stringRecordSchema.optional(),
+    metadata: jsonObjectSchema.optional(),
+    assets: z.array(mediaAssetDefinitionSchema),
+  });
+
+export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition> = z.object({
+  key: z.string().min(1),
+  label: z.string().optional(),
+  metadata: jsonObjectSchema.optional(),
+  items: z.array(mediaContentDefinitionSchema),
+});
+
+export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
+  snapshotId: z.string().optional(),
+  retrievedAt: z.string().optional(),
+  generatedAt: z.string().optional(),
+  namespaces: z.array(mediaNamespaceDefinitionSchema),
 });
 
 export const statusSnapshotRowSchema = z.object({

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 // These hooks call the preload bridge; wrap the tree in `<MediaCacheProvider>` (see renderer.tsx).
 import {
-  useFileStemMatch,
+  useMediaCacheErrors,
+  useMediaCacheReady,
   useMediaCacheStatus,
+  useFileStemMatch,
   useMediaItem,
-  useMediaNamespace,
-  useMediaNamespaceTree,
+  useMediaItems,
 } from "@rockhallweb/electron-offline-content/react";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
@@ -19,8 +20,9 @@ export function App() {
   const config = window.mediaCacheExample ?? exampleClientConfig;
 
   const status = useMediaCacheStatus();
-  const rootNamespace = useMediaNamespace(config.rootNamespace, { limit: 20 });
-  const tree = useMediaNamespaceTree(config.namespaceTreePrefix, { limit: 40 });
+  const ready = useMediaCacheReady();
+  const rootNamespace = useMediaItems(config.rootNamespace, { limit: 20 });
+  const tree = useMediaItems(config.namespaceTreePrefix, { recursive: true, limit: 40 });
   const fileStemMatches = useFileStemMatch(config.fileStem, { limit: 10 });
 
   const [selected, setSelected] = useState(config.itemLookup);
@@ -39,31 +41,28 @@ export function App() {
   }, [selected.itemId, selected.namespace, tree.data]);
 
   const currentItem = useMediaItem(selected.namespace, selected.itemId);
-  const leadAsset =
-    currentItem.data?.assets.find((asset) => asset.role === "primary") ??
-    currentItem.data?.assets[0];
-  const posterAsset = currentItem.data?.assets.find((asset) => asset.role === "poster");
-  const subtitleAsset = currentItem.data?.assets.find((asset) => asset.role === "subtitle");
+  const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0];
+  const posterAsset = currentItem.data?.assetsByRole.poster;
+  const subtitleAsset = currentItem.data?.assetsByRole.subtitle;
   const queue = tree.data?.items ?? [];
-  const queryError =
-    status.error ?? rootNamespace.error ?? tree.error ?? fileStemMatches.error ?? currentItem.error;
+  const errors = useMediaCacheErrors(status, rootNamespace, tree, fileStemMatches, currentItem);
 
   const panelCard =
     "border border-line bg-[linear-gradient(180deg,rgba(10,16,25,0.8)_0%,rgba(8,12,18,0.86)_100%)] shadow-demo backdrop-blur-[18px]";
 
   return (
     <main className="grid min-h-screen gap-5 p-7 max-[720px]:p-3.5">
-      {status.data?.error ? (
+      {errors.syncError ? (
         <section className="flex items-center gap-3 rounded-[18px] border border-[rgba(255,123,123,0.28)] bg-[rgba(98,18,18,0.42)] px-[18px] py-3.5 text-[#ffd7d7]">
           <strong className="text-[11px] uppercase tracking-[0.18em]">Sync error</strong>
-          <span className="leading-6">{status.data.error.message}</span>
+          <span className="leading-6">{errors.syncError.message}</span>
         </section>
       ) : null}
 
-      {queryError ? (
+      {errors.primaryError ? (
         <section className="flex items-center gap-3 rounded-[18px] border border-[rgba(255,123,123,0.28)] bg-[rgba(98,18,18,0.42)] px-[18px] py-3.5 text-[#ffd7d7]">
           <strong className="text-[11px] uppercase tracking-[0.18em]">Renderer query error</strong>
-          <span className="leading-6">{queryError.message}</span>
+          <span className="leading-6">{errors.primaryError.message}</span>
         </section>
       ) : null}
 
@@ -81,10 +80,10 @@ export function App() {
           </div>
           <div className="flex flex-wrap justify-start gap-3 min-[1081px]:justify-end">
             <MetricChip label="Source" value={config.sourceLabel} />
-            <MetricChip label="Phase" value={status.data?.phase ?? "loading"} />
+            <MetricChip label="Phase" value={ready.data?.phase ?? "loading"} />
             <MetricChip
               label="Generation"
-              value={String(status.data?.activeGenerationId ?? "none")}
+              value={String(ready.data?.activeGenerationId ?? "none")}
             />
           </div>
         </header>
@@ -160,9 +159,8 @@ export function App() {
         <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5">
           {queue.map((item) => {
             const isActive = item.namespace === selected.namespace && item.id === selected.itemId;
-            const itemPoster = item.assets.find((asset) => asset.role === "poster");
-            const itemLead =
-              item.assets.find((asset) => asset.role === "primary") ?? item.assets[0];
+            const itemPoster = item.assetsByRole.poster;
+            const itemLead = item.assetsByRole.primary ?? item.assets[0];
 
             return (
               <button

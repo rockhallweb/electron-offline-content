@@ -92,7 +92,8 @@ allow override:
 - Windows: `%LOCALAPPDATA%/<AppName>/media-cache`
 - Linux: `$XDG_CACHE_HOME/<appName>/media-cache` or `~/.cache/<appName>/media-cache`
 
-Consumers can override this with an absolute `storageRoot`.
+Consumers can override this with either an absolute `storageRoot` or package-managed
+path composition via `storagePath: { appPath, segments }`.
 
 ## Core Identity Model
 
@@ -156,6 +157,8 @@ export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "tex
 
 export interface MediaCacheManifest {
   snapshotId?: string;
+  retrievedAt?: string;
+  /** @deprecated Use retrievedAt. */
   generatedAt?: string;
   namespaces: MediaNamespaceDefinition[];
 }
@@ -197,6 +200,24 @@ export interface MediaRemoteSource {
   headers?: Record<string, string>;
 }
 ```
+
+### Producer helper entry points
+
+For producer ergonomics, keep raw type exports and also provide helper chokepoints that
+typecast + validate input:
+
+```ts
+export type ManifestItem = MediaContentDefinition;
+export type ManifestAsset = MediaAssetDefinition;
+
+export declare function defineManifest(input: MediaCacheManifest): MediaCacheManifest;
+export declare function defineManifestItem(input: ManifestItem): ManifestItem;
+export declare function defineManifestAsset(input: ManifestAsset): ManifestAsset;
+```
+
+`normalizeManifest(...)` remains internal implementation detail and is not a consumer API.
+`defineManifest(...)` runs internal normalization checks so semantic manifest issues are
+caught before sync starts.
 
 ### Example normalized manifest
 
@@ -408,6 +429,10 @@ Not:
 ```ts
 export interface MediaCacheOptions {
   storageRoot?: string;
+  storagePath?: {
+    appPath: MediaCacheAppPath;
+    segments: string[];
+  };
   maxCacheBytes?: number;
   reserveFreeBytes?: number;
   staleDeleteAfterMs?: number;
@@ -423,6 +448,7 @@ export interface MediaCacheOptions {
 }
 
 export interface MediaCacheMain {
+  // one-call happy path: register protocol, attach IPC, then run initial sync
   start(): Promise<void>;
   syncNow(): Promise<void>;
   getStatus(): Promise<MediaCacheStatus>;
@@ -451,6 +477,7 @@ export interface ResolvedMediaContentItem {
   blobs: Record<string, string>;
   metadata: Record<string, JsonValue>;
   assets: ResolvedMediaAsset[];
+  assetsByRole: Record<string, ResolvedMediaAsset | undefined>;
 }
 
 export interface ResolvedMediaAsset {
@@ -468,9 +495,10 @@ export interface ResolvedMediaAsset {
 
 ```ts
 useMediaCacheStatus()
-useMediaNamespaces()
-useMediaItems(namespace?: string)
+useMediaItems(namespaceOrPrefix: string, options?: { recursive?: boolean })
 useMediaItem(namespace: string, id: string)
+useMediaCacheReady()
+useMediaCacheErrors(status, ...)
 ```
 
 This keeps the consumer focused on rendering content rather than reconstructing local

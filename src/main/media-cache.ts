@@ -31,24 +31,36 @@ import {
 import type {
   DownloadRequest,
   JsonValue,
+  MediaCacheAppPath,
   MediaCacheBridge,
   MediaCacheLogEvent,
+  MediaCacheLogFormat,
   MediaCacheLogLevel,
   MediaCacheOptions,
+  MediaCacheStoragePath,
   MediaCacheStatus,
   PaginationInput,
   ResolvedMediaContentItem,
   SyncProgress,
+  SyncRunStats,
 } from "../shared/types.js";
+import { formatMediaCacheConsoleLine } from "../internal/log-format.js";
 import {
   optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
-import { MediaCacheDatabase, type SyncRunStats } from "./database.js";
+import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { defaultStorageRoot } from "./default-storage.js";
+import type { StorageRootLockHandle } from "./storage-root-lock.js";
+import {
+  acquireStorageRootLock,
+  disableStorageRootLockForTests,
+  enableStorageRootLockForTests,
+  resetStorageRootLocksForTests,
+} from "./storage-root-lock.js";
 
 const requireElectron = createRequire(import.meta.url);
 
@@ -69,6 +81,11 @@ function isModuleNotFoundError(error: unknown): boolean {
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND"
   );
+}
+
+/** True when not a production build; Electron `forge start` often leaves `NODE_ENV` unset. */
+function isNonProductionNodeEnv(): boolean {
+  return process.env.NODE_ENV !== "production";
 }
 
 /**
@@ -121,6 +138,27 @@ export function resetMediaCacheProtocolRegistrationStateForTests(): void {
   mediaCacheProtocolSchemesPrivileged = false;
 }
 
+/**
+ * Clears any held storage-root locks so tests can run multiple scenarios in one process.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const resetMediaCacheStorageRootLocksForTests = resetStorageRootLocksForTests;
+
+/**
+ * Disables storage-root exclusivity checks so tests can exercise multiple cache instances freely.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const disableMediaCacheStorageRootLockForTests = disableStorageRootLockForTests;
+
+/**
+ * Re-enables storage-root exclusivity checks after test-only overrides.
+ * **Unit tests only**; do not use in application code.
+ * @internal
+ */
+export const enableMediaCacheStorageRootLockForTests = enableStorageRootLockForTests;
+
 interface DownloadTarget {
   namespace: string;
   itemId: string;
@@ -150,10 +188,17 @@ interface AttachIpcOptions {
  * Main-process controller: syncs the manifest, stores blobs, serves `media:` URLs, and can expose
  * the same operations to renderers via IPC. In offline mode (default), construct the cache before
  * `app.whenReady()` so the privileged `media:` scheme can be registered, then after ready call
- * {@link MediaCacheMain.registerProtocol}, `attachIpc`, and `start` (or `syncNow`).
+ * {@link MediaCacheMain.start} for the one-call happy path.
+ *
+ * `MediaCache` requires exclusive ownership of its resolved `storageRoot`. The first process that
+ * acquires that root remains the owner for the process lifetime. A second process (or cache
+ * instance) targeting the same root throws {@link import("../shared/errors.js").StorageOwnershipError}.
  */
 export interface MediaCacheMain {
-  /** Initializes storage, then runs an initial sync (same as calling `syncNow` after init). */
+  /**
+   * One-call setup: register protocol, attach IPC, initialize storage, then run initial sync.
+   * Cache-root ownership is enforced during initialization, before SQLite or blob writes begin.
+   */
   start(): Promise<void>;
   /** Runs or joins the current sync; concurrent callers share one run. */
   syncNow(): Promise<void>;
@@ -190,8 +235,13 @@ export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
 export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
+  /** When `onLog` is omitted, log to the main-process console in development (not under Vitest). */
+  private readonly defaultDevelopmentConsole: boolean;
+  /** Built-in console line shape when {@link defaultDevelopmentConsole} is active. */
+  private readonly logFormat: MediaCacheLogFormat;
   private readonly devPassthrough: boolean;
   private readonly assetBaseUrlOrigin: string | null;
+  private storageRootLock: StorageRootLockHandle | null = null;
   private db: MediaCacheDatabase | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
@@ -208,7 +258,16 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
     };
-    this.devPassthrough = options.devPassthrough ?? false;
+    this.defaultDevelopmentConsole =
+      options.onLog == null && isNonProductionNodeEnv() && process.env.VITEST !== "true";
+    const { logFormat } = options;
+    if (logFormat !== undefined && logFormat !== "english" && logFormat !== "json") {
+      throw new Error(
+        `Invalid MediaCacheOptions.logFormat: expected "english" | "json", received ${JSON.stringify(logFormat)}`,
+      );
+    }
+    this.logFormat = logFormat ?? "english";
+    this.devPassthrough = options.devPassthrough ?? process.env.NODE_ENV === "development";
     if (this.devPassthrough) {
       this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
     } else {
@@ -220,18 +279,25 @@ export class MediaCache implements MediaCacheMain {
       }
       this.assetBaseUrlOrigin = null;
     }
+    if (this.devPassthrough) {
+      this.emitLog("info", "dev_passthrough_active", {
+        source: options.devPassthrough === true ? "option" : "node_env",
+        node_env: process.env.NODE_ENV ?? null,
+      });
+    }
     if (
       this.devPassthrough &&
       this.options.onSyncFailure &&
       this.options.onSyncFailure !== "throw"
     ) {
-      // Only emitted when onLog is configured; overridden setting applies regardless.
+      // Emitted when a log sink is active (consumer `onLog` or default dev console).
       this.emitLog("warn", "dev_passthrough_ignores_sync_failure_mode", {
         configured_mode: this.options.onSyncFailure,
       });
     }
     this.status = {
       phase: "idle",
+      storageRoot: null,
       activeGenerationId: null,
       progress: null,
       lastRun: null,
@@ -245,7 +311,8 @@ export class MediaCache implements MediaCacheMain {
   }
 
   async start(): Promise<void> {
-    await this.ensureInitialized();
+    await this.registerProtocol();
+    await this.attachIpc();
     await this.syncNow();
   }
 
@@ -327,7 +394,13 @@ export class MediaCache implements MediaCacheMain {
     }
 
     const electron = options?.session ? null : await import("electron");
-    const session = options?.session ?? electron!.session.defaultSession;
+    const session = options?.session ?? electron?.session?.defaultSession;
+    if (!session || typeof session.protocol?.handle !== "function") {
+      this.emitLog("debug", "protocol_registration_skipped", {
+        reason: "session_unavailable",
+      });
+      return;
+    }
 
     const fetchFile =
       options?.fetchFile ??
@@ -398,9 +471,16 @@ export class MediaCache implements MediaCacheMain {
     }
 
     const electron = options?.ipcMain ? null : await import("electron");
-    const ipcMain = options?.ipcMain ?? electron!.ipcMain;
+    const ipcMain = options?.ipcMain ?? electron?.ipcMain;
+    if (!ipcMain || typeof ipcMain.handle !== "function") {
+      this.emitLog("debug", "ipc_attach_skipped", {
+        reason: "ipc_main_unavailable",
+      });
+      return;
+    }
 
     ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
+    ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
     ipcMain.handle(MEDIA_CACHE_IPC.getItem, async (_event, namespace: string, id: string) =>
       this.getItem(namespace, id),
     );
@@ -437,17 +517,31 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
+    if (usesLegacyStoragePathOptions(this.options)) {
+      this.emitLog("warn", "deprecated_storage_path_options", {
+        message:
+          "storageAppPath/storagePathSegments are deprecated; use storagePath: { appPath, segments }.",
+      });
+    }
+
     this.storageRoot =
-      normalizeStorageRoot(this.options.storageRoot) ?? (await defaultStorageRoot());
+      (await resolveStorageRootFromOptions(this.options)) ?? (await defaultStorageRoot());
     mkdirSync(this.storageRoot, { recursive: true });
+    this.storageRootLock ??= acquireStorageRootLock(this.storageRoot, this);
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
+
+    if (!this.devPassthrough) {
+      this.emitLog("info", "cache_storage_location", {
+        storage_root: this.storageRoot,
+      });
+    }
 
     this.db = new MediaCacheDatabase(this.storageRoot, {
       devPassthrough: this.devPassthrough,
       assetBaseUrlOrigin: this.assetBaseUrlOrigin,
       onWarn: (contextLabel, err) => {
-        if (this.options.onLog) {
+        if (this.options.onLog != null || this.defaultDevelopmentConsole) {
           this.emitLog("warn", "resolve_asset_base_url_fallback", {
             context_label: contextLabel,
             error: err != null ? String(err) : undefined,
@@ -489,6 +583,10 @@ export class MediaCache implements MediaCacheMain {
       }
       this.status.activeGenerationId = activeGenerationId;
     }
+    this.status = {
+      ...this.status,
+      storageRoot: this.storageRoot,
+    };
     this.emitLog("info", "cache_initialized", {
       storage_root: this.storageRoot,
       active_generation_id: this.status.activeGenerationId,
@@ -1203,11 +1301,14 @@ export class MediaCache implements MediaCacheMain {
     event: string,
     fields: Record<string, ReturnType<typeof normalizeLogValue>> = {},
   ): void {
-    if (!this.options.onLog) {
+    const onLog = this.options.onLog;
+    if (onLog == null && !this.defaultDevelopmentConsole) {
       return;
     }
 
-    const threshold = LOG_LEVEL_WEIGHT[this.options.logLevel ?? "info"];
+    const effectiveLogLevel =
+      this.options.logLevel ?? (onLog == null && this.defaultDevelopmentConsole ? "debug" : "info");
+    const threshold = LOG_LEVEL_WEIGHT[effectiveLogLevel];
     if (LOG_LEVEL_WEIGHT[level] < threshold) {
       return;
     }
@@ -1221,11 +1322,40 @@ export class MediaCache implements MediaCacheMain {
       ...fields,
     };
 
-    try {
-      this.options.onLog(entry);
-    } catch {
-      // Consumer loggers must not break cache behavior.
+    if (onLog != null) {
+      try {
+        onLog(entry);
+      } catch {
+        // Consumer loggers must not break cache behavior.
+      }
+      return;
     }
+
+    writeDefaultDevelopmentConsoleLog(level, entry, this.logFormat);
+  }
+}
+
+function writeDefaultDevelopmentConsoleLog(
+  level: MediaCacheLogLevel,
+  entry: MediaCacheLogEvent,
+  format: MediaCacheLogFormat,
+): void {
+  const line = formatMediaCacheConsoleLine(entry, format);
+  switch (level) {
+    case "debug":
+      console.debug(line);
+      break;
+    case "info":
+      console.log(line);
+      break;
+    case "warn":
+      console.warn(line);
+      break;
+    case "error":
+      console.error(line);
+      break;
+    default:
+      console.log(line);
   }
 }
 
@@ -1243,6 +1373,100 @@ function normalizeStorageRoot(storageRoot: string | undefined): string | null {
   }
 
   return storageRoot.trim().length > 0 ? storageRoot : null;
+}
+
+async function resolveStorageRootFromOptions(options: MediaCacheOptions): Promise<string | null> {
+  const explicitStorageRoot = normalizeStorageRoot(options.storageRoot);
+  const { storagePath, storageAppPath, storagePathSegments } = options;
+
+  if (explicitStorageRoot !== null && storagePath !== undefined) {
+    throw new Error(
+      "storageRoot cannot be combined with storagePath. Choose one storage configuration style.",
+    );
+  }
+  if (explicitStorageRoot !== null && storageAppPath !== undefined) {
+    throw new Error(
+      "storageRoot cannot be combined with storageAppPath/storagePathSegments. Choose one storage configuration style.",
+    );
+  }
+  if (explicitStorageRoot !== null && storagePathSegments !== undefined) {
+    throw new Error(
+      "storageRoot cannot be combined with storagePathSegments. Choose one storage configuration style.",
+    );
+  }
+
+  if (explicitStorageRoot !== null) {
+    return explicitStorageRoot;
+  }
+
+  if (storagePath !== undefined) {
+    if (storageAppPath !== undefined || storagePathSegments !== undefined) {
+      throw new Error(
+        "storagePath cannot be combined with storageAppPath/storagePathSegments. Choose one storage configuration style.",
+      );
+    }
+    return resolveStoragePathObject(storagePath);
+  }
+
+  if (storageAppPath === undefined) {
+    if (storagePathSegments !== undefined) {
+      throw new Error("storagePathSegments requires storageAppPath.");
+    }
+    return null;
+  }
+
+  if (storagePathSegments === undefined) {
+    throw new Error(
+      "storagePathSegments is required when storageAppPath is set. Pass [] to use app.getPath(storageAppPath) directly.",
+    );
+  }
+
+  const appPathRoot = resolveElectronAppPathRoot(storageAppPath);
+
+  try {
+    return join(appPathRoot, ...storagePathSegments);
+  } catch (error) {
+    throw new Error(
+      `Failed to build storage root from app.getPath("${storageAppPath}") and storagePathSegments ${JSON.stringify(storagePathSegments)}: ${toErrorMessage(error)}`,
+      { cause: asError(error) },
+    );
+  }
+}
+
+function resolveStoragePathObject(storagePath: MediaCacheStoragePath): string {
+  const appPathRoot = resolveElectronAppPathRoot(storagePath.appPath);
+
+  try {
+    return join(appPathRoot, ...storagePath.segments);
+  } catch (error) {
+    throw new Error(
+      `Failed to build storage root from storagePath ${JSON.stringify(storagePath)}: ${toErrorMessage(error)}`,
+      { cause: asError(error) },
+    );
+  }
+}
+
+function resolveElectronAppPathRoot(storageAppPath: MediaCacheAppPath): string {
+  try {
+    const electron = requireElectron("electron") as typeof import("electron");
+    if (typeof electron.app?.getPath !== "function") {
+      throw new Error("electron.app.getPath is unavailable.");
+    }
+    return electron.app.getPath(storageAppPath);
+  } catch (error) {
+    throw new Error(
+      `Failed to resolve app.getPath("${storageAppPath}") for media cache storage: ${toErrorMessage(error)}`,
+      { cause: asError(error) },
+    );
+  }
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
@@ -1267,6 +1491,10 @@ function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string 
   }
 
   return parsed.origin;
+}
+
+function usesLegacyStoragePathOptions(options: MediaCacheOptions): boolean {
+  return options.storageAppPath !== undefined || options.storagePathSegments !== undefined;
 }
 
 function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
