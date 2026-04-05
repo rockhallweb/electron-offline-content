@@ -355,7 +355,6 @@ const mediaCache = createMediaCache({
 
 All errors extend `MediaCacheError`, which carries a `code` string for programmatic handling:
 
-
 | Error                     | Code                        | When                                                                |
 | ------------------------- | --------------------------- | ------------------------------------------------------------------- |
 | `ManifestValidationError` | `MANIFEST_VALIDATION_ERROR` | Manifest is malformed (duplicate keys, missing fields)              |
@@ -363,7 +362,6 @@ All errors extend `MediaCacheError`, which carries a `code` string for programma
 | `StorageOwnershipError`   | `STORAGE_OWNERSHIP_ERROR`   | Another process or instance owns the storage root                   |
 | `StorageLimitError`       | `STORAGE_LIMIT_ERROR`       | Disk full, `maxCacheBytes` exceeded, or `reserveFreeBytes` violated |
 | `SyncFailureError`        | `SYNC_FAILURE`              | Network or HTTP failure downloading assets                          |
-
 
 ### Renderer error aggregation
 
@@ -448,13 +446,11 @@ const mediaCache = createMediaCache({
 
 ### Log options
 
-
 | Option      | Default                                  | Description                                                                         |
 | ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
 | `onLog`     | `undefined`                              | Structured log callback. Replaces the built-in console sink.                        |
 | `logLevel`  | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                           |
 | `logFormat` | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Ignored when `onLog` is set. |
-
 
 ### Notable events
 
@@ -477,13 +473,11 @@ const mediaCache = createMediaCache({
 });
 ```
 
-
 | Option               | Default     | Description                                                                 |
 | -------------------- | ----------- | --------------------------------------------------------------------------- |
 | `maxCacheBytes`      | `undefined` | Soft cap on total bytes of cached asset files.                              |
 | `reserveFreeBytes`   | `undefined` | Minimum free disk space to preserve on the volume.                          |
 | `staleDeleteAfterMs` | 7 days      | Grace period before assets removed from the manifest are deleted from disk. |
-
 
 When limits are exceeded, the sync raises `StorageLimitError`. The configured `onSyncFailure` mode then applies.
 
@@ -499,41 +493,37 @@ Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mo
 
 `**MediaCacheOptions**`
 
-
-| Option                | Type                                                  | Required | Description                                                                                     |
-| --------------------- | ----------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `storagePath`         | `MediaCacheStoragePath`                               | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
-| `resolveManifest`     | `() => ManifestInput | Promise<ManifestInput>`        | yes      | Returns the full manifest for each sync run.                                                    |
-| `devPassthrough`      | `boolean`                                             | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
-| `assetBaseUrl`        | `string`                                              | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
-| `onSyncFailure`       | `"serve-last-snapshot" | "throw"`                     | no       | Behavior on sync failure. Default `"serve-last-snapshot"`.                                      |
-| `resolveAssetRequest` | `(ctx) => DownloadRequest | Promise<DownloadRequest>` | no       | Per-asset hook to customize download URL/headers.                                               |
-| `maxCacheBytes`       | `number`                                              | no       | Soft cap on total cached bytes.                                                                 |
-| `reserveFreeBytes`    | `number`                                              | no       | Minimum free disk bytes to preserve.                                                            |
-| `staleDeleteAfterMs`  | `number`                                              | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
-| `syncHistoryLimit`    | `number`                                              | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
-| `onLog`               | `MediaCacheLogHandler`                                | no       | Structured log callback.                                                                        |
-| `logLevel`            | `"debug" | "info" | "warn" | "error"`                 | no       | Minimum log severity.                                                                           |
-| `logFormat`           | `"english" | "json"`                                  | no       | Built-in console line format. Default `"english"`.                                              |
-
+| Option                | Type                                                   | Required | Description                                                                                     |
+| --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`                                | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveManifest`     | `() => ManifestInput \| Promise<ManifestInput>`        | yes      | Returns the full manifest for each sync run.                                                    |
+| `devPassthrough`      | `boolean`                                              | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                                               | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `"serve-last-snapshot" \| "throw"`                     | no       | Behavior on sync failure. Default `"serve-last-snapshot"`.                                      |
+| `resolveAssetRequest` | `(ctx) => DownloadRequest \| Promise<DownloadRequest>` | no       | Per-asset hook to customize download URL/headers.                                               |
+| `maxCacheBytes`       | `number`                                               | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                                               | no       | Minimum free disk bytes to preserve.                                                            |
+| `staleDeleteAfterMs`  | `number`                                               | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `syncHistoryLimit`    | `number`                                               | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `onLog`               | `MediaCacheLogHandler`                                 | no       | Structured log callback.                                                                        |
+| `logLevel`            | `"debug" \| "info" \| "warn" \| "error"`               | no       | Minimum log severity.                                                                           |
+| `logFormat`           | `"english" \| "json"`                                  | no       | Built-in console line format. Default `"english"`.                                              |
 
 #### `MediaCacheMain`
 
 Returned by `createMediaCache`. Requires exclusive ownership of its resolved storage root.
-
 
 | Method                                   | Returns                                               | Description                                                       |
 | ---------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------- |
 | `start()`                                | `Promise<void>`                                       | One-call setup: register protocol, attach IPC, run initial sync.  |
 | `syncNow()`                              | `Promise<void>`                                       | Run or join a sync. Concurrent callers share one run.             |
 | `getStatus()`                            | `Promise<MediaCacheStatus>`                           | Current phase, progress, last run, and error.                     |
-| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem | null>`            | Single item lookup.                                               |
+| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem \| null>`           | Single item lookup.                                               |
 | `listNamespace(namespace, pagination?)`  | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Flat list of items in one namespace.                              |
 | `listNamespaceTree(prefix, pagination?)` | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Items under a namespace prefix and all descendants.               |
 | `findByFileStem(stem, options?)`         | `Promise<PaginationResult<FileStemMatch>>`            | Search by normalized filename stem.                               |
 | `registerProtocol(options?)`             | `Promise<void>`                                       | Register the `media:` handler on a session.                       |
 | `attachIpc(options?)`                    | `Promise<void>`                                       | Wire `ipcMain` handlers and broadcast status to renderer windows. |
-
 
 In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing the cache. The package enforces storage-root exclusivity itself, but the instance lock prevents a second Electron process from launching.
 
