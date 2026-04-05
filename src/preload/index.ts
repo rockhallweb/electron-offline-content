@@ -1,6 +1,24 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
-import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "../shared/types.js";
+import type {
+  MediaCacheBridge,
+  MediaCacheStatus,
+  PaginationInput,
+  PreloadExposeOptions,
+} from "../shared/types.js";
+
+const statusListeners = new Set<(status: MediaCacheStatus) => void>();
+
+function dispatchStatus(_event: Electron.IpcRendererEvent, status: MediaCacheStatus): void {
+  const snapshot = Array.from(statusListeners);
+  for (const listener of snapshot) {
+    try {
+      listener(status);
+    } catch (err) {
+      console.error("[media-cache] subscribeStatus listener threw:", err);
+    }
+  }
+}
 
 /**
  * Builds a {@link import("../shared/types.js").MediaCacheBridge} that invokes main-process handlers via `ipcRenderer`.
@@ -18,13 +36,15 @@ export function createMediaCacheBridge(): MediaCacheBridge {
     findByFileStem: (stem, options) =>
       ipcRenderer.invoke(MEDIA_CACHE_IPC.findByFileStem, stem, options),
     subscribeStatus: (listener) => {
-      const wrapped = (
-        _event: Electron.IpcRendererEvent,
-        status: Awaited<ReturnType<MediaCacheBridge["getStatus"]>>,
-      ) => listener(status);
-      ipcRenderer.on(MEDIA_CACHE_IPC.statusChanged, wrapped);
+      statusListeners.add(listener);
+      if (statusListeners.size === 1) {
+        ipcRenderer.on(MEDIA_CACHE_IPC.statusChanged, dispatchStatus);
+      }
       return () => {
-        ipcRenderer.removeListener(MEDIA_CACHE_IPC.statusChanged, wrapped);
+        statusListeners.delete(listener);
+        if (statusListeners.size === 0) {
+          ipcRenderer.removeListener(MEDIA_CACHE_IPC.statusChanged, dispatchStatus);
+        }
       };
     },
   };
