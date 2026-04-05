@@ -8,7 +8,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   statfsSync,
   writeFileSync,
@@ -41,7 +40,10 @@ import type {
   JsonValue,
 } from "../../src/shared/types.js";
 
-type TestMediaCacheOptions = Omit<ConstructorParameters<typeof RawMediaCacheBase>[0], "storagePath"> & {
+type TestMediaCacheOptions = Omit<
+  ConstructorParameters<typeof RawMediaCacheBase>[0],
+  "storagePath"
+> & {
   storagePath?: ConstructorParameters<typeof RawMediaCacheBase>[0]["storagePath"];
   storageRoot?: string;
 };
@@ -56,9 +58,9 @@ async function testResolveAppPath(appPath: string): Promise<string> {
   return tmpdir();
 }
 
-function normalizeTestOptions(options: TestMediaCacheOptions): ConstructorParameters<
-  typeof RawMediaCacheBase
->[0] {
+function normalizeTestOptions(
+  options: TestMediaCacheOptions,
+): ConstructorParameters<typeof RawMediaCacheBase>[0] {
   if (options.storageRoot === undefined) {
     return options as ConstructorParameters<typeof RawMediaCacheBase>[0];
   }
@@ -87,10 +89,7 @@ class RawMediaCache extends RawMediaCacheBase {
 }
 
 class MediaCache extends RawMediaCache {
-  constructor(
-    options: TestMediaCacheOptions,
-    deps?: TestMediaCacheDeps,
-  ) {
+  constructor(options: TestMediaCacheOptions, deps?: TestMediaCacheDeps) {
     super({ devPassthrough: false, ...options }, deps);
   }
 }
