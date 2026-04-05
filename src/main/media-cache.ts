@@ -175,12 +175,17 @@ interface RuntimeDependencies {
   resolveAppPath: (name: MediaCacheAppPath) => Promise<string>;
 }
 
+/** Options for {@link MediaCacheMain.registerProtocol}. */
 interface RegisterProtocolOptions {
+  /** Electron session to register the `media:` handler on (defaults to `defaultSession`). */
   session?: Session;
+  /** Custom file-serving handler; receives the protocol request and resolved local path. */
   fetchFile?: (request: Request, filePath: string) => Promise<Response>;
 }
 
+/** Options for {@link MediaCacheMain.attachIpc}. */
 interface AttachIpcOptions {
+  /** Custom `ipcMain` instance (defaults to `electron.ipcMain`). */
   ipcMain?: IpcMain;
 }
 
