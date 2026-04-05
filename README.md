@@ -1,25 +1,44 @@
 # `@rockhallweb/electron-offline-content`
 
-A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.
+Download, index, and serve offline media content in Electron apps.
 
-## Repository layout
-
-- **Root package** — `@rockhallweb/electron-offline-content` (library source and published `dist/` output).
-- **`pnpm-workspace.yaml`** — Declares only the root package (`packages: ["."]`) so the root `pnpm-lock.yaml` stays limited to the library. Without this, pnpm can treat nested `package.json` files as extra importers and merge example dependencies into the root lockfile.
-- **Example apps** — `examples/local` and `examples/nasa` are standalone pnpm projects (each has its own `pnpm-lock.yaml`). They depend on the root package via a local path (`../../`). A root `pnpm install` installs only the library; install example dependencies with `pnpm install:example:local` / `pnpm install:example:nasa` (or `pnpm install` inside each example directory).
-
-Each example is a small Electron Forge + React + Vite app that shows how to wire the library end-to-end. The linked package resolves to compiled files under `dist/`; if you run `pnpm dev` from an example directory, `predev` builds the root package when `dist/` is missing.
-
-## Features
-
-- Global authoritative manifest sync with namespace support
-- File-backed binary asset cache with SQLite metadata index
-- Strict all-or-nothing snapshot commits
-- Grace-period deletion for removed assets
-- Privileged `media://` protocol for committed local assets
-- Dev passthrough mode that returns direct remote asset URLs for local development
-- Structured main-process log callback for forwarding cache events into `pino`, `logtape`, or a custom logger
+- Full-catalog manifest sync with SQLite metadata index
+- Disk-backed binary asset cache with atomic downloads
+- Privileged `media://` protocol for renderer-safe local URLs
 - Preload bridge and React hooks for renderer access
+- Dev passthrough mode for local development without downloading assets
+
+## Table of contents
+
+- [When not to use this package](#when-not-to-use-this-package)
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Manifest authoring](#manifest-authoring)
+- [Dev passthrough mode](#dev-passthrough-mode)
+- [Namespaces and content organization](#namespaces-and-content-organization)
+- [Error handling and sync failures](#error-handling-and-sync-failures)
+- [Authenticated asset downloads](#authenticated-asset-downloads)
+- [Logging](#logging)
+- [Storage limits](#storage-limits)
+- [API reference](#api-reference)
+- [Notes](#notes)
+- [Example apps](#example-apps)
+
+## When not to use this package
+
+This package is opinionated. It codifies a specific content-sync model for kiosk-style Electron apps rather than trying to be a general-purpose cache layer.
+
+- **General-purpose HTTP cache** -- this syncs a full manifest of offline content; it is not a generic fetch cache or service worker replacement.
+- **Incremental or on-demand fetching** -- v1 syncs the entire catalog on every run. If your app needs lazy loading or partial sync, this is not the right fit.
+- **Non-Electron apps** -- the package depends on Electron APIs (`app.getPath`, `session.protocol`, `contextBridge`).
+- **Small ephemeral data** -- if you just need key-value storage or simple config persistence, `localStorage` or a lightweight store is simpler.
+
+## Prerequisites
+
+- Node.js >= 24 (`node:sqlite` is used for the local metadata index)
+- pnpm >= 10
+- Electron >= 40
 
 ## Install
 
@@ -27,168 +46,77 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 pnpm add @rockhallweb/electron-offline-content
 ```
 
-Peer dependencies:
+`react >= 18` and `react-dom >= 18` are optional peer dependencies, needed only when using `@rockhallweb/electron-offline-content/react`.
 
-- `electron >= 40`
-- `react >= 18` when using `@rockhallweb/electron-offline-content/react`
+## Quick start
 
-## Development and Validation
+A minimal integration touches the main process, a preload script, and the renderer. The manifest typically comes from an external source (a CMS, an API, a static config), so we keep the fetch logic in its own file.
 
-Use the root commands for maintainership and CI:
+### 1. Fetch content and build a manifest
 
-- `pnpm lint`
-  Run Oxlint across the repository source and config files.
-- `pnpm format:check`
-  Verify formatting with Oxfmt without rewriting files.
-- `pnpm format`
-  Rewrite supported files in place with Oxfmt.
-- `pnpm check`
-  Type-check the package.
-- `pnpm test`
-  Run fast package-level behavior tests.
-- `pnpm build`
-  Build the package outputs in `dist/`.
-- `pnpm install:example:local`
-  Install dependencies for `examples/local`.
-- `pnpm install:example:nasa`
-  Install dependencies for `examples/nasa`.
-- `pnpm example:local:dev`
-  Build the library and launch the local-fixtures Electron Forge example.
-- `pnpm example:nasa:dev`
-  Build the library and launch the NASA-hosted media Electron Forge example.
-- `pnpm pack:verify`
-  Pack the root package into a tarball, install that tarball into a temporary copy of `examples/local`, and run `tsc --noEmit` against the example’s main/preload sources (`tsconfig.pack-verify.json`) to catch publish/install resolution issues.
-- `pnpm ci:validate`
-  Run the full maintainer validation chain: lint, format check, type-check, test, build, and `pack:verify`.
-
-GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is restricted to member-controlled branches and same-repository PRs; see [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
-
-Day-to-day development uses a path-linked example plus root `pnpm build`. `pnpm pack:verify` exercises the same install path consumers get from the registry tarball (using `examples/local`) and helps catch export or packaging mistakes that path linking can hide.
-
-## Example apps
-
-- **`examples/local`** — tiny fixtures served from a loopback HTTP server; used by `pnpm pack:verify`.
-- **`examples/nasa`** — public NASA SVS URLs for heavier manual demos (not run in CI).
-
-Run:
-
-```bash
-pnpm example:local:dev
-pnpm example:nasa:dev
-```
-
-The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically choose a `storagePath.appPath` root from Electron and add any package-specific `segments` you need (for example from `process.env` or your installer). Enable dev passthrough only when you need the escape hatch (see below).
-
-The example UIs exercise:
-
-- sync status
-- exact namespace listing
-- namespace subtree listing
-- item lookup by `(namespace, id)`
-- exact file-stem lookup
-- local image and video rendering from `media://` URLs in offline mode
-- direct remote asset URLs in dev passthrough mode
-
-## Main process
-
-Default behavior is **offline mode**: the package registers the privileged `media:` scheme when you construct the cache (no separate registration call), syncs assets to disk, and resolves `media://asset/...` URLs for the renderer.
-
-1. In kiosk-style apps, call `app.requestSingleInstanceLock()` as early as possible so only one Electron app instance keeps running.
-2. Call `createMediaCache(...)` in the main process **before** `app.whenReady()` so scheme registration can run in time.
-3. After `app.whenReady()`, call `start()` for the default one-call setup (protocol + IPC + initial sync).
-
-`MediaCache` requires exclusive ownership of its `storageRoot`. In kiosk-style apps, the first
-process to acquire that root wins. If `start()` fails after ownership is established, reuse that
-same instance or restart the app/process instead of constructing a replacement cache for the same
-root. The package enforces cache-root exclusivity itself; `app.requestSingleInstanceLock()` is
-still strongly recommended so consumers avoid launching a second Electron app instance in the first
-place.
+Create a module that fetches your content catalog and maps it into a manifest. This function will be called on every sync.
 
 ```ts
+// fetch-content.ts
+import {
+  defineManifest,
+  defineManifestItem,
+  defineManifestAsset,
+} from "@rockhallweb/electron-offline-content/main";
+
+export async function resolveManifest() {
+  // Fetch your content catalog from a CMS, API, or any remote source.
+  const response = await fetch("https://cms.example.com/api/videos");
+  const videos = await response.json();
+
+  const items = videos.map((video) =>
+    defineManifestItem({
+      id: video.slug,
+      version: video.updatedAt, // bump triggers re-download
+      kind: "video",
+      title: video.title,
+      assets: [
+        defineManifestAsset({
+          id: "main",
+          role: "primary",
+          kind: "video",
+          source: { url: video.fileUrl },
+        }),
+      ],
+    }),
+  );
+
+  return defineManifest({
+    namespaces: [{ key: "videos", items }],
+  });
+}
+```
+
+### 2. Main process
+
+Import your `resolveManifest` and wire up the cache. Create the cache **before** `app.whenReady()` so the privileged `media:` scheme registers in time.
+
+```ts
+// main.ts
 import { app } from "electron";
-import { createMediaCache, defineManifest } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { resolveManifest } from "./fetch-content.js";
 
 const mediaCache = createMediaCache({
   storagePath: {
     appPath: "temp",
     segments: ["my-app", "offline-media"],
   },
-  // Built-in main-process console: human-readable English by default when `onLog` is omitted.
-  // Use `logFormat: "json"` for one JSON object per line, or `onLog` for a custom sink.
-  resolveManifest: async () =>
-    defineManifest({
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              title: "Forest",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: {
-                    url: "https://cdn.example.com/forest.v1.mp4",
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    }),
+  resolveManifest,
 });
 
 await app.whenReady();
-await mediaCache.start();
+await mediaCache.start(); // registers protocol, attaches IPC, runs initial sync
 ```
 
-`defineManifest(...)` is the recommended producer chokepoint. It validates input with Zod and
-runs internal manifest normalization checks. `defineManifestItem(...)` and
-`defineManifestAsset(...)` are still exported for advanced incremental builder flows.
-When `fileName` is omitted, the package derives it from the asset source URL basename by default.
-Provide `fileName` only when you need to override that default.
+### 3. Preload
 
-**Escape hatch — dev passthrough:** omit the properties below unless you need direct remote URLs in the renderer (e.g. public assets reachable without your normal offline sync). When enabled, `registerProtocol()` is a no-op (no `media://` handler is needed in passthrough mode).
-
-When `devPassthrough` is omitted, the package now auto-enables passthrough when
-`NODE_ENV === "development"`. If you want to keep offline-mode behavior during development or
-while upgrading an existing app, set `devPassthrough: false` explicitly.
-
-```ts
-const mediaCache = createMediaCache({
-  devPassthrough: true,
-  assetBaseUrl: "https://cdn.example.com",
-  resolveManifest: async () => {
-    /* same manifest shape as offline mode */
-    return { namespaces: [] };
-  },
-});
-```
-
-When `onLog` is omitted and `NODE_ENV` is not `production` (Electron dev often leaves `NODE_ENV` unset, which counts as non-production), the package prints to the main-process console—except under Vitest (`process.env.VITEST`). Lines are **human-readable English** by default (`logFormat` defaults to `"english"`). Set `logFormat: "json"` for a single JSON object per line (same shape as the `MediaCacheLogEvent` type). Pass `onLog` to replace the built-in sink entirely; your callback always receives structured entries. Default `logLevel` is `debug` for the built-in console and `info` when `onLog` is set (unless you override `logLevel`). Namespace, item ID, prefix, and file stem arguments are validated (min 1, max 2000 characters); invalid values throw `DataValidationError`.
-
-Notable warn-level events include `resolve_asset_base_url_fallback` (emitted when a stored asset URL cannot be parsed during origin override in passthrough mode; includes `context_label` and `error` fields) and `dev_passthrough_ignores_sync_failure_mode` (emitted when `devPassthrough: true` and `onSyncFailure !== "throw"`; sync failures always throw in dev passthrough regardless). These warnings appear whenever a log sink is active (default dev console or `onLog`). Debug-level protocol events include `protocol_request_not_found` (no matching generation or asset for a `media://` request) and `protocol_request_file_missing` (asset exists in DB but file is absent on disk).
-
-In passthrough mode:
-
-- manifest metadata is still committed locally so the query APIs continue to work
-- asset blobs are not downloaded
-- `ResolvedMediaAsset.url` is a direct remote URL derived from the manifest asset source
-- `media://asset/...` remains an offline-mode contract only
-- startup is fail-fast and does not reuse a previously committed snapshot after restart
-
-`assetBaseUrl` is an optional origin override for dev mode. It replaces only the origin of each manifest asset URL and preserves the original path and query string. For v1, it must be an origin only: no path, query string, hash fragment, or credentials.
-
-Dev passthrough in v1 is intentionally limited to public assets. Assets that require signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode yet.
-
-`pnpm pack:verify` validates that the packed library installs cleanly into `examples/local`; it does not launch Electron. The examples use default offline mode unless you opt into dev passthrough in source.
-
-## Preload
+Expose the IPC bridge on `window.mediaCache` so the renderer can query the cache.
 
 ```ts
 import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
@@ -196,23 +124,25 @@ import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/pr
 exposeMediaCacheBridge();
 ```
 
-## React
+### 4. Renderer (React)
+
+Wrap your app in `MediaCacheProvider` and use hooks to access content.
 
 ```tsx
 import {
   MediaCacheProvider,
-  useMediaCacheErrors,
   useMediaCacheStatus,
+  useMediaCacheErrors,
   useMediaItems,
 } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
   const status = useMediaCacheStatus();
-  const items = useMediaItems("nature", { recursive: true, limit: 20 });
+  const items = useMediaItems("videos", { limit: 20 });
   const errors = useMediaCacheErrors(status, items);
 
   if (items.loading) {
-    return <div>Loading…</div>;
+    return <div>Loading...</div>;
   }
   if (errors.primaryError) {
     return <div>{errors.primaryError.message}</div>;
@@ -240,8 +170,478 @@ export function Root() {
 }
 ```
 
+## Manifest authoring
+
+The manifest describes every piece of content and its downloadable assets. `resolveManifest` must return a full authoritative snapshot each time it is called -- the package diffs it against the local catalog and downloads only what changed.
+
+### Manifest shape
+
+A manifest has **namespaces**, each containing **items**, each containing **assets**:
+
+```ts
+{
+  namespaces: [
+    {
+      key: "lobby",                    // stable identifier
+      label: "Lobby Kiosk",           // optional display name
+      items: [
+        {
+          id: "spring-campaign",       // unique within namespace
+          version: "2026-03-10.1",     // triggers re-download when changed
+          kind: "video",
+          title: "Spring Campaign",
+          assets: [
+            {
+              id: "main",
+              role: "primary",         // indexed on assetsByRole
+              kind: "video",
+              mimeType: "video/mp4",
+              source: {
+                url: "https://cdn.example.com/spring-campaign.mp4",
+              },
+            },
+            {
+              id: "poster",
+              role: "poster",
+              kind: "poster",
+              source: {
+                url: "https://cdn.example.com/spring-campaign-poster.jpg",
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
+```
+
+### Producer helpers
+
+`defineManifest` validates your manifest with Zod before sync starts. Use it as the return value of `resolveManifest`. Build assets and items as standalone variables to keep nesting shallow and lines short:
+
+```ts
+import {
+  defineManifest,
+  defineManifestItem,
+  defineManifestAsset,
+} from "@rockhallweb/electron-offline-content/main";
+
+const mainVideo = defineManifestAsset({
+  id: "main",
+  role: "primary",
+  kind: "video",
+  source: { url: "https://cdn.example.com/welcome.v2.mp4" },
+});
+
+const welcomeItem = defineManifestItem({
+  id: "welcome",
+  version: "v2",
+  kind: "video",
+  assets: [mainVideo],
+});
+
+const manifest = defineManifest({
+  namespaces: [{ key: "exhibits", items: [welcomeItem] }],
+});
+```
+
+`defineManifestItem` and `defineManifestAsset` validate their input individually, so errors surface at the point of definition rather than deep inside `defineManifest`.
+
+### Shorthand inputs
+
+`resolveManifest` also accepts an array of namespace objects or a flat array of items (normalized into a `default` namespace internally):
+
+```ts
+resolveManifest: async () => [
+  { id: "intro", version: "v1", kind: "video", assets: [/* ... */] },
+  { id: "outro", version: "v1", kind: "video", assets: [/* ... */] },
+],
+```
+
+### Validation rules
+
+- Namespace keys must be unique.
+- Item IDs must be unique within a namespace.
+- Asset IDs must be unique within an item.
+- `item.version` is required (the package is version-driven for cache busting).
+- `asset.version` is optional; when omitted, the parent `item.version` is used.
+- `asset.fileName` is optional; when omitted, derived from the source URL basename.
+- Asset source URLs must be `http` or `https`.
+
+## Dev passthrough mode
+
+In dev passthrough mode, the package skips downloading asset blobs and returns direct remote URLs from the manifest instead of `media://` URLs. Manifest metadata is still committed locally so all query APIs continue to work.
+
+`devPassthrough` defaults to `process.env.NODE_ENV === "development"`. You can override this explicitly:
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  devPassthrough: process.env.FOO !== "true",
+  resolveManifest: async () => manifest,
+});
+```
+
+`assetBaseUrl` is an optional origin override for passthrough mode. It replaces only the origin of each manifest asset URL (preserving path and query string). It must be an origin only -- no path, query string, hash, or credentials.
+
+**Limitations in v1:** dev passthrough is limited to public assets. Assets requiring signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode. `resolveAssetRequest` is not called in passthrough mode. Startup is fail-fast (sync failures always throw; `onSyncFailure` is ignored).
+
+## Namespaces and content organization
+
+Namespaces let you organize content into logical groups (app sections, exhibits, kiosks). Use dot-delimited keys to create a hierarchy:
+
+```ts
+defineManifest({
+  namespaces: [
+    {
+      key: "courses",
+      items: [
+        /* top-level items */
+      ],
+    },
+    {
+      key: "courses.beginner",
+      items: [
+        /* ... */
+      ],
+    },
+    {
+      key: "courses.advanced",
+      items: [
+        /* ... */
+      ],
+    },
+  ],
+});
+```
+
+Query with `useMediaItems`:
+
+```tsx
+// Exact namespace only
+const beginner = useMediaItems("courses.beginner", { limit: 20 });
+
+// Recursive: courses + courses.beginner + courses.advanced
+const all = useMediaItems("courses", { recursive: true, limit: 50 });
+```
+
+### File stem search
+
+`useFileStemMatch` finds items by the normalized filename stem (name without extension) of their assets:
+
+```tsx
+const matches = useFileStemMatch("spring-campaign", { limit: 10 });
+```
+
+## Error handling and sync failures
+
+### Sync failure modes
+
+`onSyncFailure` controls what happens when a sync run fails while a previous generation exists on disk:
+
+- `"serve-last-snapshot"` (default) -- the previous committed snapshot remains active. The cache continues serving content.
+- `"throw"` -- the sync failure propagates. Use this when stale content is not acceptable.
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  onSyncFailure: "throw",
+  resolveManifest: async () => manifest,
+});
+```
+
+### Error classes
+
+All errors extend `MediaCacheError`, which carries a `code` string for programmatic handling:
+
+| Error                     | Code                        | When                                                                |
+| ------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| `ManifestValidationError` | `MANIFEST_VALIDATION_ERROR` | Manifest is malformed (duplicate keys, missing fields)              |
+| `DataValidationError`     | `DATA_VALIDATION_ERROR`     | Persisted state fails validation                                    |
+| `StorageOwnershipError`   | `STORAGE_OWNERSHIP_ERROR`   | Another process or instance owns the storage root                   |
+| `StorageLimitError`       | `STORAGE_LIMIT_ERROR`       | Disk full, `maxCacheBytes` exceeded, or `reserveFreeBytes` violated |
+| `SyncFailureError`        | `SYNC_FAILURE`              | Network or HTTP failure downloading assets                          |
+
+### Renderer error aggregation
+
+`useMediaCacheErrors` combines sync errors and query errors into a single view:
+
+```tsx
+const status = useMediaCacheStatus();
+const item = useMediaItem("space", "hubble-cosmos");
+const list = useMediaItems("space", { limit: 20 });
+const errors = useMediaCacheErrors(status, item, list);
+
+if (errors.hasError) {
+  console.error(errors.primaryError);
+}
+```
+
+`errors.primaryError` is the single most relevant error for display. `errors.syncError`, `errors.statusError`, and `errors.queryErrors` are available for more granular handling.
+
+## Authenticated asset downloads
+
+For assets behind authentication, use `resolveAssetRequest` to customize the download request just before each fetch. The callback receives `{ namespace, item, asset }` context and returns a `DownloadRequest` with `url`, optional `method`, and optional `headers`. When omitted, the package uses `asset.source` as-is.
+
+**Signed URLs** -- generate a short-lived URL per asset at download time:
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  resolveManifest: async () => manifest,
+  resolveAssetRequest: async (ctx) => ({
+    url: await getSignedUrl(ctx.asset.source.url),
+  }),
+});
+```
+
+**Bearer token** -- attach an auth header to stable URLs:
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  resolveManifest: async () => manifest,
+  resolveAssetRequest: async (ctx) => ({
+    url: ctx.asset.source.url,
+    headers: {
+      Authorization: `Bearer ${await getAccessToken()}`,
+    },
+  }),
+});
+```
+
+If your token is long-lived and known at manifest build time, you can skip `resolveAssetRequest` and set headers directly on the asset source:
+
+```ts
+const asset = defineManifestAsset({
+  id: "main",
+  role: "primary",
+  kind: "video",
+  source: {
+    url: "https://cdn.example.com/asset.mp4",
+    headers: { Authorization: "Bearer <token>" },
+  },
+});
+```
+
+## Logging
+
+When `onLog` is omitted and `NODE_ENV` is not `"production"`, the package prints to the main-process console. Lines are human-readable English by default.
+
+### Custom log sink
+
+Pass `onLog` to receive structured `MediaCacheLogEvent` objects and forward them to your logger (pino, logtape, etc.):
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  onLog: (entry) => {
+    logger.log(entry.level, entry.event, entry);
+  },
+  logLevel: "info",
+  resolveManifest: async () => manifest,
+});
+```
+
+### Log options
+
+| Option      | Default                                  | Description                                                                         |
+| ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `onLog`     | `undefined`                              | Structured log callback. Replaces the built-in console sink.                        |
+| `logLevel`  | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                           |
+| `logFormat` | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Ignored when `onLog` is set. |
+
+### Notable events
+
+- `resolve_asset_base_url_fallback` (warn) -- a stored asset URL could not be parsed during origin override in passthrough mode.
+- `dev_passthrough_ignores_sync_failure_mode` (warn) -- `devPassthrough` is true and `onSyncFailure` is not `"throw"`.
+- `protocol_request_not_found` (debug) -- no matching generation or asset for a `media://` request.
+- `protocol_request_file_missing` (debug) -- asset exists in DB but file is absent on disk.
+
+## Storage limits
+
+Configure disk usage guardrails to prevent the cache from consuming unbounded space:
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  maxCacheBytes: 10 * 1024 * 1024 * 1024, // 10 GB
+  reserveFreeBytes: 1 * 1024 * 1024 * 1024, // keep 1 GB free
+  staleDeleteAfterMs: 7 * 24 * 60 * 60 * 1000, // 7 days (default)
+  resolveManifest: async () => manifest,
+});
+```
+
+| Option               | Default     | Description                                                                 |
+| -------------------- | ----------- | --------------------------------------------------------------------------- |
+| `maxCacheBytes`      | `undefined` | Soft cap on total bytes of cached asset files.                              |
+| `reserveFreeBytes`   | `undefined` | Minimum free disk space to preserve on the volume.                          |
+| `staleDeleteAfterMs` | 7 days      | Grace period before assets removed from the manifest are deleted from disk. |
+
+When limits are exceeded, the sync raises `StorageLimitError`. The configured `onSyncFailure` mode then applies.
+
+Assets removed from the manifest are not deleted immediately. They are marked for grace-period deletion and pruned after `staleDeleteAfterMs` expires.
+
+## API reference
+
+### `@rockhallweb/electron-offline-content/main`
+
+#### `createMediaCache(options)`
+
+Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
+
+**`MediaCacheOptions`**
+
+| Option                | Type                                                   | Required | Description                                                                                     |
+| --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`                                | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveManifest`     | `() => ManifestInput \| Promise<ManifestInput>`        | yes      | Returns the full manifest for each sync run.                                                    |
+| `devPassthrough`      | `boolean`                                              | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                                               | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `"serve-last-snapshot" \| "throw"`                     | no       | Behavior on sync failure. Default `"serve-last-snapshot"`.                                      |
+| `resolveAssetRequest` | `(ctx) => DownloadRequest \| Promise<DownloadRequest>` | no       | Per-asset hook to customize download URL/headers.                                               |
+| `maxCacheBytes`       | `number`                                               | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                                               | no       | Minimum free disk bytes to preserve.                                                            |
+| `staleDeleteAfterMs`  | `number`                                               | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `syncHistoryLimit`    | `number`                                               | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `onLog`               | `MediaCacheLogHandler`                                 | no       | Structured log callback.                                                                        |
+| `logLevel`            | `"debug" \| "info" \| "warn" \| "error"`               | no       | Minimum log severity.                                                                           |
+| `logFormat`           | `"english" \| "json"`                                  | no       | Built-in console line format. Default `"english"`.                                              |
+
+#### `MediaCacheMain`
+
+Returned by `createMediaCache`. Requires exclusive ownership of its resolved storage root.
+
+| Method                                   | Returns                                               | Description                                                       |
+| ---------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------- |
+| `start()`                                | `Promise<void>`                                       | One-call setup: register protocol, attach IPC, run initial sync.  |
+| `syncNow()`                              | `Promise<void>`                                       | Run or join a sync. Concurrent callers share one run.             |
+| `getStatus()`                            | `Promise<MediaCacheStatus>`                           | Current phase, progress, last run, and error.                     |
+| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem \| null>`           | Single item lookup.                                               |
+| `listNamespace(namespace, pagination?)`  | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Flat list of items in one namespace.                              |
+| `listNamespaceTree(prefix, pagination?)` | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Items under a namespace prefix and all descendants.               |
+| `findByFileStem(stem, options?)`         | `Promise<PaginationResult<FileStemMatch>>`            | Search by normalized filename stem.                               |
+| `registerProtocol(options?)`             | `Promise<void>`                                       | Register the `media:` handler on a session.                       |
+| `attachIpc(options?)`                    | `Promise<void>`                                       | Wire `ipcMain` handlers and broadcast status to renderer windows. |
+
+In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing the cache. The package enforces storage-root exclusivity itself, but the instance lock prevents a second Electron process from launching.
+
+#### `defineManifest(input)`
+
+Validates and returns a `MediaCacheManifest`. Runs Zod validation and internal normalization checks.
+
+#### `defineManifestItem(input)` / `defineManifestAsset(input)`
+
+Granular validation helpers for individual items and assets.
+
+#### Key types
+
+`**MediaCacheManifest**` -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
+
+`**MediaNamespaceDefinition**` -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
+
+`**MediaContentDefinition**` -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
+
+`**MediaAssetDefinition**` -- `{ id, role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
+
+`**ResolvedMediaContentItem**` -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
+
+`**ResolvedMediaAsset**` -- `{ id, role, kind, mimeType?, byteLength?, url, metadata }`. `url` is a `media://` URL in offline mode or a remote URL in passthrough mode.
+
+`**MediaCacheStatus**` -- `{ phase, storageRoot, activeGenerationId, progress, lastRun, error, updatedAt }`. `phase` is `"idle" | "syncing" | "ready" | "error"`.
+
+`**FileStemMatch**` -- `{ item: ResolvedMediaContentItem, matchedAssetIds: string[] }`
+
+`**PaginationInput**` -- `{ limit?, cursor? }`
+
+`**PaginationResult<T>**` -- `{ items: T[], nextCursor: string | null }`
+
+See the published `.d.ts` files for full type definitions.
+
+### `@rockhallweb/electron-offline-content/preload`
+
+#### `exposeMediaCacheBridge(options?)`
+
+Calls `contextBridge.exposeInMainWorld` to put the `MediaCacheBridge` on `window.mediaCache` (or a custom key via `options.key`). Returns the bridge instance.
+
+#### `createMediaCacheBridge()`
+
+Builds a `MediaCacheBridge` without calling `contextBridge`. Use this if you manage `contextBridge` yourself.
+
+### `@rockhallweb/electron-offline-content/react`
+
+All hooks require a `MediaCacheProvider` ancestor (or `window.mediaCache` as fallback).
+
+#### `MediaCacheProvider`
+
+Context provider. If your preload uses the default `window.mediaCache` key, you can omit the `bridge` prop.
+
+```tsx
+<MediaCacheProvider bridge={customBridge}>
+  <App />
+</MediaCacheProvider>
+```
+
+#### `useMediaCacheStatus()`
+
+Returns `AsyncState<MediaCacheStatus>`. Subscribes to live status updates and exposes `refresh()`.
+
+#### `useMediaItem(namespace, id, options?)`
+
+Returns `AsyncState<ResolvedMediaContentItem | null>`. Fetches a single item by namespace and id. Auto-refetches after sync by default (`refetchOnSyncComplete: true`).
+
+#### `useMediaItems(namespaceOrPrefix, options?)`
+
+Returns `AsyncState<PaginationResult<ResolvedMediaContentItem>>`. Lists items in a namespace. Pass `{ recursive: true }` to include dot-delimited descendant namespaces.
+
+Options: `{ recursive?, limit?, cursor?, refetchOnSyncComplete? }`
+
+#### `useFileStemMatch(stem, options?)`
+
+Returns `AsyncState<PaginationResult<FileStemMatch>>`. Searches by normalized filename stem.
+
+Options: `{ namespace?, limit?, cursor?, refetchOnSyncComplete? }`
+
+#### `useMediaCacheReady()`
+
+Returns `AsyncState<MediaCacheReadyState>`. Lightweight readiness gate: `{ ready, syncing, phase, activeGenerationId, syncError }`.
+
+```tsx
+const ready = useMediaCacheReady();
+if (!ready.data?.ready) return <p>Preparing offline content...</p>;
+```
+
+#### `useMediaCacheErrors(status, ...queryStates)`
+
+Aggregates sync and query errors into `MediaCacheErrors`: `{ syncError, statusError, queryErrors, hasError, primaryError }`.
+
+#### `AsyncState<T>`
+
+All query hooks return this shape:
+
+```ts
+{
+  data: T | null; // latest resolved value
+  loading: boolean; // true during initial load or refresh
+  error: Error | null; // last request error
+  refresh: () => Promise<void>;
+}
+```
+
 ## Notes
 
 - v1 requires consumers to own cache busting through manifest versions.
 - v1 treats every asset as required for snapshot commit.
-- `node:sqlite` is used for the local index, which is still marked experimental in Node 24.
+- Storage root exclusivity: `MediaCache` acquires exclusive ownership of its `storageRoot`. If `start()` fails after ownership is established, reuse the same instance or restart the process rather than constructing a replacement cache for the same root.
+
+## Example apps
+
+Two example apps demonstrate end-to-end wiring. Each is a standalone Electron Forge + React + Vite project.
+
+- [examples/local/](examples/local/) -- uses a loopback HTTP server with small local fixtures. Also used by `pack:verify` in CI.
+- [examples/nasa/](examples/nasa/) -- uses public NASA SVS URLs for heavier manual demos (not run in CI).
+
+Both examples exercise sync status, namespace listing, namespace tree listing, item lookup, file-stem search, and rendering images and video from `media://` URLs (offline mode) or direct remote URLs (dev passthrough).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the examples locally.
