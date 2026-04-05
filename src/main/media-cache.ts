@@ -32,6 +32,7 @@ import type {
   DownloadRequest,
   JsonValue,
   MediaCacheBridge,
+  MediaCacheAppPath,
   MediaCacheLogEvent,
   MediaCacheLogLevel,
   MediaCacheOptions,
@@ -42,6 +43,7 @@ import type {
   SyncRunStats,
 } from "../shared/types.js";
 import {
+  mediaCacheStoragePathSchema,
   optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
   parseWithSchema,
@@ -49,7 +51,6 @@ import {
 } from "../internal/validation.js";
 import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
-import { defaultStorageRoot } from "./default-storage.js";
 
 const requireElectron = createRequire(import.meta.url);
 
@@ -136,6 +137,7 @@ interface RuntimeDependencies {
   fetchImpl: typeof globalThis.fetch;
   now: () => number;
   sleep: (delayMs: number) => Promise<void>;
+  resolveAppPath: (name: MediaCacheAppPath) => Promise<string>;
 }
 
 interface RegisterProtocolOptions {
@@ -208,6 +210,7 @@ export class MediaCache implements MediaCacheMain {
       fetchImpl: deps?.fetchImpl ?? globalThis.fetch.bind(globalThis),
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
+      resolveAppPath: deps?.resolveAppPath ?? resolveElectronAppPath,
     };
     this.devPassthrough = options.devPassthrough ?? false;
     if (this.devPassthrough) {
@@ -440,8 +443,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    this.storageRoot =
-      normalizeStorageRoot(this.options.storageRoot) ?? (await defaultStorageRoot());
+    this.storageRoot = await resolveStorageRoot(this.options.storagePath, this.deps.resolveAppPath);
     mkdirSync(this.storageRoot, { recursive: true });
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
     mkdirSync(join(this.storageRoot, "blobs"), { recursive: true });
@@ -1244,14 +1246,6 @@ function sanitizeSegment(segment: string): string {
   return encodeURIComponent(segment);
 }
 
-function normalizeStorageRoot(storageRoot: string | undefined): string | null {
-  if (storageRoot === undefined) {
-    return null;
-  }
-
-  return storageRoot.trim().length > 0 ? storageRoot : null;
-}
-
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
   if (!assetBaseUrl) {
     return null;
@@ -1359,6 +1353,20 @@ function calculateRetryDelay(attempt: number): number {
   const baseDelay = 1000 * Math.pow(2, attempt);
   const jitter = Math.floor(baseDelay * 0.25 * Math.random());
   return baseDelay + jitter;
+}
+
+async function resolveElectronAppPath(name: MediaCacheAppPath): Promise<string> {
+  const electron = await import("electron");
+  return electron.app.getPath(name);
+}
+
+async function resolveStorageRoot(
+  input: MediaCacheOptions["storagePath"],
+  resolveAppPath: RuntimeDependencies["resolveAppPath"],
+): Promise<string> {
+  const storagePath = parseWithSchema(mediaCacheStoragePathSchema, input, "storage path");
+  const root = await resolveAppPath(storagePath.appPath);
+  return join(root, ...(storagePath.segments ?? []));
 }
 
 function createDownloadError(

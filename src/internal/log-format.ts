@@ -65,8 +65,6 @@ const EVENT_MESSAGES: Record<string, MessageFn> = {
   ipc_attached: () => "IPC handlers attached",
   ipc_attach_skipped: (e) => `IPC attach skipped: ${str(e.reason)}`,
 
-  deprecated_storage_path_options: (e) => str(e.message),
-
   resolve_asset_base_url_fallback: (e) =>
     `Could not rewrite asset URL for ${str(e.context_label)}: ${str(e.error)}`,
 

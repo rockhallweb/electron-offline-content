@@ -24,7 +24,7 @@ export async function createExampleContext(): Promise<ExampleContext> {
 function nasaManifest(): MediaCacheManifest {
   return {
     snapshotId: "nasa-demo-v1",
-    generatedAt: new Date().toISOString(),
+    retrievedAt: new Date().toISOString(),
     namespaces: [
       {
         key: "space",

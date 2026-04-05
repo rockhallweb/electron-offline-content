@@ -55,7 +55,7 @@ Store large binaries as regular files on disk.
 Recommended directory layout:
 
 ```text
-<storageRoot>/
+<storagePathRoot>/
   blobs/
     <namespace>/
       <itemId>/
@@ -92,8 +92,7 @@ allow override:
 - Windows: `%LOCALAPPDATA%/<AppName>/media-cache`
 - Linux: `$XDG_CACHE_HOME/<appName>/media-cache` or `~/.cache/<appName>/media-cache`
 
-Consumers can override this with either an absolute `storageRoot` or package-managed
-path composition via `storagePath: { appPath, segments }`.
+Consumers should configure storage via `storagePath: { appPath, segments }`, where `appPath` is a valid `electron.app.getPath(...)` key and `segments` are package-specific subdirectories under that root.
 
 ## Core Identity Model
 
@@ -159,7 +158,7 @@ export interface MediaCacheManifest {
   snapshotId?: string;
   retrievedAt?: string;
   /** @deprecated Use retrievedAt. */
-  generatedAt?: string;
+  retrievedAt?: string;
   namespaces: MediaNamespaceDefinition[];
 }
 
@@ -428,8 +427,7 @@ Not:
 
 ```ts
 export interface MediaCacheOptions {
-  storageRoot?: string;
-  storagePath?: {
+  storagePath: {
     appPath: MediaCacheAppPath;
     segments: string[];
   };

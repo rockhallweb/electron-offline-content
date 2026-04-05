@@ -32,7 +32,7 @@ export async function createExampleContext(): Promise<ExampleContext> {
 function localManifest(baseUrl: string): MediaCacheManifest {
   return {
     snapshotId: "local-fixtures-v1",
-    generatedAt: new Date().toISOString(),
+    retrievedAt: new Date().toISOString(),
     namespaces: [
       {
         key: "nature",

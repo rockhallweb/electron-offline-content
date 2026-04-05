@@ -26,14 +26,11 @@ async function bootstrap() {
   const example = await createExampleContext();
   let mainWindow: BrowserWindow | null = null;
 
-  const storageRoot = join(
-    app.getPath("temp"),
-    "rockhallweb-electron-offline-content-example",
-    "nasa",
-  );
-
   const mediaCache = createMediaCache({
-    storageRoot,
+    storagePath: {
+      appPath: "temp",
+      segments: ["rockhallweb-electron-offline-content-example", "nasa"],
+    },
     resolveManifest: example.resolveManifest,
   });
 

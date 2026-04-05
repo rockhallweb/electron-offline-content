@@ -27,7 +27,10 @@ async function bootstrap() {
   let mainWindow: BrowserWindow | null = null;
 
   const mediaCache = createMediaCache({
-    storageRoot: join(app.getPath("temp"), "rockhallweb-electron-offline-content-example", "local"),
+    storagePath: {
+      appPath: "temp",
+      segments: ["rockhallweb-electron-offline-content-example", "local"],
+    },
     resolveManifest: example.resolveManifest,
   });
 

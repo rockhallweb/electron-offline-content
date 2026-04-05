@@ -77,7 +77,7 @@ pnpm example:local:dev
 pnpm example:nasa:dev
 ```
 
-The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically drive `storageRoot` and similar values from `process.env`, a config file, or your installer. Enable dev passthrough only when you need the escape hatch (see below).
+The examples hardcode cache settings and UI labels so the code stays easy to read. In production you will typically choose a `storagePath.appPath` root from Electron and add any package-specific `segments` you need. Enable dev passthrough only when you need the escape hatch (see below).
 
 The example UIs exercise:
 

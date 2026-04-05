@@ -5,7 +5,9 @@ import type {
   DownloadRequest,
   JsonValue,
   MediaAssetDefinition,
+  MediaCacheAppPath,
   MediaCacheStatus,
+  MediaCacheStoragePath,
   MediaContentDefinition,
   MediaKind,
   MediaNamespaceDefinition,
@@ -162,8 +164,41 @@ export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition>
 export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
   snapshotId: z.string().optional(),
   retrievedAt: z.string().optional(),
-  generatedAt: z.string().optional(),
   namespaces: z.array(mediaNamespaceDefinitionSchema),
+});
+
+const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
+  "home",
+  "appData",
+  "userData",
+  "sessionData",
+  "temp",
+  "exe",
+  "module",
+  "desktop",
+  "documents",
+  "downloads",
+  "music",
+  "pictures",
+  "videos",
+  "recent",
+  "logs",
+  "crashDumps",
+]);
+
+const storagePathSegmentSchema = z
+  .string()
+  .min(1)
+  .refine((segment) => !/[/\\]/.test(segment), {
+    message: "Storage path segments must not contain path separators",
+  })
+  .refine((segment) => segment !== "." && segment !== "..", {
+    message: 'Storage path segments must not be "." or ".."',
+  });
+
+export const mediaCacheStoragePathSchema: z.ZodType<MediaCacheStoragePath> = z.object({
+  appPath: mediaCacheAppPathSchema,
+  segments: z.array(storagePathSegmentSchema).optional(),
 });
 
 export const statusSnapshotRowSchema = z.object({
@@ -200,9 +235,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   namespaceOrder: nonNegativeIntegerSchema,
   itemId: z.string(),
   itemVersion: z.string(),
-  // Stored item kinds must remain tolerant because older caches and JS callers can persist
-  // values outside the current MediaKind union before runtime validation was added.
-  itemKind: z.string(),
+  itemKind: mediaKindSchema,
   itemTitle: z.string().nullable(),
   itemDescription: z.string().nullable(),
   itemSummary: z.string().nullable(),

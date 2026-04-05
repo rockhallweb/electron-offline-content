@@ -42,10 +42,8 @@ export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "tex
 export interface MediaCacheManifest {
   /** Optional opaque id for this manifest snapshot (correlation, debugging, or multi-source merges). */
   snapshotId?: string;
-  /** Preferred timestamp field describing when the manifest payload was retrieved. */
+  /** Timestamp describing when the manifest payload was retrieved. */
   retrievedAt?: string;
-  /** @deprecated Use `retrievedAt` instead. */
-  generatedAt?: string;
   /** Content namespaces; order is preserved where the implementation surfaces ordered lists. */
   namespaces: MediaNamespaceDefinition[];
 }
@@ -210,17 +208,17 @@ export type MediaCacheAppPath =
   | "logs"
   | "crashDumps";
 
-/** Package-managed storage path composed from `electron.app.getPath(appPath)` + path segments. */
+/** Storage root composed from `electron.app.getPath(appPath)` plus optional subpath segments. */
 export interface MediaCacheStoragePath {
-  /** Electron well-known directory (for example `userData`, `cache`). */
+  /** Electron well-known directory resolved via `app.getPath(appPath)`. */
   appPath: MediaCacheAppPath;
-  /** Path segments joined under that directory to form the cache root (may be empty). */
-  segments: string[];
+  /** Path segments joined under that directory to form the cache root. */
+  segments?: string[];
 }
 
 /**
  * Main-process configuration: where state lives, sync and storage guardrails, logging, and how the
- * manifest and per-asset downloads are resolved. Omit `storageRoot` to use a default app cache path.
+ * manifest and per-asset downloads are resolved.
  *
  * Default behavior is offline mode unless `process.env.NODE_ENV` is `"development"`: assets sync to
  * disk and resolved URLs use the privileged `media:` protocol. Set `devPassthrough: false` to force
@@ -235,26 +233,10 @@ export interface MediaCacheStoragePath {
  */
 export interface MediaCacheOptions {
   /**
-   * Legacy absolute storage root override.
-   *
-   * The only storage-location override wired in this version.
+   * Storage root resolved from `electron.app.getPath(appPath)` plus optional subpath segments.
+   * Consumers must choose one of Electron's well-known roots rather than passing arbitrary paths.
    */
-  storageRoot?: string;
-  /**
-   * Reserved for a future release: package-managed storage configuration.
-   * Not currently consumed by `createMediaCache` in this version.
-   */
-  storagePath?: MediaCacheStoragePath;
-  /**
-   * Reserved for a future release and not currently consumed.
-   * @deprecated Reserved for a future `storagePath` migration; use `storageRoot` in this release.
-   */
-  storageAppPath?: MediaCacheAppPath;
-  /**
-   * Reserved for a future release and not currently consumed.
-   * @deprecated Reserved for a future `storagePath` migration; use `storageRoot` in this release.
-   */
-  storagePathSegments?: string[];
+  storagePath: MediaCacheStoragePath;
   /**
    * When `true`, skips downloads and resolves remote asset URLs (advanced / local-dev escape hatch).
    * When omitted, defaults to `true` if `process.env.NODE_ENV === "development"`, otherwise `false`.
