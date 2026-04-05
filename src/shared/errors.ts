@@ -1,6 +1,11 @@
 import type { SerializedMediaCacheError } from "./types.js";
 
-/** Base class for cache errors; use `code` for stable programmatic handling. */
+/**
+ * Base class for cache errors; use `code` for stable programmatic handling.
+ * @param message - Human-readable error description.
+ * @param code - Machine-readable error code for branching (for example `SYNC_FAILURE`).
+ * @param options - Standard `ErrorOptions` (e.g. `{ cause }`).
+ */
 export class MediaCacheError extends Error {
   constructor(
     message: string,
