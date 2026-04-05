@@ -491,7 +491,7 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-`**MediaCacheOptions**`
+**`MediaCacheOptions`**
 
 | Option                | Type                                                   | Required | Description                                                                                     |
 | --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
