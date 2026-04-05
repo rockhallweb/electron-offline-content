@@ -12,7 +12,11 @@ const statusListeners = new Set<(status: MediaCacheStatus) => void>();
 function dispatchStatus(_event: Electron.IpcRendererEvent, status: MediaCacheStatus): void {
   const snapshot = Array.from(statusListeners);
   for (const listener of snapshot) {
-    listener(status);
+    try {
+      listener(status);
+    } catch (err) {
+      console.error("[media-cache] subscribeStatus listener threw:", err);
+    }
   }
 }
 
