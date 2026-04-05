@@ -103,8 +103,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
 
   return {
     snapshotId: manifest.snapshotId,
-    retrievedAt: manifest.retrievedAt ?? manifest.generatedAt,
-    generatedAt: manifest.generatedAt,
+    retrievedAt: manifest.retrievedAt,
     namespaces,
   };
 }

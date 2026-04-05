@@ -14,15 +14,18 @@ import {
  * This helper is a type-safe chokepoint for manifest authoring:
  * - validates manifest shape with Zod
  * - runs internal semantic normalization checks (duplicates, file-name derivation, etc.)
+ * - returns the parsed manifest unchanged (unlike {@link defineManifestAsset}, no enrichment)
  */
 export function defineManifest(input: MediaCacheManifest): MediaCacheManifest {
   const manifest = parseWithSchema(mediaCacheManifestSchema, input, "manifest definition");
+  // Validate semantic invariants (duplicate keys, file-name derivability); result intentionally discarded.
   void normalizeManifest(manifest);
   return manifest;
 }
 
 /**
  * Validates a manifest item against the schema and returns it unchanged.
+ * Semantic invariants (for example duplicate asset IDs) are enforced by `defineManifest`.
  *
  * Object literal keys are documented on {@link ManifestItem} (`MediaContentDefinition`) for IDE hover.
  *
@@ -32,7 +35,7 @@ export function defineManifestItem(input: ManifestItem): ManifestItem {
   return parseWithSchema(mediaContentDefinitionSchema, input, "manifest item definition");
 }
 
-/** Validates and returns one producer manifest asset definition. */
+/** Validates, derives `fileName` from the source URL when absent, and returns the asset. */
 export function defineManifestAsset(input: ManifestAsset): ManifestAsset {
   const asset = parseWithSchema(mediaAssetDefinitionSchema, input, "manifest asset definition");
   if (asset.fileName) {

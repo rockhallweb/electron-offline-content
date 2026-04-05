@@ -6,7 +6,9 @@ import type {
   JsonValue,
   ManifestItem,
   MediaAssetDefinition,
+  MediaCacheAppPath,
   MediaCacheStatus,
+  MediaCacheStoragePath,
   MediaContentDefinition,
   MediaKind,
   MediaNamespaceDefinition,
@@ -55,7 +57,7 @@ export const syncRunStatsSchema: z.ZodType<SyncRunStats> = z.object({
   totalAssets: nonNegativeIntegerSchema,
   downloadedAssets: nonNegativeIntegerSchema,
   skippedAssets: nonNegativeIntegerSchema,
-  bytesDownloaded: nonNegativeIntegerSchema,
+  bytesDownloaded: nonNegativeNumberSchema,
 });
 
 export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
@@ -72,7 +74,7 @@ export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
   completedAssets: nonNegativeIntegerSchema,
   downloadedAssets: nonNegativeIntegerSchema,
   skippedAssets: nonNegativeIntegerSchema,
-  bytesDownloaded: nonNegativeIntegerSchema,
+  bytesDownloaded: nonNegativeNumberSchema,
 });
 
 export const syncRunSummarySchema: z.ZodType<SyncRunSummary> = z.object({
@@ -112,7 +114,12 @@ const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
 ]);
 
 export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
-  url: z.string().url(),
+  url: z
+    .string()
+    .url()
+    .refine((u) => /^https?:\/\//i.test(u), {
+      message: "Asset source URL must use http or https",
+    }),
   method: z.literal("GET").optional(),
   headers: stringRecordSchema.optional(),
 });
@@ -127,7 +134,7 @@ export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.obj
     z.literal("poster"),
     z.literal("thumbnail"),
   ]),
-  version: z.string().optional(),
+  version: z.string().min(1).optional(),
   mimeType: z.string().optional(),
   fileName: z.string().min(1).optional(),
   byteLength: z.number().nonnegative().optional(),
@@ -158,8 +165,41 @@ export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition>
 export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
   snapshotId: z.string().optional(),
   retrievedAt: z.string().optional(),
-  generatedAt: z.string().optional(),
   namespaces: z.array(mediaNamespaceDefinitionSchema),
+});
+
+const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
+  "home",
+  "appData",
+  "userData",
+  "sessionData",
+  "temp",
+  "exe",
+  "module",
+  "desktop",
+  "documents",
+  "downloads",
+  "music",
+  "pictures",
+  "videos",
+  "recent",
+  "logs",
+  "crashDumps",
+]);
+
+const storagePathSegmentSchema = z
+  .string()
+  .min(1)
+  .refine((segment) => !/[/\\]/.test(segment), {
+    message: "Storage path segments must not contain path separators",
+  })
+  .refine((segment) => segment !== "." && segment !== "..", {
+    message: 'Storage path segments must not be "." or ".."',
+  });
+
+export const mediaCacheStoragePathSchema: z.ZodType<MediaCacheStoragePath> = z.object({
+  appPath: mediaCacheAppPathSchema,
+  segments: z.array(storagePathSegmentSchema).optional(),
 });
 
 export const statusSnapshotRowSchema = z.object({
@@ -196,9 +236,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   namespaceOrder: nonNegativeIntegerSchema,
   itemId: z.string(),
   itemVersion: z.string(),
-  // Stored item kinds must remain tolerant because older caches and JS callers can persist
-  // values outside the current MediaKind union before runtime validation was added.
-  itemKind: z.string(),
+  itemKind: mediaKindSchema,
   itemTitle: z.string().nullable(),
   itemDescription: z.string().nullable(),
   itemSummary: z.string().nullable(),

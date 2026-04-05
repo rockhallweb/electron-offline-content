@@ -37,7 +37,6 @@ import type {
   MediaCacheLogFormat,
   MediaCacheLogLevel,
   MediaCacheOptions,
-  MediaCacheStoragePath,
   MediaCacheStatus,
   PaginationInput,
   ResolvedMediaContentItem,
@@ -46,6 +45,7 @@ import type {
 } from "../shared/types.js";
 import { formatMediaCacheConsoleLine } from "../internal/log-format.js";
 import {
+  mediaCacheStoragePathSchema,
   optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
   parseWithSchema,
@@ -53,7 +53,6 @@ import {
 } from "../internal/validation.js";
 import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
-import { defaultStorageRoot } from "./default-storage.js";
 import type { StorageRootLockHandle } from "./storage-root-lock.js";
 import {
   acquireStorageRootLock,
@@ -173,6 +172,7 @@ interface RuntimeDependencies {
   fetchImpl: typeof globalThis.fetch;
   now: () => number;
   sleep: (delayMs: number) => Promise<void>;
+  resolveAppPath: (name: MediaCacheAppPath) => Promise<string>;
 }
 
 interface RegisterProtocolOptions {
@@ -257,6 +257,7 @@ export class MediaCache implements MediaCacheMain {
       fetchImpl: deps?.fetchImpl ?? globalThis.fetch.bind(globalThis),
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
+      resolveAppPath: deps?.resolveAppPath ?? resolveElectronAppPath,
     };
     this.defaultDevelopmentConsole =
       options.onLog == null && isNonProductionNodeEnv() && process.env.VITEST !== "true";
@@ -517,15 +518,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    if (usesLegacyStoragePathOptions(this.options)) {
-      this.emitLog("warn", "deprecated_storage_path_options", {
-        message:
-          "storageAppPath/storagePathSegments are deprecated; use storagePath: { appPath, segments }.",
-      });
-    }
-
-    this.storageRoot =
-      (await resolveStorageRootFromOptions(this.options)) ?? (await defaultStorageRoot());
+    this.storageRoot = await resolveStorageRoot(this.options.storagePath, this.deps.resolveAppPath);
     mkdirSync(this.storageRoot, { recursive: true });
     this.storageRootLock ??= acquireStorageRootLock(this.storageRoot, this);
     mkdirSync(join(this.storageRoot, "temp"), { recursive: true });
@@ -1367,108 +1360,6 @@ function sanitizeSegment(segment: string): string {
   return encodeURIComponent(segment);
 }
 
-function normalizeStorageRoot(storageRoot: string | undefined): string | null {
-  if (storageRoot === undefined) {
-    return null;
-  }
-
-  return storageRoot.trim().length > 0 ? storageRoot : null;
-}
-
-async function resolveStorageRootFromOptions(options: MediaCacheOptions): Promise<string | null> {
-  const explicitStorageRoot = normalizeStorageRoot(options.storageRoot);
-  const { storagePath, storageAppPath, storagePathSegments } = options;
-
-  if (explicitStorageRoot !== null && storagePath !== undefined) {
-    throw new Error(
-      "storageRoot cannot be combined with storagePath. Choose one storage configuration style.",
-    );
-  }
-  if (explicitStorageRoot !== null && storageAppPath !== undefined) {
-    throw new Error(
-      "storageRoot cannot be combined with storageAppPath/storagePathSegments. Choose one storage configuration style.",
-    );
-  }
-  if (explicitStorageRoot !== null && storagePathSegments !== undefined) {
-    throw new Error(
-      "storageRoot cannot be combined with storagePathSegments. Choose one storage configuration style.",
-    );
-  }
-
-  if (explicitStorageRoot !== null) {
-    return explicitStorageRoot;
-  }
-
-  if (storagePath !== undefined) {
-    if (storageAppPath !== undefined || storagePathSegments !== undefined) {
-      throw new Error(
-        "storagePath cannot be combined with storageAppPath/storagePathSegments. Choose one storage configuration style.",
-      );
-    }
-    return resolveStoragePathObject(storagePath);
-  }
-
-  if (storageAppPath === undefined) {
-    if (storagePathSegments !== undefined) {
-      throw new Error("storagePathSegments requires storageAppPath.");
-    }
-    return null;
-  }
-
-  if (storagePathSegments === undefined) {
-    throw new Error(
-      "storagePathSegments is required when storageAppPath is set. Pass [] to use app.getPath(storageAppPath) directly.",
-    );
-  }
-
-  const appPathRoot = resolveElectronAppPathRoot(storageAppPath);
-
-  try {
-    return join(appPathRoot, ...storagePathSegments);
-  } catch (error) {
-    throw new Error(
-      `Failed to build storage root from app.getPath("${storageAppPath}") and storagePathSegments ${JSON.stringify(storagePathSegments)}: ${toErrorMessage(error)}`,
-      { cause: asError(error) },
-    );
-  }
-}
-
-function resolveStoragePathObject(storagePath: MediaCacheStoragePath): string {
-  const appPathRoot = resolveElectronAppPathRoot(storagePath.appPath);
-
-  try {
-    return join(appPathRoot, ...storagePath.segments);
-  } catch (error) {
-    throw new Error(
-      `Failed to build storage root from storagePath ${JSON.stringify(storagePath)}: ${toErrorMessage(error)}`,
-      { cause: asError(error) },
-    );
-  }
-}
-
-function resolveElectronAppPathRoot(storageAppPath: MediaCacheAppPath): string {
-  try {
-    const electron = requireElectron("electron") as typeof import("electron");
-    if (typeof electron.app?.getPath !== "function") {
-      throw new Error("electron.app.getPath is unavailable.");
-    }
-    return electron.app.getPath(storageAppPath);
-  } catch (error) {
-    throw new Error(
-      `Failed to resolve app.getPath("${storageAppPath}") for media cache storage: ${toErrorMessage(error)}`,
-      { cause: asError(error) },
-    );
-  }
-}
-
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
   if (!assetBaseUrl) {
     return null;
@@ -1491,10 +1382,6 @@ function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string 
   }
 
   return parsed.origin;
-}
-
-function usesLegacyStoragePathOptions(options: MediaCacheOptions): boolean {
-  return options.storageAppPath !== undefined || options.storagePathSegments !== undefined;
 }
 
 function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
@@ -1580,6 +1467,20 @@ function calculateRetryDelay(attempt: number): number {
   const baseDelay = 1000 * Math.pow(2, attempt);
   const jitter = Math.floor(baseDelay * 0.25 * Math.random());
   return baseDelay + jitter;
+}
+
+async function resolveElectronAppPath(name: MediaCacheAppPath): Promise<string> {
+  const electron = await import("electron");
+  return electron.app.getPath(name);
+}
+
+async function resolveStorageRoot(
+  input: MediaCacheOptions["storagePath"],
+  resolveAppPath: RuntimeDependencies["resolveAppPath"],
+): Promise<string> {
+  const storagePath = parseWithSchema(mediaCacheStoragePathSchema, input, "storage path");
+  const root = await resolveAppPath(storagePath.appPath);
+  return join(root, ...(storagePath.segments ?? []));
 }
 
 function createDownloadError(

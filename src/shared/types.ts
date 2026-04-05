@@ -42,10 +42,8 @@ export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "tex
 export interface MediaCacheManifest {
   /** Optional opaque id for this manifest snapshot (correlation, debugging, or multi-source merges). */
   snapshotId?: string;
-  /** Preferred timestamp field describing when the manifest payload was retrieved. */
+  /** Timestamp describing when the manifest payload was retrieved. */
   retrievedAt?: string;
-  /** @deprecated Use `retrievedAt` instead. */
-  generatedAt?: string;
   /** Content namespaces; order is preserved where the implementation surfaces ordered lists. */
   namespaces: MediaNamespaceDefinition[];
 }
@@ -142,7 +140,10 @@ export type ManifestAsset = MediaAssetDefinition;
 
 /** Remote request template used during sync to fetch an asset (URL plus optional headers). */
 export interface MediaRemoteSource {
-  /** Absolute URL to download the asset. Query strings and path are treated as part of the resource identity. */
+  /**
+   * Absolute URL to download the asset. Query strings and path are treated as part of the resource
+   * identity. Runtime validation only accepts `http` and `https` URLs.
+   */
   url: string;
   /** HTTP method; only `GET` is supported today. Omit for default GET behavior. */
   method?: "GET";
@@ -207,17 +208,17 @@ export type MediaCacheAppPath =
   | "logs"
   | "crashDumps";
 
-/** Package-managed storage path composed from `electron.app.getPath(appPath)` + path segments. */
+/** Storage root composed from `electron.app.getPath(appPath)` plus optional subpath segments. */
 export interface MediaCacheStoragePath {
-  /** Electron well-known directory (for example `userData`, `cache`). */
+  /** Electron well-known directory resolved via `app.getPath(appPath)`. */
   appPath: MediaCacheAppPath;
-  /** Path segments joined under that directory to form the cache root (may be empty). */
-  segments: string[];
+  /** Path segments joined under that directory to form the cache root. */
+  segments?: string[];
 }
 
 /**
  * Main-process configuration: where state lives, sync and storage guardrails, logging, and how the
- * manifest and per-asset downloads are resolved. Omit `storageRoot` to use a default app cache path.
+ * manifest and per-asset downloads are resolved.
  *
  * Default behavior is offline mode unless `process.env.NODE_ENV` is `"development"`: assets sync to
  * disk and resolved URLs use the privileged `media:` protocol. Set `devPassthrough: false` to force
@@ -230,7 +231,7 @@ export interface MediaCacheStoragePath {
  * non-production `NODE_ENV` (see {@link MediaCacheOptions.logFormat}). Use `onLog` for a custom sink;
  * use {@link MediaCacheOptions.logLevel} to filter severity.
  *
- * `MediaCache` requires exclusive ownership of its resolved `storageRoot`. In kiosk-style
+ * `MediaCache` requires exclusive ownership of its resolved storage root. In kiosk-style
  * deployments, the first process that acquires that root should win; if startup later fails,
  * callers should reuse that same process/instance or restart the app rather than constructing a
  * replacement cache for the same root. Consumers should also call `app.requestSingleInstanceLock()`
@@ -239,28 +240,10 @@ export interface MediaCacheStoragePath {
  */
 export interface MediaCacheOptions {
   /**
-   * Legacy absolute storage root override.
-   *
-   * Prefer `storagePath` so consumers do not need to import `node:path`.
+   * Storage root resolved from `electron.app.getPath(appPath)` plus optional subpath segments.
+   * Consumers must choose one of Electron's well-known roots rather than passing arbitrary paths.
    */
-  storageRoot?: string;
-  /**
-   * Preferred package-managed storage configuration.
-   * Internally resolves to `join(app.getPath(appPath), ...segments)`.
-   */
-  storagePath?: MediaCacheStoragePath;
-  /**
-   * Optional `app.getPath` selector used to build `storageRoot` internally.
-   * Requires `storagePathSegments` (pass `[]` to target the selected app path directly).
-   * @deprecated Use `storagePath` instead.
-   */
-  storageAppPath?: MediaCacheAppPath;
-  /**
-   * Path segments joined under `app.getPath(storageAppPath)`.
-   * Must be provided whenever `storageAppPath` is set, and may be an empty array.
-   * @deprecated Use `storagePath` instead.
-   */
-  storagePathSegments?: string[];
+  storagePath: MediaCacheStoragePath;
   /**
    * When `true`, skips downloads and resolves remote asset URLs (advanced / local-dev escape hatch).
    * When omitted, defaults to `true` if `process.env.NODE_ENV === "development"`, otherwise `false`.
@@ -451,7 +434,10 @@ export interface ResolvedMediaContentItem {
   metadata: Record<string, JsonValue>;
   /** All resolved assets for this item, in manifest order. */
   assets: ResolvedMediaAsset[];
-  /** Convenience role index for direct lookup (for example `assetsByRole.primary`). */
+  /**
+   * Convenience role index for direct lookup (for example `assetsByRole.primary`).
+   * If multiple assets share the same role, the first asset in manifest order wins.
+   */
   assetsByRole: Record<string, ResolvedMediaAsset | undefined>;
 }
 

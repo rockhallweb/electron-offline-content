@@ -17,7 +17,8 @@ function formatBytes(v: JsonValue | undefined): string {
   if (typeof v !== "number") return str(v);
   if (v < 1024) return `${v} B`;
   if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
-  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(v / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 type MessageFn = (e: MediaCacheLogEvent) => string;
@@ -64,8 +65,6 @@ const EVENT_MESSAGES: Record<string, MessageFn> = {
   ipc_attached: () => "IPC handlers attached",
   ipc_attach_skipped: (e) => `IPC attach skipped: ${str(e.reason)}`,
 
-  deprecated_storage_path_options: (e) => str(e.message),
-
   resolve_asset_base_url_fallback: (e) =>
     `Could not rewrite asset URL for ${str(e.context_label)}: ${str(e.error)}`,
 
@@ -83,7 +82,7 @@ const EVENT_MESSAGES: Record<string, MessageFn> = {
   sync_diffed: (e) =>
     `Diff complete: ${str(e.total_assets)} asset(s) total, ${str(e.download_count)} to download, ${str(e.skipped_assets)} already cached (run #${str(e.run_id)})`,
 
-  asset_download_started: (e) => `Downloading ${assetPath(e)} v${str(e.resolved_version)}`,
+  asset_download_started: (e) => `Downloading ${assetPath(e)} ${str(e.resolved_version)}`,
 
   asset_download_completed: (e) => `Downloaded ${assetPath(e)} → ${str(e.relative_path)}`,
 

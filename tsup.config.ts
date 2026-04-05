@@ -6,8 +6,8 @@ export default defineConfig([
       "main/index": "src/main/index.ts",
       "main/producer": "src/main/producer.ts",
       "main/database": "src/main/database.ts",
-      "main/default-storage": "src/main/default-storage.ts",
       "main/media-cache": "src/main/media-cache.ts",
+      "main/storage-root-lock": "src/main/storage-root-lock.ts",
       "preload/index": "src/preload/index.ts",
       "shared/errors": "src/shared/errors.ts",
       "shared/ipc": "src/shared/ipc.ts",
@@ -39,7 +39,6 @@ export default defineConfig([
     entry: {
       "react/index": "src/react/index.tsx",
     },
-    clean: false,
     dts: true,
     format: ["esm", "cjs"],
     sourcemap: true,

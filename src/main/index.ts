@@ -28,7 +28,12 @@ export type {
   PaginationResult,
   MediaItemsQueryOptions,
   MediaQuerySyncOptions,
+  ResolveAssetRequestContext,
+  ResolvedMediaAsset,
   ResolvedMediaContentItem,
+  SerializedMediaCacheError,
+  SyncFailureMode,
+  SyncProgress,
   SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";

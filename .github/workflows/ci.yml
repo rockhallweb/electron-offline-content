@@ -9,7 +9,7 @@ on:
       - opened
       - synchronize
       - reopened
-      - ready_for_review
+      - edited
   workflow_dispatch:
   merge_group:
     types:

@@ -289,13 +289,13 @@ export class MediaCacheDatabase {
       const generationInsert = this.db
         .prepare(
           `INSERT INTO generations (
-            scope_type, scope_key, snapshot_id, generated_at, status, created_at_ms,
+            scope_type, scope_key, snapshot_id, retrieved_at, status, created_at_ms,
             namespace_count, item_count, asset_count
           ) VALUES ('global', '*', ?, ?, 'staged', ?, ?, ?, ?)`,
         )
         .run(
           manifest.snapshotId ?? null,
-          manifest.retrievedAt ?? manifest.generatedAt ?? null,
+          manifest.retrievedAt ?? null,
           now,
           manifest.namespaces.length,
           manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
@@ -876,6 +876,7 @@ export class MediaCacheDatabase {
         ),
       };
       item.assets.push(resolvedAsset);
+      // First asset for a role wins; duplicates remain in `assets` (manifest order).
       item.assetsByRole[resolvedAsset.role] ??= resolvedAsset;
     }
 
@@ -889,7 +890,7 @@ export class MediaCacheDatabase {
         scope_type TEXT NOT NULL,
         scope_key TEXT NOT NULL,
         snapshot_id TEXT,
-        generated_at TEXT,
+        retrieved_at TEXT,
         status TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
         committed_at_ms INTEGER,

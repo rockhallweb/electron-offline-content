@@ -8,20 +8,18 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   statfsSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   disableMediaCacheStorageRootLockForTests,
   enableMediaCacheStorageRootLockForTests,
-  MediaCache as RawMediaCache,
-  createMediaCache as createRawMediaCache,
+  MediaCache as RawMediaCacheBase,
   resetMediaCacheProtocolRegistrationStateForTests,
   resetMediaCacheStorageRootLocksForTests,
   type MediaCacheMain,
@@ -42,17 +40,62 @@ import type {
   JsonValue,
 } from "../../src/shared/types.js";
 
+type TestMediaCacheOptions = Omit<
+  ConstructorParameters<typeof RawMediaCacheBase>[0],
+  "storagePath"
+> & {
+  storagePath?: ConstructorParameters<typeof RawMediaCacheBase>[0]["storagePath"];
+  storageRoot?: string;
+};
+type TestMediaCacheDeps = ConstructorParameters<typeof RawMediaCacheBase>[1];
+
+function testResolveAppPath(appPath: "temp"): Promise<string>;
+function testResolveAppPath(appPath: string): Promise<string>;
+async function testResolveAppPath(appPath: string): Promise<string> {
+  if (appPath !== "temp") {
+    throw new Error(`Unexpected test appPath: ${appPath}`);
+  }
+  return tmpdir();
+}
+
+function normalizeTestOptions(
+  options: TestMediaCacheOptions,
+): ConstructorParameters<typeof RawMediaCacheBase>[0] {
+  if (options.storageRoot === undefined) {
+    return options as ConstructorParameters<typeof RawMediaCacheBase>[0];
+  }
+
+  const { storageRoot, ...rest } = options;
+  return {
+    ...rest,
+    storagePath: {
+      appPath: "temp",
+      segments: [basename(storageRoot)],
+    },
+  };
+}
+
+function mergeTestDeps(deps?: TestMediaCacheDeps): TestMediaCacheDeps {
+  return {
+    resolveAppPath: deps?.resolveAppPath ?? testResolveAppPath,
+    ...deps,
+  };
+}
+
+class RawMediaCache extends RawMediaCacheBase {
+  constructor(options: TestMediaCacheOptions, deps?: TestMediaCacheDeps) {
+    super(normalizeTestOptions(options), mergeTestDeps(deps));
+  }
+}
+
 class MediaCache extends RawMediaCache {
-  constructor(
-    options: ConstructorParameters<typeof RawMediaCache>[0],
-    deps?: ConstructorParameters<typeof RawMediaCache>[1],
-  ) {
+  constructor(options: TestMediaCacheOptions, deps?: TestMediaCacheDeps) {
     super({ devPassthrough: false, ...options }, deps);
   }
 }
 
-function createMediaCache(options: Parameters<typeof createRawMediaCache>[0]) {
-  return createRawMediaCache({ devPassthrough: false, ...options });
+function createMediaCache(options: TestMediaCacheOptions) {
+  return new RawMediaCache({ devPassthrough: false, ...options });
 }
 
 const electronSupportsProtocolRegistration = (() => {
@@ -2326,6 +2369,23 @@ describe("media cache sync and queries", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("registers a syncNow IPC handler that triggers a sync run", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = createMediaCache({
+      storageRoot,
+      resolveManifest: () => manifests,
+    });
+
+    const handlers = await createIpcHandlers(cache);
+    const syncNowHandler = handlers.get(MEDIA_CACHE_IPC.syncNow);
+    expect(syncNowHandler).toBeTypeOf("function");
+
+    await expect(syncNowHandler!()).resolves.toBeUndefined();
+    const status = await cache.getStatus();
+    expect(status.lastRun?.status).toBe("success");
+    expect(status.activeGenerationId).not.toBeNull();
+  });
+
   it("returns 404 for media:// URLs with malformed percent-encoding in path", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
@@ -2641,105 +2701,15 @@ describe("media cache sync and queries", () => {
     expect(logs.every((entry) => entry.component === "media-cache")).toBe(true);
   });
 
-  it("falls back to the default storage root when storageRoot is blank", async () => {
-    const homeRoot = createStorageRoot();
-    const originalHome = process.env.HOME;
-    const originalLocalAppData = process.env.LOCALAPPDATA;
-
-    process.env.HOME = homeRoot;
-    process.env.LOCALAPPDATA = join(homeRoot, "AppData", "Local");
-
-    try {
-      const cache = new MediaCache({
-        storageRoot: "   ",
-        resolveManifest: () => ({
-          snapshotId: "blank-storage-root",
-          namespaces: [],
-        }),
-      });
-
-      await cache.start();
-
-      const activeStorageRoot = (cache as unknown as { storageRoot: string | null }).storageRoot;
-      const expectedStorageRoot =
-        process.platform === "darwin"
-          ? join(homeRoot, "Library", "Caches", "electron-offline-content", "media-cache")
-          : process.platform === "win32"
-            ? join(homeRoot, "AppData", "Local", "electron-offline-content", "media-cache")
-            : join(homeRoot, ".cache", "electron-offline-content", "media-cache");
-      expect(activeStorageRoot).toBe(expectedStorageRoot);
-      expect(existsSync(activeStorageRoot!)).toBe(true);
-      const status = await cache.getStatus();
-      expect(status.storageRoot).toBe(expectedStorageRoot);
-    } finally {
-      if (originalHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = originalHome;
-      }
-      if (originalLocalAppData === undefined) {
-        delete process.env.LOCALAPPDATA;
-      } else {
-        process.env.LOCALAPPDATA = originalLocalAppData;
-      }
-      rmSync(homeRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("requires storagePathSegments when storageAppPath is set", async () => {
+  it("requires storagePath configuration", async () => {
     const cache = new MediaCache({
-      storageAppPath: "temp",
-      resolveManifest: () => ({ namespaces: [] }),
+      resolveManifest: () => ({
+        snapshotId: "missing-storage-path",
+        namespaces: [],
+      }),
     });
 
-    await expect(cache.start()).rejects.toThrow(
-      "storagePathSegments is required when storageAppPath is set",
-    );
-  });
-
-  it("rejects storagePathSegments without storageAppPath", async () => {
-    const cache = new MediaCache({
-      storagePathSegments: [],
-      resolveManifest: () => ({ namespaces: [] }),
-    });
-
-    await expect(cache.start()).rejects.toThrow("storagePathSegments requires storageAppPath.");
-  });
-
-  it("rejects mixing storageRoot with storageAppPath configuration", async () => {
-    const cache = new MediaCache({
-      storageRoot: createStorageRoot(),
-      storageAppPath: "temp",
-      storagePathSegments: [],
-      resolveManifest: () => ({ namespaces: [] }),
-    });
-
-    await expect(cache.start()).rejects.toThrow(
-      "storageRoot cannot be combined with storageAppPath/storagePathSegments",
-    );
-  });
-
-  it("rejects mixing storageRoot with storagePath", async () => {
-    const cache = new MediaCache({
-      storageRoot: createStorageRoot(),
-      storagePath: { appPath: "temp", segments: [] },
-      resolveManifest: () => ({ namespaces: [] }),
-    });
-
-    await expect(cache.start()).rejects.toThrow("storageRoot cannot be combined with storagePath");
-  });
-
-  it("rejects mixing storagePath with legacy storageAppPath/storagePathSegments", async () => {
-    const cache = new MediaCache({
-      storagePath: { appPath: "temp", segments: [] },
-      storageAppPath: "temp",
-      storagePathSegments: [],
-      resolveManifest: () => ({ namespaces: [] }),
-    });
-
-    await expect(cache.start()).rejects.toThrow(
-      "storagePath cannot be combined with storageAppPath/storagePathSegments",
-    );
+    await expect(cache.start()).rejects.toThrow(DataValidationError);
   });
 
   it("ignores invalid stored status snapshots and logs a warning", async () => {
@@ -3066,10 +3036,10 @@ describe("media cache sync and queries", () => {
     expect(item?.assets[0]?.byteLength).toBe(12.5);
   });
 
-  it("tolerates legacy item kinds in staged and active rows", async () => {
+  it("rejects invalid persisted item kinds", async () => {
     const storageRoot = createStorageRoot();
     manifests = {
-      snapshotId: "legacy-item-kind",
+      snapshotId: "invalid-item-kind",
       namespaces: [
         {
           key: "nature",
@@ -3098,9 +3068,7 @@ describe("media cache sync and queries", () => {
       resolveManifest: () => manifests,
     });
 
-    await cache.start();
-    const item = (await cache.getItem("nature", "forest")) as { kind: string } | null;
-    expect(item?.kind).toBe("legacy-video");
+    await expect(cache.start()).rejects.toThrow(DataValidationError);
   });
 
   it.skipIf(!electronSupportsProtocolRegistration)(
