@@ -14,30 +14,30 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Library
 
-| Command | Description |
-|---|---|
-| `pnpm lint` | Run Oxlint across the repository. |
+| Command             | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| `pnpm lint`         | Run Oxlint across the repository.               |
 | `pnpm format:check` | Verify formatting with Oxfmt without rewriting. |
-| `pnpm format` | Rewrite supported files in place with Oxfmt. |
-| `pnpm check` | Type-check the package. |
-| `pnpm test` | Run package-level behavior tests. |
-| `pnpm build` | Build package outputs in `dist/`. |
+| `pnpm format`       | Rewrite supported files in place with Oxfmt.    |
+| `pnpm check`        | Type-check the package.                         |
+| `pnpm test`         | Run package-level behavior tests.               |
+| `pnpm build`        | Build package outputs in `dist/`.               |
 
 ### Examples
 
-| Command | Description |
-|---|---|
-| `pnpm install:example:local` | Install dependencies for `examples/local`. |
-| `pnpm install:example:nasa` | Install dependencies for `examples/nasa`. |
-| `pnpm example:local:dev` | Build the library and launch the local-fixtures example. |
-| `pnpm example:nasa:dev` | Build the library and launch the NASA example. |
+| Command                      | Description                                              |
+| ---------------------------- | -------------------------------------------------------- |
+| `pnpm install:example:local` | Install dependencies for `examples/local`.               |
+| `pnpm install:example:nasa`  | Install dependencies for `examples/nasa`.                |
+| `pnpm example:local:dev`     | Build the library and launch the local-fixtures example. |
+| `pnpm example:nasa:dev`      | Build the library and launch the NASA example.           |
 
 ### Validation
 
-| Command | Description |
-|---|---|
+| Command            | Description                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm pack:verify` | Pack the library into a tarball, install it into a temporary copy of `examples/local`, and run `tsc --noEmit` to catch publish/resolution issues. |
-| `pnpm ci:validate` | Full validation chain: lint, format check, type-check, test, build, and `pack:verify`. |
+| `pnpm ci:validate` | Full validation chain: lint, format check, type-check, test, build, and `pack:verify`.                                                            |
 
 ## CI
 

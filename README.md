@@ -242,9 +242,7 @@ const welcomeItem = defineManifestItem({
 });
 
 const manifest = defineManifest({
-  namespaces: [
-    { key: "exhibits", items: [welcomeItem] },
-  ],
+  namespaces: [{ key: "exhibits", items: [welcomeItem] }],
 });
 ```
 
@@ -296,9 +294,24 @@ Namespaces let you organize content into logical groups (app sections, exhibits,
 ```ts
 defineManifest({
   namespaces: [
-    { key: "courses", items: [/* top-level items */] },
-    { key: "courses.beginner", items: [/* ... */] },
-    { key: "courses.advanced", items: [/* ... */] },
+    {
+      key: "courses",
+      items: [
+        /* top-level items */
+      ],
+    },
+    {
+      key: "courses.beginner",
+      items: [
+        /* ... */
+      ],
+    },
+    {
+      key: "courses.advanced",
+      items: [
+        /* ... */
+      ],
+    },
   ],
 });
 ```
@@ -484,24 +497,24 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-**`MediaCacheOptions`**
+`**MediaCacheOptions**`
 
 
-| Option | Type | Required | Description |
-|---|---|---|---|
-| `storagePath` | `MediaCacheStoragePath` | yes | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
-| `resolveManifest` | `() => ManifestInput \| Promise<ManifestInput>` | yes | Returns the full manifest for each sync run. |
-| `devPassthrough` | `boolean` | no | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`. |
-| `assetBaseUrl` | `string` | no | Origin override for dev passthrough (origin only, no path/query/hash). |
-| `onSyncFailure` | `"serve-last-snapshot" \| "throw"` | no | Behavior on sync failure. Default `"serve-last-snapshot"`. |
-| `resolveAssetRequest` | `(ctx) => DownloadRequest \| Promise<DownloadRequest>` | no | Per-asset hook to customize download URL/headers. |
-| `maxCacheBytes` | `number` | no | Soft cap on total cached bytes. |
-| `reserveFreeBytes` | `number` | no | Minimum free disk bytes to preserve. |
-| `staleDeleteAfterMs` | `number` | no | Grace period (ms) before pruning removed assets. Default 7 days. |
-| `syncHistoryLimit` | `number` | no | Max completed sync runs retained in SQLite. Default 50. |
-| `onLog` | `MediaCacheLogHandler` | no | Structured log callback. |
-| `logLevel` | `"debug" \| "info" \| "warn" \| "error"` | no | Minimum log severity. |
-| `logFormat` | `"english" \| "json"` | no | Built-in console line format. Default `"english"`. |
+| Option                | Type                                                  | Required | Description                                                                                     |
+| --------------------- | ----------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`                               | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveManifest`     | `() => ManifestInput | Promise<ManifestInput>`        | yes      | Returns the full manifest for each sync run.                                                    |
+| `devPassthrough`      | `boolean`                                             | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                                              | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `"serve-last-snapshot" | "throw"`                     | no       | Behavior on sync failure. Default `"serve-last-snapshot"`.                                      |
+| `resolveAssetRequest` | `(ctx) => DownloadRequest | Promise<DownloadRequest>` | no       | Per-asset hook to customize download URL/headers.                                               |
+| `maxCacheBytes`       | `number`                                              | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                                              | no       | Minimum free disk bytes to preserve.                                                            |
+| `staleDeleteAfterMs`  | `number`                                              | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `syncHistoryLimit`    | `number`                                              | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `onLog`               | `MediaCacheLogHandler`                                | no       | Structured log callback.                                                                        |
+| `logLevel`            | `"debug" | "info" | "warn" | "error"`                 | no       | Minimum log severity.                                                                           |
+| `logFormat`           | `"english" | "json"`                                  | no       | Built-in console line format. Default `"english"`.                                              |
 
 
 #### `MediaCacheMain`
@@ -514,7 +527,7 @@ Returned by `createMediaCache`. Requires exclusive ownership of its resolved sto
 | `start()`                                | `Promise<void>`                                       | One-call setup: register protocol, attach IPC, run initial sync.  |
 | `syncNow()`                              | `Promise<void>`                                       | Run or join a sync. Concurrent callers share one run.             |
 | `getStatus()`                            | `Promise<MediaCacheStatus>`                           | Current phase, progress, last run, and error.                     |
-| `getItem(namespace, id)` | `Promise<ResolvedMediaContentItem \| null>` | Single item lookup. |
+| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem | null>`            | Single item lookup.                                               |
 | `listNamespace(namespace, pagination?)`  | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Flat list of items in one namespace.                              |
 | `listNamespaceTree(prefix, pagination?)` | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Items under a namespace prefix and all descendants.               |
 | `findByFileStem(stem, options?)`         | `Promise<PaginationResult<FileStemMatch>>`            | Search by normalized filename stem.                               |
@@ -534,25 +547,25 @@ Granular validation helpers for individual items and assets.
 
 #### Key types
 
-`**MediaCacheManifest`** -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
+`**MediaCacheManifest**` -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
 
-`**MediaNamespaceDefinition`** -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
+`**MediaNamespaceDefinition**` -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
 
-`**MediaContentDefinition`** -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
+`**MediaContentDefinition**` -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
 
-`**MediaAssetDefinition`** -- `{ id, role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
+`**MediaAssetDefinition**` -- `{ id, role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
 
-`**ResolvedMediaContentItem`** -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
+`**ResolvedMediaContentItem**` -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
 
-`**ResolvedMediaAsset`** -- `{ id, role, kind, mimeType?, byteLength?, url, metadata }`. `url` is a `media://` URL in offline mode or a remote URL in passthrough mode.
+`**ResolvedMediaAsset**` -- `{ id, role, kind, mimeType?, byteLength?, url, metadata }`. `url` is a `media://` URL in offline mode or a remote URL in passthrough mode.
 
-`**MediaCacheStatus`** -- `{ phase, storageRoot, activeGenerationId, progress, lastRun, error, updatedAt }`. `phase` is `"idle" | "syncing" | "ready" | "error"`.
+`**MediaCacheStatus**` -- `{ phase, storageRoot, activeGenerationId, progress, lastRun, error, updatedAt }`. `phase` is `"idle" | "syncing" | "ready" | "error"`.
 
-`**FileStemMatch`** -- `{ item: ResolvedMediaContentItem, matchedAssetIds: string[] }`
+`**FileStemMatch**` -- `{ item: ResolvedMediaContentItem, matchedAssetIds: string[] }`
 
-`**PaginationInput`** -- `{ limit?, cursor? }`
+`**PaginationInput**` -- `{ limit?, cursor? }`
 
-`**PaginationResult<T>`** -- `{ items: T[], nextCursor: string | null }`
+`**PaginationResult<T>**` -- `{ items: T[], nextCursor: string | null }`
 
 See the published `.d.ts` files for full type definitions.
 
@@ -619,8 +632,8 @@ All query hooks return this shape:
 
 ```ts
 {
-  data: T | null;      // latest resolved value
-  loading: boolean;    // true during initial load or refresh
+  data: T | null; // latest resolved value
+  loading: boolean; // true during initial load or refresh
   error: Error | null; // last request error
   refresh: () => Promise<void>;
 }
@@ -636,8 +649,8 @@ All query hooks return this shape:
 
 Two example apps demonstrate end-to-end wiring. Each is a standalone Electron Forge + React + Vite project.
 
-- `[examples/local/](examples/local/)` -- uses a loopback HTTP server with small local fixtures. Also used by `pack:verify` in CI.
-- `[examples/nasa/](examples/nasa/)` -- uses public NASA SVS URLs for heavier manual demos (not run in CI).
+- [examples/local/](examples/local/) -- uses a loopback HTTP server with small local fixtures. Also used by `pack:verify` in CI.
+- [examples/nasa/](examples/nasa/) -- uses public NASA SVS URLs for heavier manual demos (not run in CI).
 
 Both examples exercise sync status, namespace listing, namespace tree listing, item lookup, file-stem search, and rendering images and video from `media://` URLs (offline mode) or direct remote URLs (dev passthrough).
 
