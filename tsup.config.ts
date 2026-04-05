@@ -7,6 +7,7 @@ export default defineConfig([
       "main/producer": "src/main/producer.ts",
       "main/database": "src/main/database.ts",
       "main/media-cache": "src/main/media-cache.ts",
+      "main/storage-root-lock": "src/main/storage-root-lock.ts",
       "preload/index": "src/preload/index.ts",
       "shared/errors": "src/shared/errors.ts",
       "shared/ipc": "src/shared/ipc.ts",

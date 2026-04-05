@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' media: data:; media-src 'self' media: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:* https://svs.gsfc.nasa.gov https://images-assets.nasa.gov;"
+      content="default-src 'self'; img-src 'self' media: data:; media-src 'self' media: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; connect-src 'self' http://127.0.0.1:* https://svs.gsfc.nasa.gov https://images-api.nasa.gov http://images-api.nasa.gov https://images-assets.nasa.gov http://images-assets.nasa.gov;"
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Rock Hall Media Cache Example</title>
+    <title>NASA Mission Archive</title>
   </head>
   <body>
     <div id="root"></div>

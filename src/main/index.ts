@@ -41,6 +41,7 @@ export {
   DataValidationError,
   ManifestValidationError,
   MediaCacheError,
+  StorageOwnershipError,
   StorageLimitError,
   SyncFailureError,
 } from "../shared/errors.js";

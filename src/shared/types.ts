@@ -230,6 +230,13 @@ export interface MediaCacheStoragePath {
  * set. When `onLog` is omitted, human-readable English lines go to the main-process console in
  * non-production `NODE_ENV` (see {@link MediaCacheOptions.logFormat}). Use `onLog` for a custom sink;
  * use {@link MediaCacheOptions.logLevel} to filter severity.
+ *
+ * `MediaCache` requires exclusive ownership of its resolved storage root. In kiosk-style
+ * deployments, the first process that acquires that root should win; if startup later fails,
+ * callers should reuse that same process/instance or restart the app rather than constructing a
+ * replacement cache for the same root. Consumers should also call `app.requestSingleInstanceLock()`
+ * early in Electron startup as app-level guidance, but cache-root exclusivity is enforced
+ * separately by this package.
  */
 export interface MediaCacheOptions {
   /**
@@ -240,6 +247,7 @@ export interface MediaCacheOptions {
   /**
    * When `true`, skips downloads and resolves remote asset URLs (advanced / local-dev escape hatch).
    * When omitted, defaults to `true` if `process.env.NODE_ENV === "development"`, otherwise `false`.
+   * Set `devPassthrough: false` to preserve offline-mode behavior during development or upgrades.
    */
   devPassthrough?: boolean;
   /**
@@ -549,6 +557,6 @@ export interface MediaCacheErrors {
   queryErrors: Error[];
   /** `true` if any of the above are non-null/non-empty. */
   hasError: boolean;
-  /** First error the hook considers most relevant for display. */
-  primaryError: Error | SerializedMediaCacheError | null;
+  /** First error the hook considers most relevant for display; sync errors are converted to `Error`. */
+  primaryError: Error | null;
 }

@@ -53,7 +53,6 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                 id: "main",
                 role: "primary",
                 kind: "video",
-                fileName: "forest-loop.mp4",
                 byteLength: 14638,
                 source: {
                   url: `${baseUrl}/forest-loop.mp4`,
@@ -63,7 +62,6 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                 id: "poster",
                 role: "poster",
                 kind: "poster",
-                fileName: "forest-poster.jpg",
                 byteLength: 3284,
                 source: {
                   url: `${baseUrl}/forest-poster.jpg`,
@@ -92,7 +90,6 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                 id: "main",
                 role: "primary",
                 kind: "video",
-                fileName: "rose-cut.mp4",
                 byteLength: 14600,
                 source: {
                   url: `${baseUrl}/rose-cut.mp4`,
@@ -102,7 +99,6 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                 id: "subtitles",
                 role: "subtitle",
                 kind: "subtitle",
-                fileName: "rose-cut.vtt",
                 byteLength: 97,
                 source: {
                   url: `${baseUrl}/rose-cut.vtt`,

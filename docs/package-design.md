@@ -157,8 +157,6 @@ export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "tex
 export interface MediaCacheManifest {
   snapshotId?: string;
   retrievedAt?: string;
-  /** @deprecated Use retrievedAt. */
-  retrievedAt?: string;
   namespaces: MediaNamespaceDefinition[];
 }
 
@@ -429,7 +427,7 @@ Not:
 export interface MediaCacheOptions {
   storagePath: {
     appPath: MediaCacheAppPath;
-    segments: string[];
+    segments?: string[];
   };
   maxCacheBytes?: number;
   reserveFreeBytes?: number;
@@ -496,7 +494,7 @@ useMediaCacheStatus()
 useMediaItems(namespaceOrPrefix: string, options?: { recursive?: boolean })
 useMediaItem(namespace: string, id: string)
 useMediaCacheReady()
-useMediaCacheErrors(...)
+useMediaCacheErrors(status, ...queryStates)
 ```
 
 This keeps the consumer focused on rendering content rather than reconstructing local

@@ -7,12 +7,20 @@
   "scripts": {
     "predev": "node ../../scripts/ensure-root-package-built.mjs",
     "dev": "electron-forge start",
-    "package": "electron-forge package"
+    "package": "electron-forge package",
+    "lint": "oxlint --config .oxlintrc.json --react-plugin --node-plugin --deny-warnings .",
+    "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --node-plugin --fix --deny-warnings .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "knip": "knip"
   },
   "dependencies": {
     "@rockhallweb/electron-offline-content": "../../",
+    "clsx": "^2.1.1",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
@@ -22,9 +30,18 @@
     "@vitejs/plugin-react": "^5.0.4",
     "electron": "^40.8.2",
     "esbuild": "^0.25.9",
+    "knip": "^6.0.3",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.2",
     "vite": "^7.1.11"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   },
   "productName": "Offline Content Example (NASA)"
 }

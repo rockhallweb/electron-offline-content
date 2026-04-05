@@ -1,0 +1,3 @@
+{
+  "ignorePatterns": ["coverage/**", "dist/**", "node_modules/**", ".smoke/**", ".vite/**", "out/**"]
+}
