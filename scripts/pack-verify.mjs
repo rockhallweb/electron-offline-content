@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(__dirname);
 const exampleDir = join(repoRoot, "examples", "local");
+const buildMarker = join(repoRoot, "dist", "main", "index.js");
+
+if (!existsSync(buildMarker)) {
+  throw new Error(
+    "pack:verify requires built root artifacts. Run `pnpm build` or `pnpm validate` first.",
+  );
+}
 
 const workspaceTmp = await mkdtemp(join(tmpdir(), "media-cache-pack-verify-"));
 const packDir = join(workspaceTmp, "pack");
