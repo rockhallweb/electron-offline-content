@@ -214,8 +214,10 @@ logging: {
 
 ```typescript
 type MediaCacheLoggingOptions =
+  | MediaCacheCustomLoggingOptions
   | {
       level?: "debug" | "info" | "warn" | "error";
+      format?: never;
       onLog: (entry: MediaCacheLogEvent) => void;
     }
   | {
@@ -224,6 +226,8 @@ type MediaCacheLoggingOptions =
       onLog?: undefined;
     };
 ```
+
+`MediaCacheLoggingOptions` is a discriminated union. The custom-sink branch is represented by `MediaCacheCustomLoggingOptions` in `types.ts`, and TypeScript rejects `format` when `onLog` is present because that branch uses `format?: never`.
 
 ### `logging.level`
 
