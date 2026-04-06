@@ -59,9 +59,10 @@ Create a module that fetches your content catalog and maps it into a manifest. T
 ```ts
 // fetch-content.ts
 import {
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
+  itemsFromEntries,
 } from "@rockhallweb/electron-offline-content/main";
 
 export async function resolveManifest() {
@@ -69,25 +70,26 @@ export async function resolveManifest() {
   const response = await fetch("https://cms.example.com/api/videos");
   const videos = await response.json();
 
-  const items = videos.map((video) =>
-    defineManifestItem({
-      id: video.slug,
-      version: video.updatedAt, // bump triggers re-download
-      kind: "video",
-      title: video.title,
-      assets: [
-        defineManifestAsset({
-          id: "main",
-          role: "primary",
-          kind: "video",
-          source: { url: video.fileUrl },
-        }),
-      ],
-    }),
-  );
-
   return defineManifest({
-    namespaces: [{ key: "videos", items }],
+    namespaces: {
+      videos: {
+        items: itemsFromEntries(videos, (video) => [
+          video.slug,
+          defineItem({
+            version: video.updatedAt, // bump triggers re-download
+            kind: "video",
+            title: video.title,
+            assets: {
+              main: defineAsset({
+                role: "primary",
+                kind: "video",
+                source: { url: video.fileUrl },
+              }),
+            },
+          }),
+        ]),
+      },
+    },
   });
 }
 ```
@@ -131,17 +133,15 @@ Wrap your app in `MediaCacheProvider` and use hooks to access content.
 ```tsx
 import {
   MediaCacheProvider,
-  useMediaCacheStatus,
-  useMediaCacheErrors,
-  useMediaItems,
+  useMedia,
+  useMediaBridge,
 } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
-  const status = useMediaCacheStatus();
-  const items = useMediaItems("videos", { limit: 20 });
-  const errors = useMediaCacheErrors(status, items);
+  const media = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+  const { errors } = useMediaBridge();
 
-  if (items.loading) {
+  if (media.loading) {
     return <div>Loading...</div>;
   }
   if (errors.primaryError) {
@@ -150,7 +150,7 @@ function App() {
 
   return (
     <div>
-      {items.data?.items.map((item) => (
+      {media.data?.items.map((item) => (
         <video
           key={`${item.namespace}/${item.id}`}
           src={item.assetsByRole.primary?.url ?? item.assets[0]?.url}
@@ -181,39 +181,37 @@ A manifest has **namespaces**, each containing **items**, each containing **asse
 ```ts
 {
   expiresAt: "2026-03-10T18:00:00.000Z", // optional global URL expiration cutoff
-  namespaces: [
-    {
-      key: "lobby",                    // stable identifier
-      label: "Lobby Kiosk",           // optional display name
-      items: [
-        {
-          id: "spring-campaign",       // unique within namespace
-          version: "2026-03-10.1",     // triggers re-download when changed
+  namespaces: {
+    lobby: {
+      // map key is the stable namespace id
+      label: "Lobby Kiosk", // optional display name
+      items: {
+        "spring-campaign": {
+          // map key is the stable item id within this namespace
+          version: "2026-03-10.1", // triggers re-download when changed
           kind: "video",
           title: "Spring Campaign",
-          assets: [
-            {
-              id: "main",
-              role: "primary",         // indexed on assetsByRole
+          assets: {
+            main: {
+              role: "primary", // indexed on assetsByRole
               kind: "video",
               mimeType: "video/mp4",
               source: {
                 url: "https://cdn.example.com/spring-campaign.mp4",
               },
             },
-            {
-              id: "poster",
+            poster: {
               role: "poster",
               kind: "poster",
               source: {
                 url: "https://cdn.example.com/spring-campaign-poster.jpg",
               },
             },
-          ],
+          },
         },
-      ],
+      },
     },
-  ],
+  },
 }
 ```
 
@@ -222,52 +220,47 @@ A manifest has **namespaces**, each containing **items**, each containing **asse
 `defineManifest` validates your manifest with Zod before sync starts. Use it as the return value of `resolveManifest`. Build assets and items as standalone variables to keep nesting shallow and lines short:
 
 ```ts
-import {
-  defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
-} from "@rockhallweb/electron-offline-content/main";
+import { defineAsset, defineItem, defineManifest } from "@rockhallweb/electron-offline-content/main";
 
-const mainVideo = defineManifestAsset({
-  id: "main",
+const mainVideo = defineAsset({
   role: "primary",
   kind: "video",
   source: { url: "https://cdn.example.com/welcome.v2.mp4" },
 });
 
-const welcomeItem = defineManifestItem({
-  id: "welcome",
+const welcomeItem = defineItem({
   version: "v2",
   kind: "video",
-  assets: [mainVideo],
+  assets: { main: mainVideo },
 });
 
 const manifest = defineManifest({
-  namespaces: [{ key: "exhibits", items: [welcomeItem] }],
+  namespaces: {
+    exhibits: {
+      items: { welcome: welcomeItem },
+    },
+  },
 });
 ```
 
-`defineManifestItem` and `defineManifestAsset` validate their input individually, so errors surface at the point of definition rather than deep inside `defineManifest`.
+`defineItem` and `defineAsset` validate their input individually, so errors surface at the point of definition rather than deep inside `defineManifest`.
 
 If your manifest contains pre-signed asset URLs with a shared TTL, set `expiresAt` so the sync can fail fast with a clear error once those URLs are stale:
 
 ```ts
 const manifest = defineManifest({
   expiresAt: "2026-03-10T18:00:00.000Z",
-  namespaces: [{ key: "exhibits", items: [welcomeItem] }],
+  namespaces: {
+    exhibits: {
+      items: { welcome: welcomeItem },
+    },
+  },
 });
 ```
 
-### Shorthand inputs
+### Building records from arrays
 
-`resolveManifest` also accepts an array of namespace objects or a flat array of items (normalized into a `default` namespace internally):
-
-```ts
-resolveManifest: async () => [
-  { id: "intro", version: "v1", kind: "video", assets: [/* ... */] },
-  { id: "outro", version: "v1", kind: "video", assets: [/* ... */] },
-],
-```
+When your source data is array-shaped, use `namespacesFromEntries`, `itemsFromEntries`, and `assetsFromEntries` to produce the `Record` maps `defineManifest` expects (see the [API reference](#api-reference)).
 
 ### Validation rules
 
@@ -304,37 +297,22 @@ Namespaces let you organize content into logical groups (app sections, exhibits,
 
 ```ts
 defineManifest({
-  namespaces: [
-    {
-      key: "courses",
-      items: [
-        /* top-level items */
-      ],
-    },
-    {
-      key: "courses.beginner",
-      items: [
-        /* ... */
-      ],
-    },
-    {
-      key: "courses.advanced",
-      items: [
-        /* ... */
-      ],
-    },
-  ],
+  namespaces: {
+    courses: { items: { /* top-level items */ } },
+    "courses.beginner": { items: { /* ... */ } },
+    "courses.advanced": { items: { /* ... */ } },
+  },
 });
 ```
 
-Query with `useMediaItems`:
+Query with `useMedia`:
 
 ```tsx
 // Exact namespace only
-const beginner = useMediaItems("courses.beginner", { limit: 20 });
+const beginner = useMedia({ kind: "list", namespace: "courses.beginner", limit: 20 });
 
 // Recursive: courses + courses.beginner + courses.advanced
-const all = useMediaItems("courses", { recursive: true, limit: 50 });
+const all = useMedia({ kind: "list", namespace: "courses", recursive: true, limit: 50 });
 ```
 
 ### File stem search
@@ -377,13 +355,12 @@ All errors extend `MediaCacheError`, which carries a `code` string for programma
 
 ### Renderer error aggregation
 
-`useMediaCacheErrors` combines sync errors and query errors into a single view:
+`useMediaCacheErrors()` combines sync errors and all active query errors under the current `MediaCacheProvider` into a single view:
 
 ```tsx
-const status = useMediaCacheStatus();
-const item = useMediaItem("space", "hubble-cosmos");
-const list = useMediaItems("space", { limit: 20 });
-const errors = useMediaCacheErrors(status, item, list);
+const featured = useMedia({ kind: "item", namespace: "space", id: "hubble-cosmos" });
+const catalog = useMedia({ kind: "list", namespace: "space", limit: 20 });
+const errors = useMediaCacheErrors();
 
 if (errors.hasError) {
   console.error(errors.primaryError);
@@ -428,8 +405,7 @@ const mediaCache = createMediaCache({
 If your token is long-lived and known at manifest build time, you can skip `resolveAssetRequest` and set headers directly on the asset source:
 
 ```ts
-const asset = defineManifestAsset({
-  id: "main",
+const asset = defineAsset({
   role: "primary",
   kind: "video",
   source: {
@@ -549,21 +525,21 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-**`MediaCacheOptions`**
+`**MediaCacheOptions**`
 
-| Option                | Type                                                   | Required | Description                                                                                     |
-| --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
-| `storagePath`         | `MediaCacheStoragePath`                                | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
-| `resolveManifest`     | `() => ManifestInput \| Promise<ManifestInput>`        | yes      | Callback returning the full manifest snapshot.                                                  |
-| `devPassthrough`      | `boolean`                                              | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
-| `assetBaseUrl`        | `string`                                               | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
-| `onSyncFailure`       | `"serve-last-snapshot" \| "throw"`                     | no       | Behavior when a sync fails after a prior snapshot exists.                                       |
-| `resolveAssetRequest` | `(ctx) => DownloadRequest \| Promise<DownloadRequest>` | no       | Optional per-asset download customization callback.                                             |
-| `maxCacheBytes`       | `number`                                               | no       | Soft cap on total cached bytes.                                                                 |
-| `reserveFreeBytes`    | `number`                                               | no       | Minimum free disk bytes to preserve.                                                            |
-| `staleDeleteAfterMs`  | `number`                                               | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
-| `syncHistoryLimit`    | `number`                                               | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
-| `logging`             | `MediaCacheLoggingOptions`                             | no       | Nested logging config for either a custom sink or built-in console formatting.                  |
+| Option                | Type                       | Required | Description                                                                                     |
+| --------------------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`    | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveManifest`     | callback                   | yes      | Returns `MediaCacheManifest` or a `Promise` of it for each sync.                                |
+| `devPassthrough`      | `boolean`                  | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                   | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `SyncFailureMode`          | no       | Behavior when a sync fails after a prior snapshot exists (`serve-last-snapshot` or `throw`).    |
+| `resolveAssetRequest` | callback                   | no       | Optional per-asset hook: given context, return `DownloadRequest` or a `Promise` of it.        |
+| `maxCacheBytes`       | `number`                   | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                   | no       | Minimum free disk bytes to preserve.                                                            |
+| `staleDeleteAfterMs`  | `number`                   | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `syncHistoryLimit`    | `number`                   | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `logging`             | `MediaCacheLoggingOptions` | no       | Nested logging config for either a custom sink or built-in console formatting.                  |
 
 #### `MediaCacheMain`
 
@@ -574,7 +550,7 @@ Returned by `createMediaCache`. Requires exclusive ownership of its resolved sto
 | `start()`                                | `Promise<void>`                                       | One-call setup: register protocol, attach IPC, run initial sync.  |
 | `syncNow()`                              | `Promise<void>`                                       | Run or join a sync. Concurrent callers share one run.             |
 | `getStatus()`                            | `Promise<MediaCacheStatus>`                           | Current phase, progress, last run, and error.                     |
-| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem \| null>`           | Current item in a namespace by id.                                |
+| `getItem(namespace, id)`                 | `Promise` (nullable)                                  | Resolves to `ResolvedMediaContentItem` or `null` if missing.      |
 | `listNamespace(namespace, pagination?)`  | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Flat list of items in one namespace.                              |
 | `listNamespaceTree(prefix, pagination?)` | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Items under a namespace prefix and all descendants.               |
 | `findByFileStem(stem, options?)`         | `Promise<PaginationResult<FileStemMatch>>`            | Search by normalized filename stem.                               |
@@ -587,19 +563,23 @@ In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing 
 
 Validates and returns a `MediaCacheManifest`. Runs Zod validation and internal normalization checks.
 
-#### `defineManifestItem(input)` / `defineManifestAsset(input)`
+#### `defineItem(input)` / `defineAsset(input)`
 
-Granular validation helpers for individual items and assets.
+Granular validation helpers for individual item and asset **values** (ids live on the parent `Record` keys, not on these objects). `defineAsset` may derive `fileName` from the source URL when omitted.
+
+#### `namespacesFromEntries` / `itemsFromEntries` / `assetsFromEntries`
+
+Build `namespaces`, `items`, or `assets` records from arrays while validating entries and rejecting duplicate keys.
 
 #### Key types
 
-**`MediaCacheManifest`** -- `{ snapshotId?, retrievedAt?, expiresAt?, namespaces: MediaNamespaceDefinition[] }`
+`**MediaCacheManifest**` -- `{ snapshotId?, retrievedAt?, expiresAt?, namespaces: Record<string, MediaNamespaceValue> }`
 
-`**MediaNamespaceDefinition**` -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
+`**MediaNamespaceValue**` -- `{ label?, metadata?, items: Record<string, MediaItemValue> }`
 
-`**MediaContentDefinition**` -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
+`**MediaItemValue**` -- `{ version, kind, title?, description?, summary?, blobs?, metadata?, assets: Record<string, MediaAssetValue> }`
 
-`**MediaAssetDefinition**` -- `{ id, role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
+`**MediaAssetValue**` -- `{ role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
 
 `**ResolvedMediaContentItem**` -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
 
@@ -639,19 +619,28 @@ Context provider. If your preload uses the default `window.mediaCache` key, you 
 </MediaCacheProvider>
 ```
 
+#### `useMediaBridge()`
+
+Returns the active bridge methods together with shared `status`, top-level composite `phase` (`MediaCachePhase`: cache phase or `"loading"` before the first snapshot), and aggregated `errors`.
+
+```tsx
+const { syncNow, status, phase, errors } = useMediaBridge();
+```
+
+Use this when you need imperative bridge access without wiring separate status and error hooks.
+
 #### `useMediaCacheStatus()`
 
-Returns `AsyncState<MediaCacheStatus>`. Subscribes to live status updates and exposes `refresh()`.
+Returns `UseMediaCacheStatusResult`: the same fields as `AsyncState<MediaCacheStatus>` plus top-level `phase` (`MediaCachePhase`). Subscribes to live status updates and exposes `refresh()`.
 
-#### `useMediaItem(namespace, id, options?)`
+#### `useMedia(options)`
 
-Returns `AsyncState<ResolvedMediaContentItem | null>`. Fetches a single item by namespace and id. Auto-refetches after sync by default (`refetchOnSyncComplete: true`).
+Primary React query hook. Use `{ kind: "item", namespace, id, refetchOnSyncComplete? }` for a single item, or `{ kind: "list", namespace, recursive?, limit?, cursor?, refetchOnSyncComplete? }` for a namespace list/tree.
 
-#### `useMediaItems(namespaceOrPrefix, options?)`
+Returns either:
 
-Returns `AsyncState<PaginationResult<ResolvedMediaContentItem>>`. Lists items in a namespace. Pass `{ recursive: true }` to include dot-delimited descendant namespaces.
-
-Options: `{ recursive?, limit?, cursor?, refetchOnSyncComplete? }`
+- `UseMediaItemResult` for item lookups (includes `phase`, `status`, and `errors`)
+- `UseMediaListResult` for namespace and namespace-tree lookups (includes `phase`, `status`, and `errors`)
 
 #### `useFileStemMatch(stem, options?)`
 
@@ -668,13 +657,13 @@ const ready = useMediaCacheReady();
 if (!ready.data?.ready) return <p>Preparing offline content...</p>;
 ```
 
-#### `useMediaCacheErrors(status, ...queryStates)`
+#### `useMediaCacheErrors()`
 
-Aggregates sync and query errors into `MediaCacheErrors`: `{ syncError, statusError, queryErrors, hasError, primaryError }`.
+Aggregates sync and provider-wide query errors into `MediaCacheErrors`: `{ syncError, statusError, queryErrors, hasError, primaryError }`.
 
 #### `AsyncState<T>`
 
-All query hooks return this shape:
+Hooks such as `useFileStemMatch`, `useMediaCacheReady`, and `useMediaCacheStatus` return this shape. `useMedia()` adds shared `status` and `errors` on top of it:
 
 ```ts
 {
