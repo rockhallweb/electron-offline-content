@@ -594,9 +594,7 @@ export class MediaCache implements MediaCacheMain {
 
   private reconcileOrphanedStagedGenerations(): number | null {
     const activeGenerationId = this.db!.getActiveGenerationId();
-    const stagedGenerationIds = this.db!.listStagedGenerationIds().filter(
-      (generationId) => generationId !== activeGenerationId,
-    );
+    const stagedGenerationIds = this.db!.listStagedGenerationIds();
     if (stagedGenerationIds.length === 0) {
       return activeGenerationId;
     }
