@@ -2,14 +2,13 @@
 name: manifest-authoring
 description: >
   Writing resolveManifest functions against any remote source (CMS, S3,
-  REST API). Using defineManifest, defineManifestItem, defineManifestAsset
-  producer helpers for flat readable configs. Organizing content into
-  dot-delimited namespace hierarchies. Validation rules for keys,
-  versions, asset URLs, and fileName derivation. Version-driven cache
-  busting. ManifestInput shorthand forms (namespace array, item array).
+  REST API). Using defineManifest, defineItem, defineAsset producer helpers
+  for flat readable configs. namespacesFromEntries, itemsFromEntries,
+  assetsFromEntries for array-shaped API data. Dot-delimited namespace
+  hierarchies. Validation rules, version-driven cache busting.
 type: core
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.3.0"
 requires:
   - getting-started
 sources:
@@ -24,13 +23,14 @@ sources:
 
 ## Setup
 
-A complete `resolveManifest` function that fetches from an API and builds a manifest using the flat composition pattern:
+A complete `resolveManifest` function that fetches from an API and builds a manifest using composition plus `itemsFromEntries` for dynamic lists:
 
 ```typescript
 import {
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
+  itemsFromEntries,
 } from "@rockhallweb/electron-offline-content/main";
 
 interface ApiCourse {
@@ -47,51 +47,55 @@ async function resolveManifest(): Promise<ReturnType<typeof defineManifest>> {
   const res = await fetch("https://cms.example.com/api/courses");
   const courses: ApiCourse[] = await res.json();
 
-  const beginnerItems = courses.filter((c) => c.level === "beginner").map(courseToItem);
-
-  const advancedItems = courses.filter((c) => c.level === "advanced").map(courseToItem);
+  const beginnerCourses = courses.filter((c) => c.level === "beginner");
+  const advancedCourses = courses.filter((c) => c.level === "advanced");
 
   return defineManifest({
     snapshotId: `courses-${Date.now()}`,
-    namespaces: [
-      { key: "courses.beginner", label: "Beginner Courses", items: beginnerItems },
-      { key: "courses.advanced", label: "Advanced Courses", items: advancedItems },
-    ],
+    namespaces: {
+      "courses.beginner": {
+        label: "Beginner Courses",
+        items: itemsFromEntries(beginnerCourses, (course) => [
+          course.id,
+          courseToItem(course),
+        ]),
+      },
+      "courses.advanced": {
+        label: "Advanced Courses",
+        items: itemsFromEntries(advancedCourses, (course) => [
+          course.id,
+          courseToItem(course),
+        ]),
+      },
+    },
   });
 }
 
 function courseToItem(course: ApiCourse) {
-  const videoAsset = defineManifestAsset({
-    id: "video",
-    role: "primary",
-    kind: "video",
-    mimeType: "video/mp4",
-    source: { url: course.videoUrl },
-  });
-
-  const posterAsset = defineManifestAsset({
-    id: "poster",
-    role: "poster",
-    kind: "poster",
-    source: { url: course.posterUrl },
-  });
-
-  const assets = [videoAsset, posterAsset];
+  const assets: Record<string, ReturnType<typeof defineAsset>> = {
+    video: defineAsset({
+      role: "primary",
+      kind: "video",
+      mimeType: "video/mp4",
+      source: { url: course.videoUrl },
+    }),
+    poster: defineAsset({
+      role: "poster",
+      kind: "poster",
+      source: { url: course.posterUrl },
+    }),
+  };
 
   if (course.subtitleUrl) {
-    assets.push(
-      defineManifestAsset({
-        id: "subs-en",
-        role: "subtitle",
-        kind: "subtitle",
-        fileName: "en.vtt",
-        source: { url: course.subtitleUrl },
-      }),
-    );
+    assets["subs-en"] = defineAsset({
+      role: "subtitle",
+      kind: "subtitle",
+      fileName: "en.vtt",
+      source: { url: course.subtitleUrl },
+    });
   }
 
-  return defineManifestItem({
-    id: course.id,
+  return defineItem({
     version: course.revision,
     kind: "video",
     title: course.title,
@@ -104,18 +108,18 @@ function courseToItem(course: ApiCourse) {
 
 ### Dot-delimited namespace hierarchies
 
-Use dot notation for hierarchical organization. `useMedia({ kind: "list", namespace: "courses", recursive: true })` queries all nested namespaces.
+Use dot notation in **namespace map keys** (they are flat strings, not nested objects). `useMedia({ kind: "list", namespace: "courses", recursive: true })` queries all descendant namespaces.
 
 ```typescript
 import { defineManifest } from "@rockhallweb/electron-offline-content/main";
 
 defineManifest({
-  namespaces: [
-    { key: "courses", label: "All Courses", items: [] },
-    { key: "courses.beginner", label: "Beginner", items: beginnerItems },
-    { key: "courses.beginner.featured", label: "Featured Beginner", items: featuredItems },
-    { key: "courses.advanced", label: "Advanced", items: advancedItems },
-  ],
+  namespaces: {
+    courses: { label: "All Courses", items: {} },
+    "courses.beginner": { label: "Beginner", items: beginnerItemsRecord },
+    "courses.beginner.featured": { label: "Featured Beginner", items: featuredItemsRecord },
+    "courses.advanced": { label: "Advanced", items: advancedItemsRecord },
+  },
 });
 ```
 
@@ -125,52 +129,32 @@ const allCourses = useMedia({ kind: "list", namespace: "courses", recursive: tru
 const beginnerOnly = useMedia({ kind: "list", namespace: "courses.beginner" });
 ```
 
-### Shorthand manifest inputs
+### Record keys vs redundant ids
 
-`resolveManifest` can return three shapes. The library normalizes all of them.
+`resolveManifest` must return a **`MediaCacheManifest`**: `namespaces` is `Record<string, MediaNamespaceValue>`, each `items` is `Record<string, MediaItemValue>`, each `assets` is `Record<string, MediaAssetValue>`. The map key **is** the namespace id, item id, or asset id — do not repeat `id` / `key` on the value objects.
 
-```typescript
-import type {
-  MediaCacheManifest,
-  MediaNamespaceDefinition,
-  MediaContentDefinition,
-} from "@rockhallweb/electron-offline-content/main";
+### Building records from arrays
 
-// Shape 1: full manifest with snapshotId
-const full: MediaCacheManifest = defineManifest({
-  snapshotId: "v42",
-  namespaces: [
-    { key: "exhibits", items: exhibitItems },
-    { key: "programs", items: programItems },
-  ],
-});
+Use **`namespacesFromEntries`**, **`itemsFromEntries`**, and **`assetsFromEntries`** when the source is array-shaped. Each helper:
 
-// Shape 2: namespace array (normalized into a manifest internally)
-const namespaces: MediaNamespaceDefinition[] = [
-  { key: "exhibits", items: exhibitItems },
-  { key: "programs", items: programItems },
-];
-
-// Shape 3: flat item array (all go into a single auto-generated namespace)
-const items: MediaContentDefinition[] = [item1, item2, item3];
-```
+- maps each element to `[key, value]`
+- validates values with Zod
+- throws **`ManifestValidationError`** on duplicate keys (with first and duplicate indices)
 
 ### Version-driven cache busting
 
 When an item's `version` changes, all its assets are re-downloaded. Items with unchanged versions keep their cached blobs.
 
 ```typescript
-import { defineManifestItem } from "@rockhallweb/electron-offline-content/main";
+import { defineItem } from "@rockhallweb/electron-offline-content/main";
 
-defineManifestItem({
-  id: "welcome-video",
+defineItem({
   version: apiEntry.updatedAt, // timestamp-based: "2026-03-15T08:30:00Z"
   kind: "video",
   assets,
 });
 
-defineManifestItem({
-  id: "floor-map",
+defineItem({
   version: apiEntry.contentMd5, // content-hash: "a1b2c3d4e5f6"
   kind: "image",
   assets,
@@ -182,45 +166,37 @@ defineManifestItem({
 An item can have multiple assets with different roles. Use `assetsByRole` in the renderer for role-based lookup.
 
 ```typescript
-import {
-  defineManifestItem,
-  defineManifestAsset,
-} from "@rockhallweb/electron-offline-content/main";
+import { defineAsset, defineItem } from "@rockhallweb/electron-offline-content/main";
 
-const inducteeItem = defineManifestItem({
-  id: "inductee-2026-beyonce",
+const inducteeItem = defineItem({
   version: "3",
   kind: "video",
   title: "Beyoncé Induction Ceremony",
-  assets: [
-    defineManifestAsset({
-      id: "main-video",
+  assets: {
+    "main-video": defineAsset({
       role: "primary",
       kind: "video",
       mimeType: "video/mp4",
       source: { url: "https://cdn.example.com/beyonce-ceremony.mp4" },
     }),
-    defineManifestAsset({
-      id: "poster",
+    poster: defineAsset({
       role: "poster",
       kind: "poster",
       source: { url: "https://cdn.example.com/beyonce-poster.jpg" },
     }),
-    defineManifestAsset({
-      id: "subs-en",
+    "subs-en": defineAsset({
       role: "subtitle",
       kind: "subtitle",
       fileName: "en.vtt",
       source: { url: "https://cdn.example.com/beyonce-en.vtt" },
     }),
-    defineManifestAsset({
-      id: "subs-es",
+    "subs-es": defineAsset({
       role: "subtitle-es",
       kind: "subtitle",
       fileName: "es.vtt",
       source: { url: "https://cdn.example.com/beyonce-es.vtt" },
     }),
-  ],
+  },
 });
 ```
 
@@ -244,31 +220,9 @@ if (!item.loading && item.data) {
 
 ## Common Mistakes
 
-### HIGH: Duplicate namespace keys in manifest
+### HIGH: Duplicate keys when building from arrays
 
-`normalizeManifest` throws `ManifestValidationError` when two namespaces share a key.
-
-```typescript
-// WRONG — duplicate key "videos"
-defineManifest({
-  namespaces: [
-    { key: "videos", items: featuredVideos },
-    { key: "videos", items: archiveVideos },
-  ],
-});
-```
-
-```typescript
-// CORRECT — distinct keys
-defineManifest({
-  namespaces: [
-    { key: "videos.featured", items: featuredVideos },
-    { key: "videos.archive", items: archiveVideos },
-  ],
-});
-```
-
-Source: normalize.ts
+Object literals cannot express duplicate keys. For dynamic lists, **`itemsFromEntries`** / **`namespacesFromEntries`** throw **`ManifestValidationError`** with the colliding key and indices.
 
 ### HIGH: Omitting required item version field
 
@@ -276,8 +230,7 @@ Source: normalize.ts
 
 ```typescript
 // WRONG — missing version
-defineManifestItem({
-  id: "welcome",
+defineItem({
   kind: "video",
   assets,
 });
@@ -285,15 +238,14 @@ defineManifestItem({
 
 ```typescript
 // CORRECT — version present
-defineManifestItem({
-  id: "welcome",
+defineItem({
   version: "2026-03-15",
   kind: "video",
   assets,
 });
 ```
 
-Source: normalize.ts; validation.ts
+Source: validation.ts
 
 ### HIGH: Asset URL without filename in path
 
@@ -301,8 +253,7 @@ When `fileName` is omitted, it is derived from the URL basename. URLs ending in 
 
 ```typescript
 // WRONG — URL has no filename to derive
-defineManifestAsset({
-  id: "video",
+defineAsset({
   role: "primary",
   kind: "video",
   source: { url: "https://cdn.example.com/api/stream/" },
@@ -311,20 +262,11 @@ defineManifestAsset({
 
 ```typescript
 // CORRECT — explicit fileName when URL lacks one
-defineManifestAsset({
-  id: "video",
+defineAsset({
   role: "primary",
   kind: "video",
   fileName: "ceremony.mp4",
   source: { url: "https://cdn.example.com/api/stream/" },
-});
-
-// ALSO CORRECT — URL with a parseable basename
-defineManifestAsset({
-  id: "video",
-  role: "primary",
-  kind: "video",
-  source: { url: "https://cdn.example.com/media/ceremony.mp4" },
 });
 ```
 
@@ -335,159 +277,47 @@ Source: internal/asset-file-name.ts
 Inlining deeply nested objects into a single `defineManifest` call obscures validation errors. The helpers validate each piece individually with clearer messages.
 
 ```typescript
-// WRONG — one giant inline object, validation errors point to root
-defineManifest({
-  namespaces: [
-    {
-      key: "videos",
-      items: [
-        {
-          id: "intro",
-          version: "1",
-          kind: "video",
-          assets: [
-            {
-              id: "main",
-              role: "primary",
-              kind: "video",
-              source: { url: "https://cdn.example.com/intro.mp4" },
-            },
-          ],
-        },
-      ],
-    },
-  ],
-});
-```
-
-```typescript
-// CORRECT — flat composition, each piece validated independently
-const mainAsset = defineManifestAsset({
-  id: "main",
+// CORRECT — flat composition
+const mainAsset = defineAsset({
   role: "primary",
   kind: "video",
   source: { url: "https://cdn.example.com/intro.mp4" },
 });
 
-const introItem = defineManifestItem({
-  id: "intro",
+const introItem = defineItem({
   version: "1",
   kind: "video",
-  assets: [mainAsset],
+  assets: { main: mainAsset },
 });
 
 const manifest = defineManifest({
-  namespaces: [{ key: "videos", items: [introItem] }],
+  namespaces: { videos: { items: { intro: introItem } } },
 });
 ```
 
-Source: Maintainer interview; README
+Source: README
 
 ### MEDIUM: Using non-HTTP asset source URLs
 
 Zod validation enforces `http://` or `https://` schemes. `file://`, `data:`, `blob:` are rejected.
 
-```typescript
-// WRONG — file:// rejected
-defineManifestAsset({
-  id: "local-video",
-  role: "primary",
-  kind: "video",
-  source: { url: "file:///Users/media/video.mp4" },
-});
-```
+### MEDIUM: Duplicate item IDs within a namespace
 
-```typescript
-// CORRECT — https://
-defineManifestAsset({
-  id: "cdn-video",
-  role: "primary",
-  kind: "video",
-  source: { url: "https://cdn.example.com/video.mp4" },
-});
-```
-
-Source: validation.ts
-
-### MEDIUM: Duplicate item IDs within namespace
-
-Item IDs must be unique per namespace. Transforming API data without deduplication causes collisions.
-
-Wrong:
-
-```typescript
-const items = apiEntries.map((entry) =>
-  defineManifestItem({
-    id: "intro",
-    version: entry.revision,
-    kind: "video",
-    assets: [
-      defineManifestAsset({
-        id: "main",
-        role: "primary",
-        kind: "video",
-        source: { url: entry.videoUrl },
-      }),
-    ],
-  }),
-);
-```
-
-Correct:
-
-```typescript
-const items = apiEntries.map((entry) =>
-  defineManifestItem({
-    id: entry.slug,
-    version: entry.revision,
-    kind: "video",
-    assets: [
-      defineManifestAsset({
-        id: "main",
-        role: "primary",
-        kind: "video",
-        source: { url: entry.videoUrl },
-      }),
-    ],
-  }),
-);
-```
-
-Source: normalize.ts
+Use **`itemsFromEntries`** with a stable unique key per row (e.g. `entry.slug`), or ensure object keys are unique when authoring literals.
 
 ### MEDIUM: Over-namespacing with too many granular namespaces
 
-Creating a namespace for every few items adds overhead without value. Namespaces are for app sections, not for grouping 2–3 items.
+Prefer one namespace with multiple items over many namespaces with one item each when items belong to the same app section.
 
-```typescript
-defineManifest({
-  namespaces: [
-    { key: "exhibits.guitars.fender", items: [fenderItem] },
-    { key: "exhibits.guitars.gibson", items: [gibsonItem] },
-    { key: "exhibits.guitars.rickenbacker", items: [rickenbackerItem] },
-  ],
-});
-```
+### HIGH Tension: Strict validation vs sync-time failures
 
-Correct:
-
-```typescript
-defineManifest({
-  namespaces: [{ key: "exhibits.guitars", items: [fenderItem, gibsonItem, rickenbackerItem] }],
-});
-```
-
-Source: Maintainer interview
-
-### HIGH Tension: Manifest flexibility vs validation strictness
-
-`resolveManifest` accepts multiple input shapes for convenience, but validation is strict on uniqueness and required fields. Using flexible shorthand inputs without required fields like `version` causes errors at sync time, not definition time.
+Use **`defineManifest`** / **`defineItem`** / **`defineAsset`** at build time so errors surface when you construct the manifest, not only at sync.
 
 See also: getting-started/SKILL.md § Common Mistakes
 
 ### HIGH Tension: Manifest-time auth vs download-time auth
 
-Pre-signed URLs set at manifest build time are simple but have a TTL ceiling — the expiration must cover the entire download queue. For large catalogs, prefer download-time signing via `resolveAssetRequest`.
+Pre-signed URLs at manifest build time need a TTL that covers the full download queue. For large catalogs, prefer **`resolveAssetRequest`**.
 
 See also: authenticated-downloads/SKILL.md § Common Mistakes
 

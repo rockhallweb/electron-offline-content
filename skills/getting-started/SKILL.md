@@ -40,9 +40,10 @@ import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import {
   createMediaCache,
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
+  itemsFromEntries,
 } from "@rockhallweb/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
@@ -55,27 +56,25 @@ const mediaCache = createMediaCache({
     const res = await fetch("https://cms.example.com/api/content");
     const data = await res.json();
     return defineManifest({
-      namespaces: [
-        {
-          key: "videos",
-          items: data.videos.map((v: any) =>
-            defineManifestItem({
-              id: v.slug,
+      namespaces: {
+        videos: {
+          items: itemsFromEntries(data.videos, (v: { slug: string; updatedAt: string; title: string; videoUrl: string }) => [
+            v.slug,
+            defineItem({
               version: v.updatedAt,
               kind: "video",
               title: v.title,
-              assets: [
-                defineManifestAsset({
-                  id: "main",
+              assets: {
+                main: defineAsset({
                   role: "primary",
                   kind: "video",
                   source: { url: v.videoUrl },
                 }),
-              ],
+              },
             }),
-          ),
+          ]),
         },
-      ],
+      },
     });
   },
 });
@@ -181,39 +180,36 @@ ipcMain.handle("begin-sync", () => {
 
 ### Using define helpers for readable manifests
 
-The `defineManifestAsset`, `defineManifestItem`, and `defineManifest` helpers validate each piece individually and surface errors at the point of definition. Build assets and items as standalone variables to keep nesting shallow:
+The `defineAsset`, `defineItem`, and `defineManifest` helpers validate each piece individually and surface errors at the point of definition. Build assets and items as standalone variables to keep nesting shallow:
 
 ```typescript
 import {
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
 } from "@rockhallweb/electron-offline-content/main";
 
-const mainVideo = defineManifestAsset({
-  id: "main",
+const mainVideo = defineAsset({
   role: "primary",
   kind: "video",
   source: { url: "https://cdn.example.com/welcome.v2.mp4" },
 });
 
-const posterImage = defineManifestAsset({
-  id: "poster",
+const posterImage = defineAsset({
   role: "poster",
   kind: "poster",
   source: { url: "https://cdn.example.com/welcome-poster.jpg" },
 });
 
-const welcomeItem = defineManifestItem({
-  id: "welcome",
+const welcomeItem = defineItem({
   version: "v2",
   kind: "video",
   title: "Welcome Video",
-  assets: [mainVideo, posterImage],
+  assets: { main: mainVideo, poster: posterImage },
 });
 
 const manifest = defineManifest({
-  namespaces: [{ key: "lobby", items: [welcomeItem] }],
+  namespaces: { lobby: { items: { welcome: welcomeItem } } },
 });
 ```
 
@@ -419,9 +415,9 @@ async function bootstrap() {
 
 Source: Maintainer interview
 
-### HIGH Tension: Manifest flexibility vs validation strictness
+### HIGH Tension: Manifest validation vs sync-time failures
 
-`resolveManifest` accepts multiple input shapes (full manifest, namespace array, item array) for convenience, but validation is strict on uniqueness and required fields. Agents using flexible shorthand may forget the required `version` field or produce duplicate keys, causing errors at sync time.
+`resolveManifest` must return a **`MediaCacheManifest`** (record-shaped namespaces, items, and assets). Validation is strict on required fields like `version` and on HTTP(S) asset URLs. Use **`defineManifest`** / **`defineItem`** / **`itemsFromEntries`** so errors surface when you build the manifest, not only during sync.
 
 See also: manifest-authoring/SKILL.md § Common Mistakes
 

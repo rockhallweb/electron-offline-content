@@ -49,11 +49,11 @@ skills:
     path: "skills/manifest-authoring/SKILL.md"
     description: >
       Writing resolveManifest functions against any remote source (CMS, S3,
-      REST API). Using defineManifest, defineManifestItem, defineManifestAsset
+      REST API). Using defineManifest, defineItem, defineAsset
       producer helpers for flat readable configs. Organizing content into
       dot-delimited namespace hierarchies. Validation rules for keys,
       versions, asset URLs, and fileName derivation. Version-driven cache
-      busting. ManifestInput shorthand forms (namespace array, item array).
+      busting. namespacesFromEntries / itemsFromEntries / assetsFromEntries.
     requires:
       - "getting-started"
     sources:

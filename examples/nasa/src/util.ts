@@ -1,4 +1,7 @@
 export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "0 B";
+  }
   if (bytes < 1024) {
     return `${bytes} B`;
   }

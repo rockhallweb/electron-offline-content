@@ -525,7 +525,7 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-`**MediaCacheOptions**`
+**`MediaCacheOptions`**
 
 | Option                | Type                       | Required | Description                                                                                     |
 | --------------------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
@@ -573,25 +573,25 @@ Build `namespaces`, `items`, or `assets` records from arrays while validating en
 
 #### Key types
 
-`**MediaCacheManifest**` -- `{ snapshotId?, retrievedAt?, expiresAt?, namespaces: Record<string, MediaNamespaceValue> }`
+**MediaCacheManifest** -- `{ snapshotId?, retrievedAt?, expiresAt?, namespaces: Record<string, MediaNamespaceValue> }`
 
-`**MediaNamespaceValue**` -- `{ label?, metadata?, items: Record<string, MediaItemValue> }`
+**MediaNamespaceValue** -- `{ label?, metadata?, items: Record<string, MediaItemValue> }`
 
-`**MediaItemValue**` -- `{ version, kind, title?, description?, summary?, blobs?, metadata?, assets: Record<string, MediaAssetValue> }`
+**MediaItemValue** -- `{ version, kind, title?, description?, summary?, blobs?, metadata?, assets: Record<string, MediaAssetValue> }`
 
-`**MediaAssetValue**` -- `{ role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
+**MediaAssetValue** -- `{ role, kind, version?, mimeType?, fileName?, byteLength?, source: { url, method?, headers? }, metadata? }`
 
-`**ResolvedMediaContentItem**` -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
+**ResolvedMediaContentItem** -- returned by queries. Includes `namespace`, `id`, `version`, `kind`, `title`, `description`, `summary`, `blobs`, `metadata`, `assets: ResolvedMediaAsset[]`, and `assetsByRole: Record<string, ResolvedMediaAsset | undefined>`.
 
-`**ResolvedMediaAsset**` -- `{ id, role, kind, mimeType?, byteLength?, url, metadata }`. `url` is a `media://` URL in offline mode or a remote URL in passthrough mode.
+**ResolvedMediaAsset** -- `{ id, role, kind, mimeType?, byteLength?, url, metadata }`. `url` is a `media://` URL in offline mode or a remote URL in passthrough mode.
 
-`**MediaCacheStatus**` -- `{ phase, storageRoot, activeGenerationId, progress, lastRun, error, updatedAt }`. `phase` is `"idle" | "syncing" | "ready" | "error"`.
+**MediaCacheStatus** -- `{ phase, storageRoot, activeGenerationId, progress, lastRun, error, updatedAt }`. `phase` is `"idle" | "syncing" | "ready" | "error"`.
 
-`**FileStemMatch**` -- `{ item: ResolvedMediaContentItem, matchedAssetIds: string[] }`
+**FileStemMatch** -- `{ item: ResolvedMediaContentItem, matchedAssetIds: string[] }`
 
-`**PaginationInput**` -- `{ limit?, cursor? }`
+**PaginationInput** -- `{ limit?, cursor? }`
 
-`**PaginationResult<T>**` -- `{ items: T[], nextCursor: string | null }`
+**`PaginationResult<T>`** -- `{ items: T[], nextCursor: string | null }`
 
 See the published `.d.ts` files for full type definitions.
 
