@@ -2,10 +2,10 @@
 name: react-rendering
 description: >
   React bindings for @rockhallweb/electron-offline-content:
-  MediaCacheProvider context, useMediaCacheStatus for sync phase and
-  progress, useMediaItem and useMediaItems for querying cached content
-  by namespace, useFileStemMatch for filename search, useMediaCacheReady
-  for download gates, useMediaCacheErrors for aggregated error display.
+  MediaCacheProvider context, useMedia as the primary query API for
+  item and namespace lookups, useMediaBridge and useMediaCacheStatus for sync phase and
+  progress, useFileStemMatch for filename search, useMediaCacheReady
+  for download gates, and useMediaCacheErrors for aggregated error display.
   AsyncState shape, refetchOnSyncComplete, assetsByRole convenience
   lookup, rendering media:// URLs in video/img/audio/track elements.
 type: framework
@@ -40,11 +40,11 @@ function App() {
 Gate content rendering on first sync completion, then render items:
 
 ```tsx
-import { useMediaCacheReady, useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { useMedia, useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
 
 function KioskShell() {
   const ready = useMediaCacheReady();
-  const videos = useMediaItems("videos", { limit: 50 });
+  const videos = useMedia({ kind: "list", namespace: "videos", limit: 50 });
 
   if (ready.loading || !ready.data?.ready) {
     return <div>Preparing content…</div>;
@@ -92,17 +92,19 @@ function LoadingGate({ children }: { children: React.ReactNode }) {
 }
 ```
 
-### Querying items with useMediaItems
+### Querying items with useMedia
 
-Returns `AsyncState<PaginationResult<ResolvedMediaContentItem>>`. Supports `limit`, `cursor`, `recursive`, and `refetchOnSyncComplete`.
+Returns `UseMediaItemResult` or `UseMediaListResult` depending on whether you pass `{ kind: "item" }` or `{ kind: "list" }`.
 
 Flat namespace query:
 
 ```tsx
-import { useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function VideoList() {
-  const { data, loading, error, refresh } = useMediaItems("videos", {
+  const { data, loading, error, refresh } = useMedia({
+    kind: "list",
+    namespace: "videos",
     limit: 20,
     refetchOnSyncComplete: true,
   });
@@ -124,7 +126,9 @@ Recursive tree query across nested namespaces:
 
 ```tsx
 function AllMedia() {
-  const { data, loading } = useMediaItems("exhibits.floor-2", {
+  const { data, loading } = useMedia({
+    kind: "list",
+    namespace: "exhibits.floor-2",
     recursive: true,
     limit: 100,
   });
@@ -146,15 +150,18 @@ function AllMedia() {
 }
 ```
 
-### Single item lookup with useMediaItem
+### Single item lookup with useMedia
 
-Returns `AsyncState<ResolvedMediaContentItem | null>`. Fetches one item by exact namespace and id.
+Use `{ kind: "item", namespace, id }` for an exact item lookup.
 
 ```tsx
-import { useMediaItem } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function InducteeProfile({ inducteeId }: { inducteeId: string }) {
-  const { data: item, loading } = useMediaItem("inductees", inducteeId, {
+  const { data: item, loading } = useMedia({
+    kind: "item",
+    namespace: "inductees",
+    id: inducteeId,
     refetchOnSyncComplete: true,
   });
 
@@ -205,23 +212,39 @@ function SyncOverlay() {
 }
 ```
 
-### Error aggregation with useMediaCacheErrors
+### Imperative bridge access with useMediaBridge
 
-Takes a shared `MediaCacheStatusState` and any number of query states. Returns `MediaCacheErrors` with `{ hasError, primaryError, syncError, statusError, queryErrors }`.
+Returns bridge methods together with shared `status` and aggregated `errors`.
 
 ```tsx
-import {
-  useMediaCacheStatus,
-  useMediaItems,
-  useMediaCacheErrors,
-} from "@rockhallweb/electron-offline-content/react";
+import { useMediaBridge } from "@rockhallweb/electron-offline-content/react";
+
+function DownloadButton() {
+  const { syncNow, status, errors } = useMediaBridge();
+
+  return (
+    <button
+      type="button"
+      disabled={status.data?.phase === "syncing"}
+      onClick={() => void syncNow()}
+    >
+      {errors.hasError ? `Retry sync (${errors.primaryError?.message})` : "Sync now"}
+    </button>
+  );
+}
+```
+
+### Error aggregation with useMediaCacheErrors
+
+Returns `MediaCacheErrors` with `{ hasError, primaryError, syncError, statusError, queryErrors }`.
+
+```tsx
+import { useMedia, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
 
 function ExhibitPage() {
-  const status = useMediaCacheStatus();
-  const videos = useMediaItems("videos", { limit: 50 });
-  const images = useMediaItems("images", { limit: 100 });
-
-  const errors = useMediaCacheErrors(status, videos, images);
+  const videos = useMedia({ kind: "list", namespace: "videos", limit: 50 });
+  const images = useMedia({ kind: "list", namespace: "images", limit: 100 });
+  const errors = useMediaCacheErrors();
 
   if (errors.hasError) {
     return (
@@ -301,7 +324,7 @@ All hooks return `AsyncState<T>` where `data` is `null` until the first successf
 ```tsx
 // WRONG — TypeError when data is null
 function Broken() {
-  const items = useMediaItems("videos");
+  const items = useMedia({ kind: "list", namespace: "videos" });
   return (
     <ul>
       {items.data.items.map((i) => (
@@ -313,7 +336,7 @@ function Broken() {
 
 // CORRECT — guard on loading and null
 function Fixed() {
-  const items = useMediaItems("videos");
+  const items = useMedia({ kind: "list", namespace: "videos" });
   if (items.loading || !items.data) return <p>Loading…</p>;
   return (
     <ul>
@@ -351,49 +374,41 @@ function Fixed({ item }: { item: ResolvedMediaContentItem }) {
 
 Source: Maintainer interview
 
-### MEDIUM: Using deprecated useMediaNamespace hooks
+### MEDIUM: Using removed `useMediaNamespace` / `useMediaNamespaceTree`
 
-`useMediaNamespace` and `useMediaNamespaceTree` are deprecated. They still work but will be removed before 1.0.
+These hooks were removed in 0.2.0. Older snippets or hallucinated names may still reference them.
 
 ```tsx
-// WRONG — deprecated API
+// WRONG — removed API (migrate away)
 const items = useMediaNamespace("videos", { limit: 20 });
 const tree = useMediaNamespaceTree("exhibits", { limit: 50 });
 
-// CORRECT — current API
-const items = useMediaItems("videos", { limit: 20 });
-const tree = useMediaItems("exhibits", { recursive: true, limit: 50 });
+// CORRECT
+const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+const tree = useMedia({ kind: "list", namespace: "exhibits", recursive: true, limit: 50 });
 ```
 
-Source: `react/index.tsx` — `@deprecated` JSDoc annotations
+Source: `CHANGELOG.md` 0.2.0; `react/index.tsx` — `useMedia`
 
-### MEDIUM: Multiple independent useMediaCacheStatus subscriptions
+### MEDIUM: Splitting imperative bridge state across multiple hooks
 
-`useMediaCacheErrors` accepts a shared status object to avoid redundant IPC subscriptions. Calling `useMediaCacheStatus` in multiple sibling components creates duplicate listeners.
+If a component needs `syncNow()`, status, and errors together, prefer `useMediaBridge()` over manually combining separate bridge, status, and error hooks. The combined hook matches the provider runtime and keeps imperative UI code simpler.
 
 ```tsx
-// WRONG — two subscriptions for the same data
-function VideoPanel() {
+// WRONG — imperative bridge UI spread across separate hooks
+function SyncButton() {
   const status = useMediaCacheStatus();
-  const videos = useMediaItems("videos");
-  const errors = useMediaCacheErrors(status, videos);
-  // ...
-}
-function ImagePanel() {
-  const status = useMediaCacheStatus(); // duplicate subscription
-  const images = useMediaItems("images");
-  const errors = useMediaCacheErrors(status, images);
-  // ...
+  const errors = useMediaCacheErrors();
+  // some other hook supplies syncNow()
 }
 
-// CORRECT — lift status to parent, pass down
-function ExhibitPage() {
-  const status = useMediaCacheStatus();
+// CORRECT — one hook for imperative bridge access
+function SyncButton() {
+  const { syncNow, status, errors } = useMediaBridge();
   return (
-    <>
-      <VideoPanel status={status} />
-      <ImagePanel status={status} />
-    </>
+    <button onClick={() => void syncNow()}>
+      {status.data?.phase ?? errors.primaryError?.message}
+    </button>
   );
 }
 ```
@@ -409,7 +424,7 @@ URLs differ between offline mode (`media://`) and `devPassthrough` mode (remote 
 <video src="media://asset/videos/welcome/main" />;
 
 // CORRECT — URL from hook result
-const { data: item } = useMediaItem("videos", "welcome");
+const { data: item } = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
 <video src={item?.assetsByRole.primary?.url} />;
 ```
 

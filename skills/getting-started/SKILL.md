@@ -114,13 +114,13 @@ This calls `contextBridge.exposeInMainWorld` to put the IPC bridge on `window.me
 ```tsx
 import {
   MediaCacheProvider,
-  useMediaItems,
+  useMedia,
   useMediaCacheReady,
 } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
   const ready = useMediaCacheReady();
-  const videos = useMediaItems("videos", { limit: 20 });
+  const videos = useMedia({ kind: "list", namespace: "videos", limit: 20 });
 
   if (!ready.data?.ready) return <p>Preparing offline content...</p>;
   if (videos.loading) return <p>Loading...</p>;
@@ -274,19 +274,19 @@ import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/pr
 exposeMediaCacheBridge();
 ```
 
-Source: react/index.tsx `useMediaCacheBridge()` throw
+Source: react/index.tsx `useMediaBridge()` throw
 
 ### HIGH: Missing MediaCacheProvider in React tree
 
-All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaCacheBridge()` throws.
+All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaBridge()` and the query hooks throw.
 
 Wrong:
 
 ```tsx
-import { useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
-  const items = useMediaItems("videos", { limit: 20 });
+  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
   return (
     <div>
       {items.data?.items.map((item) => (
@@ -300,10 +300,10 @@ function App() {
 Correct:
 
 ```tsx
-import { MediaCacheProvider, useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider, useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
-  const items = useMediaItems("videos", { limit: 20 });
+  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
   return (
     <div>
       {items.data?.items.map((item) => (

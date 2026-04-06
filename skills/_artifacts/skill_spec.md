@@ -62,13 +62,13 @@ are expected.
 
 ### react-rendering (5 failure modes)
 
-| #   | Mistake                                          | Priority | Source               | Cross-skill? |
-| --- | ------------------------------------------------ | -------- | -------------------- | ------------ |
-| 1   | Accessing data before loading completes          | HIGH     | react/index.tsx      | —            |
-| 2   | Fetching remote URLs instead of rendering direct | HIGH     | Maintainer interview | —            |
-| 3   | Using deprecated useMediaNamespace hooks         | MEDIUM   | react/index.tsx      | —            |
-| 4   | Multiple independent status subscriptions        | MEDIUM   | react/index.tsx      | —            |
-| 5   | Hardcoding media:// URLs instead of using hooks  | MEDIUM   | database.ts; README  | —            |
+| #   | Mistake                                              | Priority | Source                     | Cross-skill? |
+| --- | ---------------------------------------------------- | -------- | -------------------------- | ------------ |
+| 1   | Accessing data before loading completes              | HIGH     | react/index.tsx            | —            |
+| 2   | Fetching remote URLs instead of rendering direct     | HIGH     | Maintainer interview       | —            |
+| 3   | Using removed useMediaNamespace hooks (use useMedia) | MEDIUM   | CHANGELOG; react/index.tsx | —            |
+| 4   | Multiple independent status subscriptions            | MEDIUM   | react/index.tsx            | —            |
+| 5   | Hardcoding media:// URLs instead of using hooks      | MEDIUM   | database.ts; README        | —            |
 
 ### authenticated-downloads (4 failure modes)
 

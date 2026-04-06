@@ -104,7 +104,7 @@ function courseToItem(course: ApiCourse) {
 
 ### Dot-delimited namespace hierarchies
 
-Use dot notation for hierarchical organization. `useMediaItems("courses", { recursive: true })` queries all nested namespaces.
+Use dot notation for hierarchical organization. `useMedia({ kind: "list", namespace: "courses", recursive: true })` queries all nested namespaces.
 
 ```typescript
 import { defineManifest } from "@rockhallweb/electron-offline-content/main";
@@ -121,8 +121,8 @@ defineManifest({
 
 ```typescript
 // In renderer — queries courses.beginner, courses.beginner.featured, courses.advanced
-const allCourses = useMediaItems("courses", { recursive: true });
-const beginnerOnly = useMediaItems("courses.beginner");
+const allCourses = useMedia({ kind: "list", namespace: "courses", recursive: true });
+const beginnerOnly = useMedia({ kind: "list", namespace: "courses.beginner" });
 ```
 
 ### Shorthand manifest inputs
@@ -226,7 +226,7 @@ const inducteeItem = defineManifestItem({
 
 ```tsx
 // In renderer
-const item = useMediaItem("inductees", "inductee-2026-beyonce");
+const item = useMedia({ kind: "item", namespace: "inductees", id: "inductee-2026-beyonce" });
 if (!item.loading && item.data) {
   const video = item.data.assetsByRole["primary"];
   const poster = item.data.assetsByRole["poster"];

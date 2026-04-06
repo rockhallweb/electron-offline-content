@@ -50,7 +50,7 @@ skills:
       - "mediaCache.start()"
       - "exposeMediaCacheBridge()"
       - "MediaCacheProvider"
-      - "useMediaItems / useMediaItem"
+      - "useMedia()"
       - "resolveManifest callback"
       - "defineManifest / defineManifestItem / defineManifestAsset"
       - "app.requestSingleInstanceLock()"
@@ -95,26 +95,26 @@ skills:
           // preload.ts
           import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
           exposeMediaCacheBridge();
-        source: "react/index.tsx useMediaCacheBridge() throw"
+        source: "react/index.tsx useMediaBridge() throw"
         priority: CRITICAL
         status: active
       - mistake: "Missing MediaCacheProvider in React tree"
         mechanism: >
           All query hooks require a MediaCacheProvider ancestor (or
-          window.mediaCache fallback). Without it, useMediaCacheBridge()
-          throws. Agents may skip the provider when generating React code.
+          window.mediaCache fallback). Without it, useMediaBridge()
+          and the query hooks throw. Agents may skip the provider when generating React code.
         wrong_pattern: |
           // renderer.tsx
-          import { useMediaItems } from "@rockhallweb/electron-offline-content/react";
+          import { useMedia } from "@rockhallweb/electron-offline-content/react";
           function App() {
-            const items = useMediaItems("videos", { limit: 20 });
+            const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
             // ...
           }
           createRoot(document.getElementById("root")!).render(<App />);
         correct_pattern: |
-          import { MediaCacheProvider, useMediaItems } from "@rockhallweb/electron-offline-content/react";
+          import { MediaCacheProvider, useMedia } from "@rockhallweb/electron-offline-content/react";
           function App() {
-            const items = useMediaItems("videos", { limit: 20 });
+            const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
             // ...
           }
           createRoot(document.getElementById("root")!).render(
@@ -439,13 +439,12 @@ skills:
     type: framework
     covers:
       - "MediaCacheProvider"
-      - "useMediaCacheBridge()"
+      - "useMediaBridge()"
       - "useMediaCacheStatus()"
-      - "useMediaItem(namespace, id)"
-      - "useMediaItems(namespaceOrPrefix, options)"
+      - 'useMedia({ kind: "item" | "list", ... })'
       - "useFileStemMatch(stem, options)"
       - "useMediaCacheReady()"
-      - "useMediaCacheErrors(status, ...queries)"
+      - "useMediaCacheErrors()"
       - "AsyncState<T> shape"
       - "refetchOnSyncComplete option"
       - "ResolvedMediaContentItem / ResolvedMediaAsset"
@@ -467,53 +466,51 @@ skills:
           Accessing .data.items or .data.phase without null checks causes
           a runtime TypeError.
         wrong_pattern: |
-          const items = useMediaItems("videos", { limit: 20 });
+          const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
           return <div>{items.data.items.map(/* ... */)}</div>;
         correct_pattern: |
-          const items = useMediaItems("videos", { limit: 20 });
+          const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
           if (items.loading) return <p>Loading...</p>;
           return <div>{items.data?.items.map(/* ... */)}</div>;
         source: "react/index.tsx AsyncState type; useState initial null"
         priority: HIGH
         status: active
-      - mistake: "Using deprecated useMediaNamespace / useMediaNamespaceTree"
+      - mistake: "Using removed useMediaNamespace / useMediaNamespaceTree"
         mechanism: >
-          These hooks are deprecated in favor of useMediaItems with options.
-          Agents trained on older code or hallucinating API may generate them.
+          These hooks were removed in 0.2.0. Use useMedia with kind \"list\"
+          and optional recursive: true for namespace trees.
         wrong_pattern: |
           const items = useMediaNamespace("videos", { limit: 20 });
           const tree = useMediaNamespaceTree("courses", { limit: 40 });
         correct_pattern: |
-          const items = useMediaItems("videos", { limit: 20 });
-          const tree = useMediaItems("courses", { recursive: true, limit: 40 });
-        source: "react/index.tsx @deprecated annotations"
+          const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+          const tree = useMedia({
+            kind: "list",
+            namespace: "courses",
+            recursive: true,
+            limit: 40,
+          });
+        source: "CHANGELOG.md 0.2.0; react/index.tsx useMedia"
         priority: MEDIUM
         status: active
-      - mistake: "Multiple independent useMediaCacheStatus subscriptions for error aggregation"
+      - mistake: "Splitting imperative bridge state across multiple hooks"
         mechanism: >
-          useMediaCacheErrors takes a shared status state to avoid creating
-          redundant IPC subscriptions. Calling useMediaCacheStatus in one
-          component and useMediaCacheErrors in another wastes a subscription.
+          If a component needs bridge actions plus status and errors together,
+          prefer useMediaBridge() over manually combining separate hooks.
+          The combined hook keeps imperative bridge UI simpler.
         wrong_pattern: |
-          function StatusBar() {
+          function SyncButton() {
             const status = useMediaCacheStatus();
-            return <p>{status.data?.phase}</p>;
-          }
-          function Content() {
-            const anotherStatus = useMediaCacheStatus();
-            const items = useMediaItems("videos", { limit: 20 });
-            const errors = useMediaCacheErrors(anotherStatus, items);
+            const errors = useMediaCacheErrors();
+            // some other hook supplies syncNow()
           }
         correct_pattern: |
-          function App() {
-            const status = useMediaCacheStatus();
-            const items = useMediaItems("videos", { limit: 20 });
-            const errors = useMediaCacheErrors(status, items);
+          function SyncButton() {
+            const { syncNow, status, errors } = useMediaBridge();
             return (
-              <>
-                <StatusBar phase={status.data?.phase} />
-                <Content items={items} errors={errors} />
-              </>
+              <button onClick={() => void syncNow()}>
+                {status.data?.phase ?? errors.primaryError?.message}
+              </button>
             );
           }
         source: "react/index.tsx useMediaCacheErrors JSDoc"
@@ -535,7 +532,7 @@ skills:
           on media elements. The whole point of the package is that hook URLs
           are ready-to-render — pass them to <video src>, <img src>, etc.
         wrong_pattern: |
-          const item = useMediaItem("videos", "welcome");
+          const item = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
           const [blob, setBlob] = useState(null);
           useEffect(() => {
             if (item.data?.assetsByRole.primary?.url) {
@@ -545,7 +542,7 @@ skills:
             }
           }, [item.data]);
         correct_pattern: |
-          const item = useMediaItem("videos", "welcome");
+          const item = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
           if (item.loading) return <p>Loading...</p>;
           return <video src={item.data?.assetsByRole.primary?.url} controls />;
         source: "Maintainer interview"

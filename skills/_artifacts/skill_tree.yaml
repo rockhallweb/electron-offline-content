@@ -96,8 +96,8 @@ skills:
     path: "skills/react-rendering/SKILL.md"
     description: >
       React bindings for @rockhallweb/electron-offline-content:
-      MediaCacheProvider context, useMediaCacheStatus for sync phase and
-      progress, useMediaItem and useMediaItems for querying cached content
+      MediaCacheProvider context, useMediaBridge and useMediaCacheStatus for sync phase and
+      progress, useMedia for querying cached content
       by namespace, useFileStemMatch for filename search, useMediaCacheReady
       for download gates, useMediaCacheErrors for aggregated error display.
       AsyncState shape, refetchOnSyncComplete, assetsByRole convenience
