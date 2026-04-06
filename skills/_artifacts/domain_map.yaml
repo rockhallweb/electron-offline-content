@@ -142,7 +142,7 @@ skills:
           async function bootstrap() {
             const mediaCache = createMediaCache({ /* ... */ });
             await app.whenReady();
-            await mediaCache.start();
+            mediaCache.start();
           }
         source: "README; examples/local/src/main.ts"
         priority: HIGH
