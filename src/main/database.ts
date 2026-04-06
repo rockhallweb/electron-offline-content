@@ -16,6 +16,7 @@ import {
   activeAssetRowSchema,
   activeGenerationRowSchema,
   fileStemRowSchema,
+  generationIdRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
   parseJsonWithSchema,
@@ -280,6 +281,23 @@ export class MediaCacheDatabase {
     return row
       ? parseWithSchema(activeGenerationRowSchema, row, "active generation row").generation_id
       : null;
+  }
+
+  listStagedGenerationIds(): number[] {
+    this.assertNotClosed();
+    const rows = parseWithSchema(
+      generationIdRowSchema.array(),
+      this.db
+        .prepare(
+          `SELECT id
+           FROM generations
+           WHERE status = 'staged'
+           ORDER BY id ASC`,
+        )
+        .all(),
+      "staged generation rows",
+    );
+    return rows.map((row) => row.id);
   }
 
   createStagedGeneration(manifest: NormalizedManifest, now: number): number {
