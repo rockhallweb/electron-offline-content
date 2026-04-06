@@ -1,0 +1,58 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "inputs": ["src/**", "package.json", "pnpm-lock.yaml", "tsconfig.json", "tsup.config.ts"],
+      "outputs": ["dist/**"]
+    },
+    "check": {
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "tsconfig.json",
+        "vitest.config.ts",
+        "tsup.config.ts"
+      ]
+    },
+    "lint": {},
+    "format:check": {},
+    "test": {
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "tsconfig.json",
+        "vitest.config.ts"
+      ]
+    },
+    "pack:verify": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "install:example:local": {
+      "cache": false
+    },
+    "install:example:nasa": {
+      "cache": false
+    },
+    "example:local:lint": {},
+    "example:local:format:check": {},
+    "example:local:knip": {},
+    "example:local:start": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    },
+    "example:nasa:lint": {},
+    "example:nasa:format:check": {},
+    "example:nasa:knip": {},
+    "example:nasa:start": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

@@ -45,8 +45,6 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -57,8 +55,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run maintainer validation
-        run: xvfb-run -a pnpm ci:validate
+      - name: Run Turbo validation pipeline
+        run: xvfb-run -a pnpm validate
 
-      - name: Verify example apps (lint, format, knip)
-        run: pnpm ci:examples
+      - name: Install local example dependencies
+        run: pnpm install:example:local:ci
+
+      - name: Install NASA example dependencies
+        run: pnpm install:example:nasa:ci
+
+      - name: Verify example apps via Turbo
+        run: pnpm examples:verify
