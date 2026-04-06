@@ -39,6 +39,7 @@ export type {
 } from "../shared/types.js";
 export {
   DataValidationError,
+  ManifestExpiredError,
   ManifestValidationError,
   MediaCacheError,
   StorageOwnershipError,

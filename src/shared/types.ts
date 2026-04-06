@@ -44,6 +44,11 @@ export interface MediaCacheManifest {
   snapshotId?: string;
   /** Timestamp describing when the manifest payload was retrieved. */
   retrievedAt?: string;
+  /**
+   * Optional ISO 8601 timestamp after which manifest-derived asset URLs must be treated as expired.
+   * Used to fail syncs before opaque late-queue 403s from short-lived pre-signed URLs.
+   */
+  expiresAt?: string;
   /** Content namespaces; order is preserved where the implementation surfaces ordered lists. */
   namespaces: MediaNamespaceDefinition[];
 }

@@ -22,6 +22,7 @@ import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.
 import { normalizeStem } from "../shared/stem.js";
 import {
   DataValidationError,
+  ManifestExpiredError,
   ManifestValidationError,
   StorageLimitError,
   SyncFailureError,
@@ -158,14 +159,17 @@ export const disableMediaCacheStorageRootLockForTests = disableStorageRootLockFo
  */
 export const enableMediaCacheStorageRootLockForTests = enableStorageRootLockForTests;
 
-interface DownloadTarget {
+interface QueuedDownloadTarget {
   namespace: string;
   itemId: string;
   assetId: string;
-  request: DownloadRequest;
   fileName: string;
   resolvedVersion: string;
   byteLength?: number;
+}
+
+interface DownloadTarget extends QueuedDownloadTarget {
+  request: DownloadRequest;
 }
 
 interface RuntimeDependencies {
@@ -555,6 +559,7 @@ export class MediaCache implements MediaCacheMain {
     let storedStatus: MediaCacheStatus | null = null;
     let activeGenerationId: number | null = null;
     if (!this.devPassthrough) {
+      activeGenerationId = this.reconcileOrphanedStagedGenerations();
       try {
         storedStatus = this.db.loadStatus();
       } catch (error) {
@@ -567,7 +572,6 @@ export class MediaCache implements MediaCacheMain {
           error_message: error.message,
         });
       }
-      activeGenerationId = this.db.getActiveGenerationId();
       if (storedStatus) {
         this.status = storedStatus;
       } else if (activeGenerationId !== null) {
@@ -590,6 +594,28 @@ export class MediaCache implements MediaCacheMain {
       active_generation_id: this.status.activeGenerationId,
       dev_passthrough_enabled: this.devPassthrough,
     });
+  }
+
+  private reconcileOrphanedStagedGenerations(): number | null {
+    const activeGenerationId = this.db!.getActiveGenerationId();
+    const stagedGenerationIds = this.db!.listStagedGenerationIds().filter(
+      (generationId) => generationId !== activeGenerationId,
+    );
+    if (stagedGenerationIds.length === 0) {
+      return activeGenerationId;
+    }
+
+    for (const stagedGenerationId of stagedGenerationIds) {
+      this.cleanupStagedGenerationFiles(stagedGenerationId, activeGenerationId);
+      this.db!.deleteGeneration(stagedGenerationId);
+    }
+
+    this.emitLog("warn", "orphaned_staged_generations_removed", {
+      active_generation_id: activeGenerationId,
+      removed_generation_ids: stagedGenerationIds,
+      removed_generation_count: stagedGenerationIds.length,
+    });
+    return activeGenerationId;
   }
 
   private prepareDevRuntimeState(): void {
@@ -647,6 +673,7 @@ export class MediaCache implements MediaCacheMain {
 
     try {
       const manifest = normalizeManifest(await this.options.resolveManifest());
+      this.assertManifestNotExpired(manifest, runId);
       stagedGenerationId = this.db!.createStagedGeneration(manifest, now);
       this.emitLog("info", "manifest_resolved", {
         run_id: runId,
@@ -680,7 +707,7 @@ export class MediaCache implements MediaCacheMain {
       const currentMap = new Map(
         currentAssets.map((row) => [logicalKey(row.namespace, row.itemId, row.assetId), row]),
       );
-      const downloads: DownloadTarget[] = [];
+      const downloads: QueuedDownloadTarget[] = [];
 
       for (const row of stagedAssets) {
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
@@ -711,18 +738,10 @@ export class MediaCache implements MediaCacheMain {
           }
         }
 
-        const request = await this.resolveDownloadRequest(
-          manifest,
-          row.namespace,
-          row.itemId,
-          row.assetId,
-        );
-
         downloads.push({
           namespace: row.namespace,
           itemId: row.itemId,
           assetId: row.assetId,
-          request,
           fileName: manifestAsset.asset.normalizedFileName,
           resolvedVersion: manifestAsset.asset.resolvedVersion,
           byteLength: manifestAsset.asset.byteLength,
@@ -750,7 +769,18 @@ export class MediaCache implements MediaCacheMain {
           skippedAssets: stats.skippedAssets,
         }));
 
-        for (const download of downloads) {
+        for (const queuedDownload of downloads) {
+          this.assertManifestNotExpired(manifest, runId, queuedDownload);
+          const request = await this.resolveDownloadRequest(
+            manifest,
+            queuedDownload.namespace,
+            queuedDownload.itemId,
+            queuedDownload.assetId,
+          );
+          const download: DownloadTarget = {
+            ...queuedDownload,
+            request,
+          };
           this.emitLog("debug", "asset_download_started", {
             run_id: runId,
             namespace: download.namespace,
@@ -885,6 +915,38 @@ export class MediaCache implements MediaCacheMain {
     }
   }
 
+  private assertManifestNotExpired(
+    manifest: NormalizedManifest,
+    runId: number,
+    download?: Pick<QueuedDownloadTarget, "namespace" | "itemId" | "assetId">,
+  ): void {
+    if (!manifest.expiresAt) {
+      return;
+    }
+
+    const expiresAtMs = Date.parse(manifest.expiresAt);
+    const now = this.deps.now();
+    if (Number.isNaN(expiresAtMs) || now < expiresAtMs) {
+      return;
+    }
+
+    this.emitLog("warn", "manifest_expired", {
+      run_id: runId,
+      expires_at: manifest.expiresAt,
+      now_ms: now,
+      namespace: download?.namespace,
+      item_id: download?.itemId,
+      asset_id: download?.assetId,
+    });
+
+    const assetLabel = download
+      ? ` before downloading ${download.namespace}/${download.itemId}/${download.assetId}`
+      : "";
+    throw new ManifestExpiredError(
+      `Manifest URLs expired at ${manifest.expiresAt}${assetLabel}. Refresh the manifest and retry sync.`,
+    );
+  }
+
   private async resolveDownloadRequest(
     manifest: NormalizedManifest,
     namespaceKey: string,
@@ -903,7 +965,7 @@ export class MediaCache implements MediaCacheMain {
     });
   }
 
-  private async enforceStorageLimits(downloads: DownloadTarget[]): Promise<void> {
+  private async enforceStorageLimits(downloads: QueuedDownloadTarget[]): Promise<void> {
     const estimatedBlobBytes = downloads.reduce(
       (sum, download) => sum + (download.byteLength ?? 0),
       0,
@@ -1020,13 +1082,13 @@ export class MediaCache implements MediaCacheMain {
     throw lastError;
   }
 
-  private remainingDownloadBytes(download: DownloadTarget): number {
+  private remainingDownloadBytes(download: QueuedDownloadTarget): number {
     const expectedBytes = download.byteLength ?? 0;
     const partialBytes = this.partialDownloadBytes(download);
     return Math.max(expectedBytes - partialBytes, 0);
   }
 
-  private partialDownloadBytes(download: DownloadTarget): number {
+  private partialDownloadBytes(download: QueuedDownloadTarget): number {
     const tempPath = this.partialDownloadPath(download);
     return existsSync(tempPath) ? statSync(tempPath).size : 0;
   }
@@ -1151,7 +1213,7 @@ export class MediaCache implements MediaCacheMain {
     }
   }
 
-  private partialDownloadPath(download: DownloadTarget): string {
+  private partialDownloadPath(download: QueuedDownloadTarget): string {
     return join(
       this.storageRoot!,
       "temp",
@@ -1163,7 +1225,7 @@ export class MediaCache implements MediaCacheMain {
     );
   }
 
-  private cleanupObsoletePartialDownloads(downloads: DownloadTarget[]): void {
+  private cleanupObsoletePartialDownloads(downloads: QueuedDownloadTarget[]): void {
     const tempRoot = join(this.storageRoot!, "temp");
     if (!existsSync(tempRoot)) {
       return;

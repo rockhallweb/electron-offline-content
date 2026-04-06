@@ -147,6 +147,8 @@ Cross-skill: cache-configuration/SKILL.md § Common Mistakes
 
 When using manifest-time pre-signed URLs, the TTL must exceed total download time for **all** assets. Assets late in the queue fail with opaque HTTP 403 when URLs expire mid-sync.
 
+If you must ship pre-signed URLs in the manifest, set top-level `expiresAt` to the earliest shared expiration timestamp so the cache can fail fast with `MANIFEST_EXPIRED` before a later asset request is resolved or fetched with a stale URL.
+
 Wrong — 15-minute TTL for a catalog that takes 2 hours to sync:
 
 ```typescript
@@ -176,10 +178,12 @@ async function resolveManifest() {
 }
 ```
 
-Correct — generous expiration or download-time signing:
+Correct — generous expiration plus `expiresAt`, or download-time signing:
 
 ```typescript
-// Option A: generous TTL (24 hours) for small catalogs
+// Option A: generous TTL (24 hours) for small catalogs, plus manifest.expiresAt
+const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
 {
   expiresIn: 86400;
 }
