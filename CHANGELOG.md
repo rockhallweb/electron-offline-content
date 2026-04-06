@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.0
+
+### Changed
+
+- Breaking: removed the flat `onLog`, `logLevel`, and `logFormat` `MediaCacheOptions` fields in favor of a nested `logging` object.
+- `logging` is now a discriminated configuration shape: use `logging.onLog` for a custom structured sink, or `logging.format` for the built-in console sink, but not both together.
+
+### Migration
+
+```ts
+// Before
+createMediaCache({
+  logLevel: "info",
+  onLog: (entry) => logger.info(entry, entry.event),
+  resolveManifest,
+});
+
+// After
+createMediaCache({
+  logging: {
+    level: "info",
+    onLog: (entry) => logger.info(entry, entry.event),
+  },
+  resolveManifest,
+});
+```
+
+```ts
+// Before
+createMediaCache({
+  logLevel: "debug",
+  logFormat: "json",
+  resolveManifest,
+});
+
+// After
+createMediaCache({
+  logging: {
+    level: "debug",
+    format: "json",
+  },
+  resolveManifest,
+});
+```
+
+`logging.format` is only for the built-in console sink and cannot be used with `logging.onLog`.
+
 ## 0.1.3
 
 ### Added

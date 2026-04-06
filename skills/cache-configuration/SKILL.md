@@ -5,11 +5,11 @@ description: >
   appPath and segments, devPassthrough mode, assetBaseUrl origin override,
   onSyncFailure mode selection (serve-last-snapshot vs throw),
   maxCacheBytes, reserveFreeBytes, staleDeleteAfterMs, syncHistoryLimit,
-  onLog structured logging with custom sinks (pino, logtape), logLevel,
-  logFormat, MediaCacheLogEvent structure.
+  nested logging config with custom sinks (pino, logtape), log levels,
+  console formats, and MediaCacheLogEvent structure.
 type: core
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.2.0"
 requires:
   - getting-started
 sources:
@@ -41,9 +41,11 @@ const mediaCache = createMediaCache({
   onSyncFailure: "serve-last-snapshot",
   maxCacheBytes: 10 * 1024 * 1024 * 1024,
   reserveFreeBytes: 1 * 1024 * 1024 * 1024,
-  logLevel: "info",
-  onLog: (entry) => {
-    logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+    },
   },
   resolveManifest: async () => {
     const res = await fetch("https://cms.example.com/api/content");
@@ -109,7 +111,7 @@ const mediaCache = createMediaCache({
 
 ### Structured logging
 
-`onLog` receives `MediaCacheLogEvent` objects with structured fields (`timestamp`, `level`, `event`, `service`, `component`, plus context-specific keys). Pipe them to any structured logger:
+Use the nested `logging` object for all log configuration. `logging.onLog` receives `MediaCacheLogEvent` objects with structured fields (`timestamp`, `level`, `event`, `service`, `component`, plus context-specific keys). Pipe them to any structured logger:
 
 **pino:**
 
@@ -120,9 +122,11 @@ const logger = pino({ name: "media-cache" });
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  logLevel: "info",
-  onLog: (entry) => {
-    logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+    },
   },
   resolveManifest: async () => manifest,
 });
@@ -137,16 +141,36 @@ const logger = getLogger(["media-cache"]);
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  logLevel: "info",
-  logFormat: "json",
-  onLog: (entry) => {
-    logger[entry.level](entry.event, entry);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger[entry.level](entry.event, entry);
+    },
   },
   resolveManifest: async () => manifest,
 });
 ```
 
-When `onLog` is omitted and `NODE_ENV !== "production"`, the package prints to `console`. Default `logLevel` is `"debug"` for the built-in console sink and `"info"` when a custom `onLog` is provided.
+When `logging.onLog` is omitted and `NODE_ENV !== "production"`, the package prints to `console`. Default `logging.level` is `"debug"` for the built-in console sink and `"info"` when a custom `logging.onLog` is provided.
+
+Use `logging.format` only with the built-in console sink:
+
+```typescript
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  logging: {
+    level: "debug",
+    format: "json",
+  },
+  resolveManifest: async () => manifest,
+});
+```
+
+Breaking migration:
+
+- Old flat options `onLog`, `logLevel`, and `logFormat` were removed in `0.2.0`.
+- Move them under `logging`.
+- Do not combine `logging.format` with `logging.onLog`; custom sinks already receive structured events.
 
 ## Common Mistakes
 

@@ -1,7 +1,7 @@
 /**
- * Emergency fallback when no onWarn/onLog is available — writes to console.warn.
+ * Emergency fallback when no structured warning sink is available — writes to console.warn.
  * Only used when MediaCacheDatabase is constructed without onWarn, or MediaCache
- * has no onLog (e.g. direct DB usage, minimal tests).
+ * has neither `logging.onLog` nor the built-in development console sink.
  */
 export function consoleWarnResolveAssetBaseUrlFallback(contextLabel: string, err: unknown): void {
   console.warn(

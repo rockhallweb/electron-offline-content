@@ -187,7 +187,49 @@ syncHistoryLimit: 5;
 
 ---
 
-## logLevel
+## logging
+
+|              |                                    |
+| ------------ | ---------------------------------- |
+| **Type**     | `MediaCacheLoggingOptions`         |
+| **Required** | No                                 |
+| **Default**  | Built-in console sink when omitted |
+
+Nested logging configuration for either the built-in console sink or a custom structured logger.
+
+**Constraints:** `format` cannot be combined with `onLog` in the same object. Use `format` only for the built-in console sink.
+
+```typescript
+logging: {
+  level: "info",
+  onLog: (entry) => {
+    logger.info(entry, entry.event);
+  },
+};
+```
+
+---
+
+### MediaCacheLoggingOptions
+
+```typescript
+type MediaCacheLoggingOptions =
+  | MediaCacheCustomLoggingOptions
+  | {
+      level?: "debug" | "info" | "warn" | "error";
+      format?: never;
+      onLog: (entry: MediaCacheLogEvent) => void;
+    }
+  | {
+      level?: "debug" | "info" | "warn" | "error";
+      format?: "english" | "json";
+      onLog?: undefined;
+    };
+```
+
+`MediaCacheLoggingOptions` is a discriminated union. The custom-sink branch is represented by `MediaCacheCustomLoggingOptions` in `types.ts`, and TypeScript rejects `format` when `onLog` is present because that branch uses `format?: never`.
+
+### `logging.level`
 
 |              |                                                      |
 | ------------ | ---------------------------------------------------- |
@@ -200,12 +242,12 @@ Minimum log level emitted. Events below this level are discarded.
 **Constraints:** None.
 
 ```typescript
-logLevel: "info";
+logging: {
+  level: "info";
+}
 ```
 
----
-
-## logFormat
+### `logging.format`
 
 |              |                       |
 | ------------ | --------------------- |
@@ -213,17 +255,17 @@ logLevel: "info";
 | **Required** | No                    |
 | **Default**  | `"english"`           |
 
-Format for the built-in console sink. `"english"` produces human-readable lines. `"json"` produces one JSON object per line. Ignored when `onLog` is provided (the handler receives structured objects regardless).
+Format for the built-in console sink. `"english"` produces human-readable lines. `"json"` produces one JSON object per line.
 
-**Constraints:** None.
+**Constraints:** Invalid when `logging.onLog` is provided.
 
 ```typescript
-logFormat: "json";
+logging: {
+  format: "json";
+}
 ```
 
----
-
-## onLog
+### `logging.onLog`
 
 |              |                                                                   |
 | ------------ | ----------------------------------------------------------------- |
@@ -233,11 +275,13 @@ logFormat: "json";
 
 Custom log handler. Receives structured `MediaCacheLogEvent` objects for every log emission. When provided, the built-in console sink is disabled.
 
-**Constraints:** None. The handler is called synchronously on the main thread.
+**Constraints:** The handler is called synchronously on the main thread. Cannot be combined with `logging.format`.
 
 ```typescript
-onLog: (entry) => {
-  logger.info(entry, entry.event);
+logging: {
+  onLog: (entry) => {
+    logger.info(entry, entry.event);
+  },
 };
 ```
 
@@ -255,6 +299,28 @@ interface MediaCacheLogEvent {
 ```
 
 Additional context-specific keys vary by event (e.g. `assetId`, `namespace`, `bytesDownloaded`, `durationMs`). All values are JSON-serializable.
+
+### Migration
+
+Flat logging options were removed in `0.2.0`.
+
+```typescript
+// Before
+createMediaCache({
+  logLevel: "info",
+  onLog: (entry) => logger.info(entry, entry.event),
+  resolveManifest,
+});
+
+// After
+createMediaCache({
+  logging: {
+    level: "info",
+    onLog: (entry) => logger.info(entry, entry.event),
+  },
+  resolveManifest,
+});
+```
 
 ---
 
