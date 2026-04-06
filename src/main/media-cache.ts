@@ -36,6 +36,7 @@ import type {
   MediaCacheBridge,
   MediaCacheLogEvent,
   MediaCacheLogFormat,
+  MediaCacheLogHandler,
   MediaCacheLogLevel,
   MediaCacheOptions,
   MediaCacheStatus,
@@ -244,10 +245,14 @@ export function createMediaCache(options: MediaCacheOptions): MediaCacheMain {
 export class MediaCache implements MediaCacheMain {
   private readonly events = new EventEmitter();
   private readonly deps: RuntimeDependencies;
-  /** When `onLog` is omitted, log to the main-process console in development (not under Vitest). */
+  /** When no custom handler is configured, log to the main-process console in development. */
   private readonly defaultDevelopmentConsole: boolean;
+  /** Custom structured log sink when configured via `options.logging.onLog`. */
+  private readonly logHandler: MediaCacheLogHandler | null;
   /** Built-in console line shape when {@link defaultDevelopmentConsole} is active. */
   private readonly logFormat: MediaCacheLogFormat;
+  /** Minimum severity emitted for the currently active log sink. */
+  private readonly effectiveLogLevel: MediaCacheLogLevel;
   private readonly devPassthrough: boolean;
   private readonly assetBaseUrlOrigin: string | null;
   private storageRootLock: StorageRootLockHandle | null = null;
@@ -268,15 +273,13 @@ export class MediaCache implements MediaCacheMain {
       sleep: deps?.sleep ?? sleep,
       resolveAppPath: deps?.resolveAppPath ?? resolveElectronAppPath,
     };
+    const logging = normalizeLoggingOptions(options.logging);
+    this.logHandler = logging.onLog;
     this.defaultDevelopmentConsole =
-      options.onLog == null && isNonProductionNodeEnv() && process.env.VITEST !== "true";
-    const { logFormat } = options;
-    if (logFormat !== undefined && logFormat !== "english" && logFormat !== "json") {
-      throw new Error(
-        `Invalid MediaCacheOptions.logFormat: expected "english" | "json", received ${JSON.stringify(logFormat)}`,
-      );
-    }
-    this.logFormat = logFormat ?? "english";
+      this.logHandler == null && isNonProductionNodeEnv() && process.env.VITEST !== "true";
+    this.logFormat = logging.format;
+    this.effectiveLogLevel =
+      logging.level ?? (this.logHandler == null && this.defaultDevelopmentConsole ? "debug" : "info");
     this.devPassthrough = options.devPassthrough ?? process.env.NODE_ENV === "development";
     if (this.devPassthrough) {
       this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
@@ -300,7 +303,7 @@ export class MediaCache implements MediaCacheMain {
       this.options.onSyncFailure &&
       this.options.onSyncFailure !== "throw"
     ) {
-      // Emitted when a log sink is active (consumer `onLog` or default dev console).
+      // Emitted when a log sink is active (consumer `logging.onLog` or default dev console).
       this.emitLog("warn", "dev_passthrough_ignores_sync_failure_mode", {
         configured_mode: this.options.onSyncFailure,
       });
@@ -543,7 +546,7 @@ export class MediaCache implements MediaCacheMain {
       devPassthrough: this.devPassthrough,
       assetBaseUrlOrigin: this.assetBaseUrlOrigin,
       onWarn: (contextLabel, err) => {
-        if (this.options.onLog != null || this.defaultDevelopmentConsole) {
+        if (this.logHandler != null || this.defaultDevelopmentConsole) {
           this.emitLog("warn", "resolve_asset_base_url_fallback", {
             context_label: contextLabel,
             error: err != null ? String(err) : undefined,
@@ -1361,14 +1364,11 @@ export class MediaCache implements MediaCacheMain {
     event: string,
     fields: Record<string, ReturnType<typeof normalizeLogValue>> = {},
   ): void {
-    const onLog = this.options.onLog;
-    if (onLog == null && !this.defaultDevelopmentConsole) {
+    if (this.logHandler == null && !this.defaultDevelopmentConsole) {
       return;
     }
 
-    const effectiveLogLevel =
-      this.options.logLevel ?? (onLog == null && this.defaultDevelopmentConsole ? "debug" : "info");
-    const threshold = LOG_LEVEL_WEIGHT[effectiveLogLevel];
+    const threshold = LOG_LEVEL_WEIGHT[this.effectiveLogLevel];
     if (LOG_LEVEL_WEIGHT[level] < threshold) {
       return;
     }
@@ -1382,9 +1382,9 @@ export class MediaCache implements MediaCacheMain {
       ...fields,
     };
 
-    if (onLog != null) {
+    if (this.logHandler != null) {
       try {
-        onLog(entry);
+        this.logHandler(entry);
       } catch {
         // Consumer loggers must not break cache behavior.
       }
@@ -1393,6 +1393,33 @@ export class MediaCache implements MediaCacheMain {
 
     writeDefaultDevelopmentConsoleLog(level, entry, this.logFormat);
   }
+}
+
+function normalizeLoggingOptions(
+  logging: MediaCacheOptions["logging"],
+): {
+  onLog: MediaCacheLogHandler | null;
+  level: MediaCacheLogLevel | undefined;
+  format: MediaCacheLogFormat;
+} {
+  if (logging?.onLog != null && logging.format !== undefined) {
+    throw new Error(
+      "MediaCacheOptions.logging.format cannot be set when logging.onLog is provided.",
+    );
+  }
+
+  const format = logging?.format;
+  if (format !== undefined && format !== "english" && format !== "json") {
+    throw new Error(
+      `Invalid MediaCacheOptions.logging.format: expected "english" | "json", received ${JSON.stringify(format)}`,
+    );
+  }
+
+  return {
+    onLog: logging?.onLog ?? null,
+    level: logging?.level,
+    format: format ?? "english",
+  };
 }
 
 function writeDefaultDevelopmentConsoleLog(

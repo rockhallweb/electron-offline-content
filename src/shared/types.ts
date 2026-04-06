@@ -7,11 +7,11 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-/** Minimum severity emitted when `onLog` is configured; entries below this level are dropped. */
+/** Minimum severity emitted when logging is configured; entries below this level are dropped. */
 export type MediaCacheLogLevel = "debug" | "info" | "warn" | "error";
 
 /**
- * How the built-in main-process console sink formats each line when `onLog` is omitted.
+ * How the built-in main-process console sink formats each line when `logging.onLog` is omitted.
  * Callback loggers always receive structured {@link MediaCacheLogEvent} objects regardless of this setting.
  */
 export type MediaCacheLogFormat = "english" | "json";
@@ -22,7 +22,7 @@ export interface MediaCacheLogEvent {
   [key: string]: JsonValue | undefined;
   /** ISO-8601 or high-resolution timestamp string for when the log line was emitted. */
   timestamp: string;
-  /** Severity; entries below the effective {@link MediaCacheOptions.logLevel} are filtered out. */
+  /** Severity; entries below the effective {@link MediaCacheLoggingOptions.level} are filtered out. */
   level: MediaCacheLogLevel;
   /** Short machine-oriented event name (for example `sync.asset.downloaded`). */
   event: string;
@@ -32,8 +32,42 @@ export interface MediaCacheLogEvent {
   component: string;
 }
 
-/** Receives log entries from the main-process cache when `onLog` is set on {@link MediaCacheOptions}. */
+/** Receives log entries from the main-process cache when `logging.onLog` is set on {@link MediaCacheOptions}. */
 export type MediaCacheLogHandler = (entry: MediaCacheLogEvent) => void;
+
+/** Logging options when using a custom structured sink. */
+export interface MediaCacheCustomLoggingOptions {
+  /**
+   * Minimum log level emitted; lower-severity lines are dropped.
+   * Defaults to `info` when `onLog` is configured.
+   */
+  level?: MediaCacheLogLevel;
+  /** Callback receiving structured {@link MediaCacheLogEvent} lines from the main process. */
+  onLog: MediaCacheLogHandler;
+  /** Custom log handlers already receive structured events, so console formatting does not apply. */
+  format?: never;
+}
+
+/** Logging options when using the built-in development console sink. */
+export interface MediaCacheConsoleLoggingOptions {
+  /**
+   * Minimum log level emitted; lower-severity lines are dropped.
+   * Defaults to `debug` when the built-in console sink is active.
+   */
+  level?: MediaCacheLogLevel;
+  /**
+   * Line format for the built-in console sink only.
+   * @default "english"
+   */
+  format?: MediaCacheLogFormat;
+  /** Omit `onLog` to keep the built-in development console sink. */
+  onLog?: undefined;
+}
+
+/** Logging configuration for `MediaCacheOptions`; custom sinks and console formatting are mutually exclusive. */
+export type MediaCacheLoggingOptions =
+  | MediaCacheCustomLoggingOptions
+  | MediaCacheConsoleLoggingOptions;
 
 /** High-level media category for items and assets in the manifest. */
 export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "text" | "binary";
@@ -232,9 +266,9 @@ export interface MediaCacheStoragePath {
  * **Escape hatch:** set `devPassthrough: true`, or omit it while `NODE_ENV === "development"`, to
  * skip blob downloads and surface direct remote URLs from the manifest (optional `assetBaseUrl`
  * rewrites origins only). When effective `devPassthrough` is `false`, `assetBaseUrl` must not be
- * set. When `onLog` is omitted, human-readable English lines go to the main-process console in
- * non-production `NODE_ENV` (see {@link MediaCacheOptions.logFormat}). Use `onLog` for a custom sink;
- * use {@link MediaCacheOptions.logLevel} to filter severity.
+ * set. When `logging.onLog` is omitted, human-readable English lines go to the main-process console
+ * in non-production `NODE_ENV` (see {@link MediaCacheLoggingOptions.format}). Use `logging.onLog`
+ * for a custom sink; use {@link MediaCacheLoggingOptions.level} to filter severity.
  *
  * `MediaCache` requires exclusive ownership of its resolved storage root. In kiosk-style
  * deployments, the first process that acquires that root should win; if startup later fails,
@@ -271,24 +305,11 @@ export interface MediaCacheOptions {
   /** Maximum number of completed sync runs to retain in SQLite history. */
   syncHistoryLimit?: number;
   /**
-   * Minimum log level emitted; lower-severity lines are dropped.
-   * When `onLog` is omitted and the default console sink is active (non-production `NODE_ENV`),
-   * defaults to `debug` so protocol and sync detail is visible; otherwise defaults to `info`.
+   * Logging configuration. Omit `logging.onLog` to use the built-in development console sink when
+   * `NODE_ENV !== "production"` (and `process.env.VITEST !== "true"`). Set `logging.onLog` to
+   * receive structured {@link MediaCacheLogEvent} objects in a custom sink instead.
    */
-  logLevel?: MediaCacheLogLevel;
-  /**
-   * Line format for the built-in console sink only. Ignored when {@link MediaCacheOptions.onLog} is set.
-   * @default "english"
-   */
-  logFormat?: MediaCacheLogFormat;
-  /**
-   * Callback receiving structured {@link MediaCacheLogEvent} lines from the main process.
-   * When omitted, the package prints to the main-process console when `NODE_ENV` is not
-   * `production` (including when unset, which is common for Electron dev). Disabled when
-   * `process.env.VITEST` is set. Providing `onLog` replaces that default and uses
-   * {@link MediaCacheOptions.logLevel} default `info` when unset.
-   */
-  onLog?: MediaCacheLogHandler;
+  logging?: MediaCacheLoggingOptions;
   /**
    * Produces the manifest (or shorthand namespace/item lists) for each sync. May be async.
    * Thrown errors or rejected promises fail the sync run.

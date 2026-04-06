@@ -138,9 +138,11 @@ const logger = pino({ name: "media-cache" });
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  logLevel: "info",
-  onLog: (entry) => {
-    logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+    },
   },
   resolveManifest: async () => manifest,
 });
@@ -148,7 +150,7 @@ const mediaCache = createMediaCache({
 
 **Fail condition:** Default console logging is invisible on headless kiosks. Sync failures, disk errors, and download issues go unnoticed until content goes stale.
 
-**Fix:** Set `onLog` with your production logger. Wire to pino, logtape, or your log aggregation service. Set `logLevel: "info"` — `"debug"` produces high volume in production.
+**Fix:** Set `logging.onLog` with your production logger. Wire to pino, logtape, or your log aggregation service. Set `logging.level: "info"` — `"debug"` produces high volume in production.
 
 ## Scope Boundary Checks
 
@@ -303,7 +305,7 @@ Source: Maintainer interview
 
 ### MEDIUM: Default console logging in production
 
-When `onLog` is omitted and `NODE_ENV !== "production"`, the package prints to `console`. On headless kiosks, console output goes nowhere. Sync failures, download errors, and storage warnings are silently lost.
+When `logging.onLog` is omitted and `NODE_ENV !== "production"`, the package prints to `console`. On headless kiosks, console output goes nowhere. Sync failures, download errors, and storage warnings are silently lost.
 
 Wrong:
 
@@ -325,9 +327,11 @@ const logger = pino({ name: "media-cache" });
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  logLevel: "info",
-  onLog: (entry) => {
-    logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
+    },
   },
   resolveManifest: async () => manifest,
 });
@@ -381,7 +385,7 @@ See also: cache-configuration/SKILL.md § Common Mistakes
 - [ ] `app.requestSingleInstanceLock()` in place
 - [ ] `maxCacheBytes` and/or `reserveFreeBytes` set for device
 - [ ] `storagePath` writable on target platform
-- [ ] `onLog` wired to production log sink
+- [ ] `logging.onLog` wired to production log sink
 - [ ] Package used only for read-only presentation assets
 - [ ] Offline mode tested with real storage path and media:// URLs
 - [ ] Full catalog fits on target device disk

@@ -1,6 +1,6 @@
 {
   "name": "@rockhallweb/electron-offline-content",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "keywords": [
     "tanstack-intent"

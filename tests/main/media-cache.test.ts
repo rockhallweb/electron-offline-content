@@ -801,8 +801,10 @@ describe("media cache sync and queries", () => {
       const cache = new RawMediaCache({
         storageRoot: createStorageRoot(),
         onSyncFailure: "throw",
-        onLog: (e) => {
-          logs.push(e);
+        logging: {
+          onLog: (e) => {
+            logs.push(e);
+          },
         },
         resolveManifest: () => manifests,
       });
@@ -829,8 +831,10 @@ describe("media cache sync and queries", () => {
       storageRoot: createStorageRoot(),
       devPassthrough: true,
       onSyncFailure: "throw",
-      onLog: (e) => {
-        passthroughLogs.push(e);
+      logging: {
+        onLog: (e) => {
+          passthroughLogs.push(e);
+        },
       },
       resolveManifest: () => manifests,
     });
@@ -987,9 +991,11 @@ describe("media cache sync and queries", () => {
       storageRoot,
       devPassthrough: true,
       assetBaseUrl: "https://assets.example.test",
-      logLevel: "debug",
-      onLog: (entry) => {
-        logs.push(entry);
+      logging: {
+        level: "debug",
+        onLog: (entry) => {
+          logs.push(entry);
+        },
       },
       resolveManifest: () => invalidUrlManifest,
     });
@@ -2398,9 +2404,11 @@ describe("media cache sync and queries", () => {
     const logs: MediaCacheLogEvent[] = [];
     const cache = new MediaCache({
       storageRoot,
-      logLevel: "warn",
-      onLog: (entry) => {
-        logs.push(entry);
+      logging: {
+        level: "warn",
+        onLog: (entry) => {
+          logs.push(entry);
+        },
       },
       resolveManifest: () => manifests,
     });
@@ -2861,16 +2869,74 @@ describe("media cache sync and queries", () => {
     ).toThrow("assetBaseUrl has no effect when devPassthrough is false");
   });
 
-  it("throws when logFormat is not english or json", () => {
+  it("throws when logging.format is not english or json", () => {
     expect(
       () =>
         new MediaCache({
           storageRoot: createStorageRoot(),
-          // @ts-expect-error intentional invalid option for runtime validation
-          logFormat: "structured",
+          logging: {
+            // @ts-expect-error intentional invalid option for runtime validation
+            format: "structured",
+          },
           resolveManifest: () => manifests,
         }),
-    ).toThrow("Invalid MediaCacheOptions.logFormat");
+    ).toThrow("Invalid MediaCacheOptions.logging.format");
+  });
+
+  it("uses logging.format for the built-in development console sink", () => {
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEST", "false");
+    try {
+      new RawMediaCache({
+        storageRoot: createStorageRoot(),
+        devPassthrough: true,
+        logging: {
+          format: "json",
+        },
+        resolveManifest: () => manifests,
+      });
+
+      expect(consoleLog).toHaveBeenCalled();
+      const jsonLine = consoleLog.mock.calls
+        .map((call) => String(call[0]))
+        .find((line) => line.includes(" dev_passthrough_active "));
+      expect(jsonLine).toBeTypeOf("string");
+      const jsonPayload = jsonLine!.slice(jsonLine!.indexOf("{"));
+      expect(JSON.parse(jsonPayload)).toMatchObject({
+        level: "info",
+        event: "dev_passthrough_active",
+      });
+    } finally {
+      consoleLog.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("throws when logging.format is combined with logging.onLog", () => {
+    expect(
+      () =>
+        new MediaCache({
+          storageRoot: createStorageRoot(),
+          logging: {
+            onLog: () => undefined,
+            // @ts-expect-error intentional invalid combination for discriminated logging config
+            format: "json",
+          },
+          resolveManifest: () => manifests,
+        }),
+    ).toThrow("MediaCacheOptions.logging.format cannot be set when logging.onLog is provided.");
+  });
+
+  it("rejects removed flat logging options at the type level", () => {
+    const options: TestMediaCacheOptions = {
+      storageRoot: createStorageRoot(),
+      // @ts-expect-error logging options now live under the nested logging object
+      logLevel: "warn",
+      resolveManifest: () => manifests,
+    };
+
+    expect(options.resolveManifest).toBeTypeOf("function");
   });
 
   it("emits dev_passthrough_ignores_sync_failure_mode when both devPassthrough and serve-last-snapshot are set", () => {
@@ -2879,7 +2945,9 @@ describe("media cache sync and queries", () => {
       storageRoot: createStorageRoot(),
       devPassthrough: true,
       onSyncFailure: "serve-last-snapshot",
-      onLog: (e) => logs.push(e),
+      logging: {
+        onLog: (e) => logs.push(e),
+      },
       resolveManifest: () => manifests,
     });
     expect(logs.some((e) => e.event === "dev_passthrough_ignores_sync_failure_mode")).toBe(true);
@@ -3100,9 +3168,11 @@ describe("media cache sync and queries", () => {
     const logs: MediaCacheLogEvent[] = [];
     const cache = createMediaCache({
       storageRoot,
-      logLevel: "debug",
-      onLog: (entry) => {
-        logs.push(entry);
+      logging: {
+        level: "debug",
+        onLog: (entry) => {
+          logs.push(entry);
+        },
       },
       resolveManifest: () => manifests,
     });
@@ -3164,9 +3234,11 @@ describe("media cache sync and queries", () => {
     const logs: MediaCacheLogEvent[] = [];
     const cache = new MediaCache({
       storageRoot,
-      logLevel: "warn",
-      onLog: (entry) => {
-        logs.push(entry);
+      logging: {
+        level: "warn",
+        onLog: (entry) => {
+          logs.push(entry);
+        },
       },
       resolveManifest: () => manifests,
     });

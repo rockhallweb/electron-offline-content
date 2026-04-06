@@ -441,30 +441,73 @@ const asset = defineManifestAsset({
 
 ## Logging
 
-When `onLog` is omitted and `NODE_ENV` is not `"production"`, the package prints to the main-process console. Lines are human-readable English by default.
+When `logging?.onLog` is omitted and `NODE_ENV` is not `"production"`, the package prints to the main-process console. Lines are human-readable English by default.
 
 ### Custom log sink
 
-Pass `onLog` to receive structured `MediaCacheLogEvent` objects and forward them to your logger (pino, logtape, etc.):
+Pass `logging.onLog` to receive structured `MediaCacheLogEvent` objects and forward them to your logger (pino, logtape, etc.):
 
 ```ts
 const mediaCache = createMediaCache({
   storagePath: { appPath: "temp", segments: ["my-app"] },
-  onLog: (entry) => {
-    logger.log(entry.level, entry.event, entry);
+  logging: {
+    level: "info",
+    onLog: (entry) => {
+      logger.log(entry.level, entry.event, entry);
+    },
   },
-  logLevel: "info",
   resolveManifest: async () => manifest,
 });
 ```
 
+### Built-in console formatting
+
+Use `logging.format` only when you want the package's built-in development console sink:
+
+```ts
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  logging: {
+    level: "debug",
+    format: "json",
+  },
+  resolveManifest: async () => manifest,
+});
+```
+
+### Breaking migration
+
+As of `0.2.0`, the flat `onLog`, `logLevel`, and `logFormat` options have been removed. Migrate to the nested `logging` object:
+
+```ts
+// Before
+createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  onLog: (entry) => logger.info(entry, entry.event),
+  logLevel: "info",
+  resolveManifest: async () => manifest,
+});
+
+// After
+createMediaCache({
+  storagePath: { appPath: "temp", segments: ["my-app"] },
+  logging: {
+    onLog: (entry) => logger.info(entry, entry.event),
+    level: "info",
+  },
+  resolveManifest: async () => manifest,
+});
+```
+
+`logging.format` is only valid for the built-in console sink and cannot be combined with `logging.onLog`.
+
 ### Log options
 
-| Option      | Default                                  | Description                                                                         |
-| ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
-| `onLog`     | `undefined`                              | Structured log callback. Replaces the built-in console sink.                        |
-| `logLevel`  | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                           |
-| `logFormat` | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Ignored when `onLog` is set. |
+| Option            | Default                                  | Description                                                                              |
+| ----------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `logging.onLog`   | `undefined`                              | Structured log callback. Replaces the built-in console sink.                             |
+| `logging.level`   | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                                |
+| `logging.format`  | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Cannot be used with `onLog`.     |
 
 ### Notable events
 
@@ -520,9 +563,7 @@ Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mo
 | `reserveFreeBytes`    | `number`                                               | no       | Minimum free disk bytes to preserve.                                                            |
 | `staleDeleteAfterMs`  | `number`                                               | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
 | `syncHistoryLimit`    | `number`                                               | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
-| `onLog`               | `MediaCacheLogHandler`                                 | no       | Structured log callback.                                                                        |
-| `logLevel`            | `"debug" \| "info" \| "warn" \| "error"`               | no       | Minimum severity emitted.                                                                       |
-| `logFormat`           | `"english" \| "json"`                                  | no       | Built-in console line format when using the default console sink.                               |
+| `logging`             | `MediaCacheLoggingOptions`                             | no       | Nested logging config for either a custom sink or built-in console formatting.                  |
 
 #### `MediaCacheMain`
 
