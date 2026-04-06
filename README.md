@@ -503,11 +503,11 @@ createMediaCache({
 
 ### Log options
 
-| Option            | Default                                  | Description                                                                              |
-| ----------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `logging.onLog`   | `undefined`                              | Structured log callback. Replaces the built-in console sink.                             |
-| `logging.level`   | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                                |
-| `logging.format`  | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Cannot be used with `onLog`.     |
+| Option           | Default                                  | Description                                                                         |
+| ---------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `logging.onLog`  | `undefined`                              | Structured log callback. Replaces the built-in console sink.                        |
+| `logging.level`  | `"debug"` (console) / `"info"` (`onLog`) | Minimum severity emitted.                                                           |
+| `logging.format` | `"english"`                              | Built-in console line format: `"english"` or `"json"`. Cannot be used with `onLog`. |
 
 ### Notable events
 

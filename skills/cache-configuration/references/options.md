@@ -189,11 +189,11 @@ syncHistoryLimit: 5;
 
 ## logging
 
-|              |                                                      |
-| ------------ | ---------------------------------------------------- |
-| **Type**     | `MediaCacheLoggingOptions`                           |
-| **Required** | No                                                   |
-| **Default**  | Built-in console sink when omitted                   |
+|              |                                    |
+| ------------ | ---------------------------------- |
+| **Type**     | `MediaCacheLoggingOptions`         |
+| **Required** | No                                 |
+| **Default**  | Built-in console sink when omitted |
 
 Nested logging configuration for either the built-in console sink or a custom structured logger.
 
@@ -242,7 +242,9 @@ Minimum log level emitted. Events below this level are discarded.
 **Constraints:** None.
 
 ```typescript
-logging: { level: "info" };
+logging: {
+  level: "info";
+}
 ```
 
 ### `logging.format`
@@ -258,7 +260,9 @@ Format for the built-in console sink. `"english"` produces human-readable lines.
 **Constraints:** Invalid when `logging.onLog` is provided.
 
 ```typescript
-logging: { format: "json" };
+logging: {
+  format: "json";
+}
 ```
 
 ### `logging.onLog`

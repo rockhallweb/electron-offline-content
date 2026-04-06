@@ -279,7 +279,8 @@ export class MediaCache implements MediaCacheMain {
       this.logHandler == null && isNonProductionNodeEnv() && process.env.VITEST !== "true";
     this.logFormat = logging.format;
     this.effectiveLogLevel =
-      logging.level ?? (this.logHandler == null && this.defaultDevelopmentConsole ? "debug" : "info");
+      logging.level ??
+      (this.logHandler == null && this.defaultDevelopmentConsole ? "debug" : "info");
     this.devPassthrough = options.devPassthrough ?? process.env.NODE_ENV === "development";
     if (this.devPassthrough) {
       this.assetBaseUrlOrigin = normalizeAssetBaseUrl(options.assetBaseUrl);
@@ -1395,9 +1396,7 @@ export class MediaCache implements MediaCacheMain {
   }
 }
 
-function normalizeLoggingOptions(
-  logging: MediaCacheOptions["logging"],
-): {
+function normalizeLoggingOptions(logging: MediaCacheOptions["logging"]): {
   onLog: MediaCacheLogHandler | null;
   level: MediaCacheLogLevel | undefined;
   format: MediaCacheLogFormat;
