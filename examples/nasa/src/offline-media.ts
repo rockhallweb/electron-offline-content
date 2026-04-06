@@ -25,9 +25,8 @@ export const mediaCache = createMediaCache({
     // Build the manifest
     return defineManifest({
       retrievedAt: new Date().toISOString(), // Optional: Set the retrieved at timestamp (mocked for demo purposes)
-      namespaces: [
-        {
-          key: "space.images",
+      namespaces: {
+        "space.images": {
           label: "NASA Images API - Images",
           metadata: {
             requestUrl: nasaContentResult.searches.image.collection.href,
@@ -37,8 +36,7 @@ export const mediaCache = createMediaCache({
             nasaContentResult.searches.image.collection.items,
           ),
         },
-        {
-          key: "space.videos",
+        "space.videos": {
           label: "NASA Images API - Videos",
           metadata: {
             requestUrl: nasaContentResult.searches.video.collection.href,
@@ -48,7 +46,7 @@ export const mediaCache = createMediaCache({
             nasaContentResult.searches.video.collection.items,
           ),
         },
-      ],
+      },
     });
   },
 });

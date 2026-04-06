@@ -13,8 +13,10 @@
  * Used by the NASA example app's content producer.
  */
 import {
-  defineManifestAsset,
-  defineManifestItem,
+  defineAsset,
+  defineItem,
+  itemsFromEntries,
+  type MediaItemValue,
 } from "@rockhallweb/electron-offline-content/main";
 import { z } from "zod";
 
@@ -59,8 +61,11 @@ export const NasaContentSchema = z.object({
 });
 export type NasaContentSchema = z.infer<typeof NasaContentSchema>;
 
-/** Transforms a NASA search item into a manifest item */
-function toManifestItem(item: NasaSearchItemLike, assetCollections: Record<string, string[]>) {
+/** Transforms a NASA search item into a manifest item [id, value] entry */
+function toManifestItemEntry(
+  item: NasaSearchItemLike,
+  assetCollections: Record<string, string[]>,
+): [string, MediaItemValue] {
   // NASA search payload gives metadata; collection.json gives concrete downloadable asset URLs.
   const data = item.data[0];
   const dataResult = NasaSearchItemDataLike.safeParse(data);
@@ -68,10 +73,6 @@ function toManifestItem(item: NasaSearchItemLike, assetCollections: Record<strin
     throw new Error(`Invalid NASA search item data: ${JSON.stringify(data)}`);
   }
 
-  // Begin building the manifest item assets
-  const assets = [];
-
-  // NASA search payload gives metadata; collection.json gives concrete downloadable asset URLs.
   const collectionAssets = assetCollections[item.href] ?? [];
   let primaryAssetUrl: string | null;
   if (data.media_type === "video") {
@@ -89,17 +90,6 @@ function toManifestItem(item: NasaSearchItemLike, assetCollections: Record<strin
     throw new Error(`No primary asset URL found for NASA search item: ${JSON.stringify(data)}`);
   }
 
-  // Add a primary asset
-  assets.push(
-    defineManifestAsset({
-      id: "main",
-      role: "primary",
-      kind: data.media_type,
-      source: { url: primaryAssetUrl },
-    }),
-  );
-
-  // Add a poster asset if available
   let posterAssetUrl = pickAssetUrl(collectionAssets, [
     "~thumb.jpg",
     "~small.jpg",
@@ -114,33 +104,38 @@ function toManifestItem(item: NasaSearchItemLike, assetCollections: Record<strin
     posterAssetUrl = posterLink.href;
   }
 
-  assets.push(
-    defineManifestAsset({
-      id: "poster",
+  const assets = {
+    main: defineAsset({
+      role: "primary",
+      kind: data.media_type,
+      source: { url: primaryAssetUrl },
+    }),
+    poster: defineAsset({
       role: "poster",
       kind: "poster",
       source: { url: posterAssetUrl },
     }),
-  );
+  };
 
-  // Validates and transforms a NASA search item into a manifest item
-  return defineManifestItem({
-    id: data.nasa_id,
-    version: `${data.nasa_id}-${data.date_created.slice(0, 10)}`,
-    kind: data.media_type,
-    title: data.title,
-    description: data.description,
-    summary: `From NASA Images API item ${data.nasa_id} (${data.center}).`,
-    blobs: {
-      sourceItem: item.href,
-    },
-    metadata: {
-      center: data.center,
-      dateCreated: data.date_created,
-      keywords: data.keywords ?? [],
-    },
-    assets,
-  });
+  return [
+    data.nasa_id,
+    defineItem({
+      version: `${data.nasa_id}-${data.date_created.slice(0, 10)}`,
+      kind: data.media_type,
+      title: data.title,
+      description: data.description,
+      summary: `From NASA Images API item ${data.nasa_id} (${data.center}).`,
+      blobs: {
+        sourceItem: item.href,
+      },
+      metadata: {
+        center: data.center,
+        dateCreated: data.date_created,
+        keywords: data.keywords ?? [],
+      },
+      assets,
+    }),
+  ];
 }
 
 /** Picks the best asset URL from a list of URLs and preferred suffixes */
@@ -148,12 +143,13 @@ function pickAssetUrl(assetUrls: string[], preferredSuffixes: string[]): string 
   return assetUrls.find((url) => preferredSuffixes.some((suffix) => url.endsWith(suffix))) ?? null;
 }
 
-/** Transforms a NASA search item into a manifest item */
+/** Transforms NASA search items into a manifest `items` record */
 export function getManifestItems(
   assetCollections: NasaContentSchema["assetCollections"],
   items: NasaSearchItemLike[],
 ) {
-  return items
-    .filter((item) => item !== null)
-    .map((item) => toManifestItem(item, assetCollections));
+  return itemsFromEntries(
+    items.filter((item) => item !== null),
+    (item) => toManifestItemEntry(item, assetCollections),
+  );
 }

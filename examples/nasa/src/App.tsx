@@ -1,79 +1,32 @@
 import { useState } from "react";
 import {
-  useMediaCacheBridge,
   useFileStemMatch,
-  useMediaCacheErrors,
-  useMediaCacheReady,
+  useMedia,
   useMediaCacheStatus,
-  useMediaItem,
-  useMediaItems,
+  useMediaBridge,
 } from "@rockhallweb/electron-offline-content/react";
 import { cn } from "./cn";
+import { formatBytes, mediaKindFromNamespace } from "./util";
 
-type SelectedItem = { namespace: string; itemId: string };
-type QueueCard = {
-  namespace: string;
-  itemId: string;
-  title: string;
-  description: string;
-  posterUrl: string | null;
-  leadKind: string;
+type DownloadActionProps = {
+  downloadStartError?: string | null;
+  onStartDownload: () => Promise<void>;
+  isStartingDownload: boolean;
 };
-type MediaFilter = "all" | "image" | "video";
 
 export function App() {
-  const bridge = useMediaCacheBridge();
-  const status = useMediaCacheStatus();
-  const ready = useMediaCacheReady();
-  const rootNamespace = useMediaItems("space", { limit: 20 });
-  const tree = useMediaItems("space", { recursive: true, limit: 40 });
-  const fileStemMatches = useFileStemMatch("mars-large-organics", { limit: 10 });
+  const { syncNow, phase, errors } = useMediaBridge();
   const [isStartingDownload, setIsStartingDownload] = useState(false);
-  const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
-
-  const [selectedIntent, setSelectedIntent] = useState<SelectedItem>({
-    namespace: "space.images",
-    itemId: "SSC-20110203-S00095H",
-  });
-
-  const items = tree.data?.items ?? [];
-  const selectedExists = items.some(
-    (item) => item.namespace === selectedIntent.namespace && item.id === selectedIntent.itemId,
+  const [downloadStartError, setDownloadStartError] = useState<string | null>(
+    null,
   );
-  const selected = selectedExists
-    ? selectedIntent
-    : items[0]
-      ? { namespace: items[0].namespace, itemId: items[0].id }
-      : selectedIntent;
 
-  const currentItem = useMediaItem(selected.namespace, selected.itemId);
-  const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0];
-  const posterAsset = currentItem.data?.assetsByRole.poster;
-  const subtitleAsset = currentItem.data?.assetsByRole.subtitle;
-  const queueCards: QueueCard[] = (tree.data?.items ?? []).map((item) => ({
-    namespace: item.namespace,
-    itemId: item.id,
-    title: item.title ?? item.id,
-    description: item.description ?? item.summary ?? "Cached and ready for offline playback.",
-    posterUrl: item.assetsByRole.poster?.url ?? null,
-    leadKind: item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
-  }));
-  const errors = useMediaCacheErrors(status, rootNamespace, tree, fileStemMatches, currentItem);
-
-  const phase = status.data?.phase ?? (status.loading ? "loading" : "idle");
-  const generation = String(ready.data?.activeGenerationId ?? "none");
-  const downloadProgress = status.data?.progress ?? null;
-  const storagePath = status.data?.storagePath ?? "Resolving local storage path...";
-  const isDownloading = phase === "syncing";
-  const isReady = phase === "ready" && queueCards.length > 0 && currentItem.data != null;
-  const syncErrorMessage = ready.data?.syncError?.message ?? null;
-  const actionError = downloadStartError ?? syncErrorMessage;
-
+  // Example of starting a sync imperatively
   const startDownload = async () => {
     setDownloadStartError(null);
     setIsStartingDownload(true);
     try {
-      await bridge.syncNow();
+      await syncNow();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setDownloadStartError(message);
@@ -82,73 +35,56 @@ export function App() {
     }
   };
 
-  return (
-    <main className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}>
-      <div className="grid w-full gap-0">
-        <ErrorBanners
-          syncError={errors.syncError?.message}
-          primaryError={errors.primaryError?.message}
-        />
-
-        {isDownloading ? (
-          <DownloadingView
-            generation={generation}
-            progress={downloadProgress}
-            onStartDownload={startDownload}
-            isStartingDownload={isStartingDownload}
-          />
-        ) : isReady ? (
-          <ArchiveView
-            phase={phase}
-            generation={generation}
-            selected={selected}
-            title={currentItem.data?.title ?? selected.itemId}
-            description={
-              currentItem.data?.description ??
-              "Metadata will appear here after the cache exposes the current item."
-            }
-            leadAsset={leadAsset ? { kind: leadAsset.kind, url: leadAsset.url } : null}
-            posterAssetUrl={posterAsset?.url ?? null}
-            subtitleAssetUrl={subtitleAsset?.url ?? null}
-            rootNamespaceCount={rootNamespace.data?.items.length ?? 0}
-            stemMatchCount={fileStemMatches.data?.items.length ?? 0}
-            queue={queueCards}
-            onSelect={setSelectedIntent}
-          />
-        ) : (
-          <PreDownloadView
-            generation={generation}
-            storagePath={storagePath}
-            actionError={actionError}
-            onStartDownload={startDownload}
-            isStartingDownload={isStartingDownload}
-          />
-        )}
-      </div>
-    </main>
-  );
-}
-
-function ErrorBanners({ syncError, primaryError }: { syncError?: string; primaryError?: string }) {
-  const cls = cn([
+  const errorClasses = cn([
     "border-l-2 border-[#f87171] bg-[rgba(248,113,113,0.08)] px-4 py-3",
     "font-tech text-[11px] tracking-[0.1em] text-[#fca5a5]",
   ]);
+
   return (
-    <>
-      {syncError ? (
-        <section className={cls}>
-          <strong className="mr-3 text-[#f87171]">SYNC ERROR:</strong>
-          <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">{syncError}</span>
-        </section>
-      ) : null}
-      {primaryError ? (
-        <section className={cls}>
-          <strong className="mr-3 text-[#f87171]">QUERY ERROR:</strong>
-          <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">{primaryError}</span>
-        </section>
-      ) : null}
-    </>
+    <main
+      className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}
+    >
+      <div className="grid w-full gap-0">
+        {errors.syncError?.message ? (
+          <section className={errorClasses}>
+            <strong className="mr-3 text-[#f87171]">SYNC ERROR:</strong>
+            <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">
+              {errors.syncError?.message}
+            </span>
+          </section>
+        ) : null}
+        {errors.primaryError?.message ? (
+          <section className={errorClasses}>
+            <strong className="mr-3 text-[#f87171]">QUERY ERROR:</strong>
+            <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">
+              {errors.primaryError?.message}
+            </span>
+          </section>
+        ) : null}
+
+        {(() => {
+          switch (phase) {
+            case "syncing":
+              return (
+                <DownloadingView
+                  onStartDownload={startDownload}
+                  isStartingDownload={isStartingDownload}
+                />
+              );
+            case "ready":
+              return <ArchiveView />;
+            default:
+              return (
+                <PreDownloadView
+                  downloadStartError={downloadStartError}
+                  onStartDownload={startDownload}
+                  isStartingDownload={isStartingDownload}
+                />
+              );
+          }
+        })()}
+      </div>
+    </main>
   );
 }
 
@@ -182,7 +118,13 @@ function StatusReadout({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CompactStatusBar({ phase, generation }: { phase: string; generation: string }) {
+function CompactStatusBar({
+  phase,
+  generation,
+}: {
+  phase: string;
+  generation: string;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2.5">
       <p className="text-tech flex items-center gap-2 text-[11px] tracking-[0.2em] text-text-dim">
@@ -199,36 +141,40 @@ function CompactStatusBar({ phase, generation }: { phase: string; generation: st
 }
 
 function PreDownloadView({
-  generation,
-  storagePath,
-  actionError,
+  downloadStartError,
   onStartDownload,
   isStartingDownload,
-}: {
-  generation: string;
-  storagePath: string;
-  actionError: string | null;
-  onStartDownload: () => Promise<void>;
-  isStartingDownload: boolean;
-}) {
+}: DownloadActionProps) {
+  const status = useMediaCacheStatus();
+  const { phase } = status;
+  const generation = String(status.data?.activeGenerationId ?? "none");
+  const storagePath =
+    status.data?.storageRoot ?? "Resolving local storage path...";
+  const actionError = downloadStartError ?? status.data?.error?.message ?? null;
+
   return (
     <section className="grid gap-6 border border-border bg-surface px-5 py-6 min-[860px]:px-7 min-[860px]:py-7">
-      <Header phase="idle" generation={generation} />
+      <Header phase={phase} generation={generation} />
       <div className="grid min-h-[420px] place-items-center border border-border bg-surface-alt p-7 text-center">
         <div className="grid max-w-[72ch] gap-4">
-          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">Download required</p>
+          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">
+            Download required
+          </p>
           <p className="font-display text-[clamp(2rem,4vw,3.2rem)] tracking-[-0.02em] text-[#e4e4e7]">
             Archive content is downloaded to your local machine.
           </p>
           <p className="font-body mx-auto max-w-[54ch] text-lg text-[#a1a1aa]">
-            This NASA demo is focused on runtime offline behavior. When you start the download,
-            media files are cached locally and then served from the `media:` protocol.
+            This NASA demo is focused on runtime offline behavior. When you
+            start the download, media files are cached locally and then served
+            from the `media:` protocol.
           </p>
           <p className="mx-auto max-w-[64ch] break-all border border-border bg-black/30 px-4 py-3 font-tech text-xs text-[#d4d4d8]">
             {storagePath}
           </p>
           {actionError ? (
-            <p className="font-body text-sm text-[#fca5a5]">Download failed: {actionError}</p>
+            <p className="font-body text-sm text-[#fca5a5]">
+              Download failed: {actionError}
+            </p>
           ) : null}
           <div>
             <button
@@ -253,34 +199,27 @@ function PreDownloadView({
 }
 
 function DownloadingView({
-  generation,
-  progress,
   onStartDownload,
   isStartingDownload,
-}: {
-  generation: string;
-  progress: {
-    phase: string;
-    totalAssets: number;
-    completedAssets: number;
-    downloadedAssets: number;
-    bytesDownloaded: number;
-  } | null;
-  onStartDownload: () => Promise<void>;
-  isStartingDownload: boolean;
-}) {
+}: DownloadActionProps) {
+  const status = useMediaCacheStatus();
+  const generation = String(status.data?.activeGenerationId ?? "none");
+  const progress = status.data?.progress ?? null;
   const totalAssets = progress?.totalAssets ?? 0;
   const completedAssets = progress?.completedAssets ?? 0;
   const downloadedAssets = progress?.downloadedAssets ?? 0;
   const bytesDownloaded = progress?.bytesDownloaded ?? 0;
-  const progressFraction = totalAssets === 0 ? 0 : Math.min(completedAssets / totalAssets, 1);
+  const progressFraction =
+    totalAssets === 0 ? 0 : Math.min(completedAssets / totalAssets, 1);
 
   return (
     <section className="grid gap-6 border border-border bg-surface px-5 py-6 min-[860px]:px-7 min-[860px]:py-7">
-      <Header phase="syncing" generation={generation} />
+      <Header phase={status.phase} generation={generation} />
       <div className="grid min-h-[420px] place-items-center border border-border bg-surface-alt p-7 text-center">
         <div className="grid w-full max-w-[72ch] gap-4">
-          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">Sync in progress</p>
+          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">
+            Sync in progress
+          </p>
           <p className="font-display text-[clamp(2rem,4vw,3.2rem)] tracking-[-0.02em] text-[#e4e4e7]">
             Downloading NASA archive
             <span className="ml-1 inline-block text-accent [animation:archivePulse_1.2s_ease-in-out_infinite]">
@@ -288,10 +227,22 @@ function DownloadingView({
             </span>
           </p>
           <div className="grid gap-2 border border-border bg-black/30 px-4 py-4 text-left">
-            <StatusReadout label="Step" value={humanizeSyncPhase(progress?.phase)} />
-            <StatusReadout label="Assets" value={`${completedAssets}/${totalAssets}`} />
-            <StatusReadout label="Downloaded assets" value={String(downloadedAssets)} />
-            <StatusReadout label="Bytes downloaded" value={formatBytes(bytesDownloaded)} />
+            <StatusReadout
+              label="Step"
+              value={progress?.phase.replace(/-/g, " ") ?? "Waiting"}
+            />
+            <StatusReadout
+              label="Assets"
+              value={`${completedAssets}/${totalAssets}`}
+            />
+            <StatusReadout
+              label="Downloaded assets"
+              value={String(downloadedAssets)}
+            />
+            <StatusReadout
+              label="Bytes downloaded"
+              value={formatBytes(bytesDownloaded)}
+            />
           </div>
           <div className="h-2 w-full border border-border bg-black/20">
             <div
@@ -324,29 +275,79 @@ function DownloadingView({
   );
 }
 
-function ArchiveView(props: {
-  phase: string;
-  generation: string;
-  selected: SelectedItem;
-  title: string;
-  description: string;
-  leadAsset: { kind: string; url: string } | null;
-  posterAssetUrl: string | null;
-  subtitleAssetUrl: string | null;
-  rootNamespaceCount: number;
-  stemMatchCount: number;
-  queue: QueueCard[];
-  onSelect: (value: SelectedItem) => void;
-}) {
-  const [filter, setFilter] = useState<MediaFilter>("all");
+function ArchiveView() {
+  const status = useMediaCacheStatus();
+  const rootNamespace = useMedia({
+    kind: "list",
+    namespace: "space",
+    limit: 20,
+  });
+  const tree = useMedia({
+    kind: "list",
+    namespace: "space",
+    recursive: true,
+    limit: 40,
+  });
+  const fileStemMatches = useFileStemMatch("mars-large-organics", {
+    limit: 10,
+  });
+  const [selectedIntent, setSelectedIntent] = useState<{
+    namespace: string;
+    itemId: string;
+  }>({
+    namespace: "space.images",
+    itemId: "SSC-20110203-S00095H",
+  });
+  const [filter, setFilter] = useState<"all" | "image" | "video">("all");
+  const { phase } = status;
+  const generation = String(status.data?.activeGenerationId ?? "none");
+  const queue = (tree.data?.items ?? []).map((item) => ({
+    namespace: item.namespace,
+    itemId: item.id,
+    title: item.title ?? item.id,
+    description:
+      item.description ??
+      item.summary ??
+      "Cached and ready for offline playback.",
+    posterUrl: item.assetsByRole.poster?.url ?? null,
+    leadKind:
+      item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
+  }));
+  const selectedExists = queue.some(
+    (item) =>
+      item.namespace === selectedIntent.namespace &&
+      item.itemId === selectedIntent.itemId,
+  );
+  const selected = selectedExists
+    ? selectedIntent
+    : queue[0]
+      ? { namespace: queue[0].namespace, itemId: queue[0].itemId }
+      : selectedIntent;
+  const currentItem = useMedia({
+    kind: "item",
+    namespace: selected.namespace,
+    id: selected.itemId,
+  });
+  const title = currentItem.data?.title ?? selected.itemId;
+  const description =
+    currentItem.data?.description ??
+    "Metadata will appear here after the cache exposes the current item.";
+  const leadAsset =
+    currentItem.data?.assetsByRole.primary ??
+    currentItem.data?.assets[0] ??
+    null;
+  const posterAssetUrl = currentItem.data?.assetsByRole.poster?.url ?? null;
+  const subtitleAssetUrl = currentItem.data?.assetsByRole.subtitle?.url ?? null;
   const filteredQueue =
     filter === "all"
-      ? props.queue
-      : props.queue.filter((item) => mediaKindFromNamespace(item.namespace) === filter);
+      ? queue
+      : queue.filter(
+          (item) => mediaKindFromNamespace(item.namespace) === filter,
+        );
 
   return (
     <section className="min-h-screen border-x border-border bg-surface">
-      <CompactStatusBar phase={props.phase} generation={props.generation} />
+      <CompactStatusBar phase={phase} generation={generation} />
       <div className="grid grid-cols-1 min-[1081px]:grid-cols-[280px_1fr]">
         <nav
           className={cn([
@@ -358,7 +359,9 @@ function ArchiveView(props: {
         >
           <div className="grid gap-2 border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-sm tracking-[-0.01em] text-[#e4e4e7]">Archive</h3>
+              <h3 className="font-display text-sm tracking-[-0.01em] text-[#e4e4e7]">
+                Archive
+              </h3>
               <p className="font-tech text-[10px] tracking-[0.16em] text-text-dim">
                 {filteredQueue.length} items
               </p>
@@ -389,8 +392,9 @@ function ArchiveView(props: {
           >
             {filteredQueue.map((item) => {
               const isActive =
-                item.namespace === props.selected.namespace &&
-                item.itemId === props.selected.itemId;
+                item.namespace === selected.namespace &&
+                item.itemId === selected.itemId;
+              const cardKind = mediaKindFromNamespace(item.namespace);
               return (
                 <button
                   key={`${item.namespace}/${item.itemId}`}
@@ -403,7 +407,12 @@ function ArchiveView(props: {
                       : "border-border",
                   ])}
                   type="button"
-                  onClick={() => props.onSelect({ namespace: item.namespace, itemId: item.itemId })}
+                  onClick={() =>
+                    setSelectedIntent({
+                      namespace: item.namespace,
+                      itemId: item.itemId,
+                    })
+                  }
                 >
                   <div className="relative aspect-video overflow-hidden border border-border bg-black">
                     {item.posterUrl ? (
@@ -419,7 +428,16 @@ function ArchiveView(props: {
                         </span>
                       </div>
                     )}
-                    <MediaKindBadge namespace={item.namespace} />
+                    <span
+                      className={cn([
+                        "absolute bottom-1 right-1 px-1.5 py-0.5 font-tech text-[8px] uppercase tracking-[0.14em]",
+                        cardKind === "video"
+                          ? "bg-accent/90 text-white"
+                          : "bg-white/80 text-black",
+                      ])}
+                    >
+                      {cardKind}
+                    </span>
                   </div>
                   <div className="grid gap-1 px-1 pb-0.5 pt-2">
                     <p className="text-tech text-[9px] tracking-[0.16em] text-text-dim">
@@ -437,25 +455,30 @@ function ArchiveView(props: {
 
         <div className="grid content-start gap-4 p-4 min-[860px]:p-5">
           <figure className="relative aspect-video w-full overflow-hidden border border-border bg-black">
-            {props.leadAsset?.kind === "video" ? (
+            {leadAsset?.kind === "video" ? (
               <video
-                key={props.leadAsset.url}
+                key={leadAsset.url}
                 className="block h-full w-full bg-black object-contain transition-opacity duration-300"
-                src={props.leadAsset.url}
+                src={leadAsset.url}
                 autoPlay
                 controls
                 playsInline
-                poster={props.posterAssetUrl ?? undefined}
+                poster={posterAssetUrl ?? undefined}
               >
-                {props.subtitleAssetUrl ? (
-                  <track kind="subtitles" src={props.subtitleAssetUrl} default label="Captions" />
+                {subtitleAssetUrl ? (
+                  <track
+                    kind="subtitles"
+                    src={subtitleAssetUrl}
+                    default
+                    label="Captions"
+                  />
                 ) : null}
               </video>
-            ) : props.posterAssetUrl ? (
+            ) : posterAssetUrl ? (
               <img
                 className="block h-full w-full bg-black object-contain transition-opacity duration-300"
-                src={props.posterAssetUrl}
-                alt={props.title}
+                src={posterAssetUrl}
+                alt={title}
               />
             ) : (
               <div className="grid h-full place-items-center p-6 text-center">
@@ -464,48 +487,39 @@ function ArchiveView(props: {
                 </p>
               </div>
             )}
-            {props.leadAsset?.kind !== "video" ? (
+            {leadAsset?.kind !== "video" ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-black via-black/25 to-transparent" />
             ) : null}
           </figure>
 
           <div className="grid content-start gap-3 border-l-2 border-accent bg-surface-alt p-4 min-[860px]:p-5">
             <p className="text-tech text-[10px] tracking-[0.2em] text-text-dim">
-              {props.selected.namespace}
+              {selected.namespace}
             </p>
             <h2 className="font-display text-[clamp(1.4rem,2vw,2rem)] leading-[1.05] text-[#e4e4e7]">
-              {props.title}
+              {title}
             </h2>
             <p className="font-body text-[1rem] leading-[1.55] text-[#a1a1aa]">
-              {props.description}
+              {description}
             </p>
             <dl className="mt-1 grid gap-2">
-              <FactRow label="Primary URL" value={props.leadAsset?.url ?? "pending"} />
-              <FactRow label="Root namespace" value={`space (${props.rootNamespaceCount})`} />
-              <FactRow label="Stem matches" value={String(props.stemMatchCount)} />
+              <FactRow
+                label="Primary URL"
+                value={leadAsset?.url ?? "pending"}
+              />
+              <FactRow
+                label="Root namespace"
+                value={`space (${rootNamespace.data?.items.length ?? 0})`}
+              />
+              <FactRow
+                label="Stem matches"
+                value={String(fileStemMatches.data?.items.length ?? 0)}
+              />
             </dl>
           </div>
         </div>
       </div>
     </section>
-  );
-}
-
-function mediaKindFromNamespace(namespace: string): "image" | "video" {
-  return namespace.includes(".videos") ? "video" : "image";
-}
-
-function MediaKindBadge({ namespace }: { namespace: string }) {
-  const kind = mediaKindFromNamespace(namespace);
-  return (
-    <span
-      className={cn([
-        "absolute bottom-1 right-1 px-1.5 py-0.5 font-tech text-[8px] uppercase tracking-[0.14em]",
-        kind === "video" ? "bg-accent/90 text-white" : "bg-white/80 text-black",
-      ])}
-    >
-      {kind}
-    </span>
   );
 }
 
@@ -520,21 +534,4 @@ function FactRow({ label, value }: { label: string; value: string }) {
       </dd>
     </>
   );
-}
-
-function humanizeSyncPhase(phase: string | undefined): string {
-  if (!phase) {
-    return "Waiting";
-  }
-  return phase.replace(/-/g, " ");
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
