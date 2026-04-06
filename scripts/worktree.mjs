@@ -45,7 +45,9 @@ function createWorktree(argv) {
 
   const startPoint = options.values.from ?? "main";
   const baseDir = resolve(options.values["base-dir"] ?? defaultBaseDir);
-  const targetPath = resolve(options.values.path ?? join(baseDir, encodeBranchForWorktreeDir(branch)));
+  const targetPath = resolve(
+    options.values.path ?? join(baseDir, encodeBranchForWorktreeDir(branch)),
+  );
 
   if (existsSync(targetPath)) {
     fail(`Target path already exists: ${targetPath}`);
