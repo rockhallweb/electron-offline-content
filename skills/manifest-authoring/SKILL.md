@@ -227,7 +227,7 @@ const inducteeItem = defineManifestItem({
 ```tsx
 // In renderer
 const item = useMediaItem("inductees", "inductee-2026-beyonce");
-if (item.status === "loaded") {
+if (!item.loading && item.data) {
   const video = item.data.assetsByRole["primary"];
   const poster = item.data.assetsByRole["poster"];
   const subtitleEn = item.data.assetsByRole["subtitle"];

@@ -124,7 +124,7 @@ Recursive tree query across nested namespaces:
 
 ```tsx
 function AllMedia() {
-  const { data, loading } = useMediaItems("exhibits/floor-2", {
+  const { data, loading } = useMediaItems("exhibits.floor-2", {
     recursive: true,
     limit: 100,
   });
@@ -255,8 +255,8 @@ function AssetSearch({ query }: { query: string }) {
   return (
     <ul>
       {data.items.map((match) => (
-        <li key={`${match.namespace}/${match.id}`}>
-          {match.namespace}/{match.id}
+        <li key={`${match.item.namespace}/${match.item.id}`}>
+          {match.item.namespace}/{match.item.id}
         </li>
       ))}
     </ul>

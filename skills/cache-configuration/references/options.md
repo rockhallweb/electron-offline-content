@@ -132,11 +132,11 @@ reserveFreeBytes: 1 * 1024 * 1024 * 1024; // 1 GB
 
 ## staleDeleteAfterMs
 
-|              |                                        |
-| ------------ | -------------------------------------- |
-| **Type**     | `number`                               |
-| **Required** | No                                     |
-| **Default**  | Indefinite (stale assets kept forever) |
+|              |                      |
+| ------------ | -------------------- |
+| **Type**     | `number`             |
+| **Required** | No                   |
+| **Default**  | `604800000` (7 days) |
 
 Milliseconds to retain assets that are no longer present in the manifest before deleting them from disk.
 

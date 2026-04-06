@@ -309,8 +309,8 @@ function Search({ query }: { query: string }) {
   return (
     <ul>
       {data.items.map((match) => (
-        <li key={`${match.namespace}/${match.id}`}>
-          {match.namespace}/{match.id}
+        <li key={`${match.item.namespace}/${match.item.id}`}>
+          {match.item.namespace}/{match.item.id}
         </li>
       ))}
     </ul>

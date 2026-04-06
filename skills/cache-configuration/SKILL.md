@@ -105,7 +105,7 @@ const mediaCache = createMediaCache({
 
 - `maxCacheBytes` — soft cap on total cache size in bytes. The sync pipeline skips new downloads when the cache exceeds this limit.
 - `reserveFreeBytes` — minimum free disk space to preserve. Downloads pause when free space drops below this threshold.
-- `staleDeleteAfterMs` — how long removed assets (no longer in the manifest) stay on disk before deletion. Defaults to keeping stale assets indefinitely when unset.
+- `staleDeleteAfterMs` — how long removed assets (no longer in the manifest) stay on disk before deletion. Defaults to 7 days (604,800,000 ms) when unset.
 
 ### Structured logging
 

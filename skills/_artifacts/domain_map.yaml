@@ -7,7 +7,7 @@
 
 library:
   name: "@rockhallweb/electron-offline-content"
-  version: "0.1.0"
+  version: "0.1.1"
   repository: "https://github.com/rockhallweb/electron-offline-content"
   description: >
     Electron package for kiosk-style apps that syncs a full manifest of offline
