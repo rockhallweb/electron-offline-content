@@ -45,7 +45,7 @@ function createWorktree(argv) {
 
   const startPoint = options.values.from ?? "main";
   const baseDir = resolve(options.values["base-dir"] ?? defaultBaseDir);
-  const targetPath = resolve(options.values.path ?? join(baseDir, normalizeBranchName(branch)));
+  const targetPath = resolve(options.values.path ?? join(baseDir, encodeBranchForWorktreeDir(branch)));
 
   if (existsSync(targetPath)) {
     fail(`Target path already exists: ${targetPath}`);
@@ -92,7 +92,7 @@ function openWorktree(argv) {
   const input = options.positionals[0];
   const baseDir = resolve(options.values["base-dir"] ?? defaultBaseDir);
   const targetPath = resolve(
-    options.values.path ?? (input ? join(baseDir, normalizeBranchName(input)) : ""),
+    options.values.path ?? (input ? join(baseDir, encodeBranchForWorktreeDir(input)) : ""),
   );
 
   if (!input && !options.values.path) {
@@ -201,8 +201,8 @@ function parseArgs(argv, schema) {
   return { positionals, values };
 }
 
-function normalizeBranchName(branch) {
-  return branch.replace(/[^A-Za-z0-9._-]+/g, "-");
+function encodeBranchForWorktreeDir(branch) {
+  return Buffer.from(branch, "utf8").toString("base64url");
 }
 
 function pnpmCommand() {
