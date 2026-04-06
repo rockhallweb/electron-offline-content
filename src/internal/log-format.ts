@@ -79,6 +79,11 @@ const EVENT_MESSAGES: Record<string, MessageFn> = {
   manifest_resolved: (e) =>
     `Manifest resolved: ${str(e.namespace_count)} namespace(s), ${str(e.item_count)} item(s) → generation #${str(e.staged_generation_id)} (run #${str(e.run_id)})`,
 
+  manifest_expired: (e) =>
+    e.asset_id != null
+      ? `Manifest expired at ${str(e.expires_at)} before downloading ${assetPath(e)} (run #${str(e.run_id)})`
+      : `Manifest expired at ${str(e.expires_at)} before downloads began (run #${str(e.run_id)})`,
+
   sync_diffed: (e) =>
     `Diff complete: ${str(e.total_assets)} asset(s) total, ${str(e.download_count)} to download, ${str(e.skipped_assets)} already cached (run #${str(e.run_id)})`,
 

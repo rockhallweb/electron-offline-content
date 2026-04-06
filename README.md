@@ -180,6 +180,7 @@ A manifest has **namespaces**, each containing **items**, each containing **asse
 
 ```ts
 {
+  expiresAt: "2026-03-10T18:00:00.000Z", // optional global URL expiration cutoff
   namespaces: [
     {
       key: "lobby",                    // stable identifier
@@ -248,6 +249,15 @@ const manifest = defineManifest({
 
 `defineManifestItem` and `defineManifestAsset` validate their input individually, so errors surface at the point of definition rather than deep inside `defineManifest`.
 
+If your manifest contains pre-signed asset URLs with a shared TTL, set `expiresAt` so the sync can fail fast with a clear error once those URLs are stale:
+
+```ts
+const manifest = defineManifest({
+  expiresAt: "2026-03-10T18:00:00.000Z",
+  namespaces: [{ key: "exhibits", items: [welcomeItem] }],
+});
+```
+
 ### Shorthand inputs
 
 `resolveManifest` also accepts an array of namespace objects or a flat array of items (normalized into a `default` namespace internally):
@@ -267,6 +277,7 @@ resolveManifest: async () => [
 - `item.version` is required (the package is version-driven for cache busting).
 - `asset.version` is optional; when omitted, the parent `item.version` is used.
 - `asset.fileName` is optional; when omitted, derived from the source URL basename.
+- `manifest.expiresAt` is optional; when present, it must be an ISO 8601 timestamp with `Z` or an explicit UTC offset.
 - Asset source URLs must be `http` or `https`.
 
 ## Dev passthrough mode
@@ -358,6 +369,7 @@ All errors extend `MediaCacheError`, which carries a `code` string for programma
 | Error                     | Code                        | When                                                                |
 | ------------------------- | --------------------------- | ------------------------------------------------------------------- |
 | `ManifestValidationError` | `MANIFEST_VALIDATION_ERROR` | Manifest is malformed (duplicate keys, missing fields)              |
+| `ManifestExpiredError`    | `MANIFEST_EXPIRED`          | Manifest-declared asset URLs are past `expiresAt`                   |
 | `DataValidationError`     | `DATA_VALIDATION_ERROR`     | Persisted state fails validation                                    |
 | `StorageOwnershipError`   | `STORAGE_OWNERSHIP_ERROR`   | Another process or instance owns the storage root                   |
 | `StorageLimitError`       | `STORAGE_LIMIT_ERROR`       | Disk full, `maxCacheBytes` exceeded, or `reserveFreeBytes` violated |
@@ -395,6 +407,8 @@ const mediaCache = createMediaCache({
   }),
 });
 ```
+
+If you embed pre-signed URLs directly in the manifest instead, use a generous TTL and set `manifest.expiresAt` to the earliest shared expiry. The cache checks `expiresAt` immediately after manifest resolution and again before each late-queue request is resolved and fetched, so once `now >= expiresAt` the run fails with `MANIFEST_EXPIRED` instead of surfacing a later opaque HTTP 403.
 
 **Bearer token** -- attach an auth header to stable URLs:
 
@@ -456,6 +470,7 @@ const mediaCache = createMediaCache({
 
 - `resolve_asset_base_url_fallback` (warn) -- a stored asset URL could not be parsed during origin override in passthrough mode.
 - `dev_passthrough_ignores_sync_failure_mode` (warn) -- `devPassthrough` is true and `onSyncFailure` is not `"throw"`.
+- `manifest_expired` (warn) -- the manifest declared `expiresAt` and the sync reached or passed it before download work completed.
 - `protocol_request_not_found` (debug) -- no matching generation or asset for a `media://` request.
 - `protocol_request_file_missing` (debug) -- asset exists in DB but file is absent on disk.
 
@@ -491,7 +506,7 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-`**MediaCacheOptions**`
+**`MediaCacheOptions`**
 
 | Option                | Type                                                   | Required | Description                                                                                     |
 | --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -537,9 +552,9 @@ Granular validation helpers for individual items and assets.
 
 #### Key types
 
-**`MediaCacheManifest`** -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
+**`MediaCacheManifest`** -- `{ snapshotId?, retrievedAt?, expiresAt?, namespaces: MediaNamespaceDefinition[] }`
 
-**`MediaNamespaceDefinition`** -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
+`**MediaNamespaceDefinition**` -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
 
 `**MediaContentDefinition**` -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
 

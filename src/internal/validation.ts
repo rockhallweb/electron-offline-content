@@ -164,7 +164,8 @@ export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition>
 
 export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
   snapshotId: z.string().optional(),
-  retrievedAt: z.string().optional(),
+  retrievedAt: z.string().datetime({ offset: true }).optional(),
+  expiresAt: z.string().datetime({ offset: true }).optional(),
   namespaces: z.array(mediaNamespaceDefinitionSchema),
 });
 

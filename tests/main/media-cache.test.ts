@@ -28,6 +28,7 @@ import { defineManifest, defineManifestAsset, defineManifestItem } from "../../s
 import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
+  ManifestExpiredError,
   ManifestValidationError,
   StorageOwnershipError,
   StorageLimitError,
@@ -158,6 +159,29 @@ describe("manifest normalization", () => {
     ]);
 
     expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe("custom-name.mp4");
+  });
+
+  it("preserves a valid manifest expiresAt timestamp", () => {
+    const manifest = normalizeManifest({
+      expiresAt: "2026-04-06T12:30:00.000Z",
+      namespaces: [
+        {
+          key: "gallery",
+          items: [],
+        },
+      ],
+    });
+
+    expect(manifest.expiresAt).toBe("2026-04-06T12:30:00.000Z");
+  });
+
+  it("rejects an invalid manifest expiresAt timestamp", () => {
+    expect(() =>
+      normalizeManifest({
+        expiresAt: "2026-04-06 12:30:00",
+        namespaces: [],
+      }),
+    ).toThrow(ManifestValidationError);
   });
 
   it("rejects duplicate namespace keys, item ids, and asset ids", () => {
@@ -1386,6 +1410,251 @@ describe("media cache sync and queries", () => {
     await expect(cache.syncNow()).rejects.toThrow("Download failed");
     const item = await cache.getItem("nature", "forest");
     expect(item?.version).toBe("v1");
+  });
+
+  it("fails before downloading when manifest expiresAt is already in the past", async () => {
+    const storageRoot = createStorageRoot();
+    const currentNow = Date.parse("2026-04-06T12:30:01.000Z");
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveManifest: () => ({
+          snapshotId: "expired-before-download",
+          expiresAt: "2026-04-06T12:30:00.000Z",
+          namespaces: [
+            {
+              key: "nature",
+              items: [
+                {
+                  id: "forest",
+                  version: "v1",
+                  kind: "video",
+                  assets: [
+                    {
+                      id: "main",
+                      role: "primary",
+                      kind: "video",
+                      fileName: "main.mp4",
+                      byteLength: 9,
+                      source: {
+                        url: `${baseUrl}/main.mp4`,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await expect(cache.start()).rejects.toThrow(ManifestExpiredError);
+    expect(requestCounts["/main.mp4"] ?? 0).toBe(0);
+
+    const status = await cache.getStatus();
+    expect(status.phase).toBe("error");
+    expect(status.error?.code).toBe("MANIFEST_EXPIRED");
+  });
+
+  it("fails before a later asset download when manifest expires mid-sync", async () => {
+    let currentNow = 1_000;
+    const storageRoot = createStorageRoot();
+    const requestedUrls: string[] = [];
+    const resolvedAssetIds: string[] = [];
+    const fetchImpl: typeof globalThis.fetch = vi.fn(async (input) => {
+      const requestUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requestedUrls.push(requestUrl);
+      if (requestUrl.endsWith("/main.mp4")) {
+        currentNow = 2_000;
+        return new Response("video-one", {
+          headers: {
+            "content-type": "video/mp4",
+          },
+        });
+      }
+      if (requestUrl.endsWith("/poster.jpg")) {
+        return new Response("poster", {
+          headers: {
+            "content-type": "image/jpeg",
+          },
+        });
+      }
+      throw new Error(`Unexpected test URL: ${requestUrl}`);
+    });
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveManifest: () => ({
+          snapshotId: "expires-mid-sync",
+          expiresAt: new Date(1_500).toISOString(),
+          namespaces: [
+            {
+              key: "nature",
+              items: [
+                {
+                  id: "forest",
+                  version: "v1",
+                  kind: "video",
+                  assets: [
+                    {
+                      id: "main",
+                      role: "primary",
+                      kind: "video",
+                      fileName: "main.mp4",
+                      byteLength: "video-one".length,
+                      source: {
+                        url: `${baseUrl}/main.mp4`,
+                      },
+                    },
+                    {
+                      id: "poster",
+                      role: "poster",
+                      kind: "poster",
+                      fileName: "poster.jpg",
+                      byteLength: "poster".length,
+                      source: {
+                        url: `${baseUrl}/poster.jpg`,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        resolveAssetRequest: async ({ asset }) => {
+          resolvedAssetIds.push(asset.id);
+          if (asset.id === "main") {
+            currentNow = 2_000;
+          }
+          return asset.source;
+        },
+      },
+      {
+        fetchImpl,
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await expect(cache.start()).rejects.toThrow(ManifestExpiredError);
+    expect(resolvedAssetIds).toEqual(["main"]);
+    expect(requestedUrls).toEqual([`${baseUrl}/main.mp4`]);
+
+    const status = await cache.getStatus();
+    expect(status.phase).toBe("error");
+    expect(status.error?.code).toBe("MANIFEST_EXPIRED");
+  });
+
+  it("keeps serving the previous generation when a later manifest is already expired", async () => {
+    let currentNow = 1_000;
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => manifests,
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
+
+    await cache.start();
+
+    currentNow = 2_000;
+    manifests = {
+      snapshotId: "expired-update",
+      expiresAt: new Date(1_500).toISOString(),
+      namespaces: [
+        {
+          key: "nature",
+          items: [
+            {
+              id: "forest",
+              version: "v2",
+              kind: "video",
+              assets: [
+                {
+                  id: "main",
+                  role: "primary",
+                  kind: "video",
+                  fileName: "expired-update.mp4",
+                  byteLength: 12,
+                  source: {
+                    url: `${baseUrl}/expired-update.mp4`,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await expect(cache.syncNow()).resolves.toBeUndefined();
+    expect(requestCounts["/expired-update.mp4"] ?? 0).toBe(0);
+    expect((await cache.getItem("nature", "forest"))?.version).toBe("v1");
+
+    const status = await cache.getStatus();
+    expect(status.phase).toBe("ready");
+    expect(status.activeGenerationId).not.toBeNull();
+    expect(status.error?.code).toBe("MANIFEST_EXPIRED");
+  });
+
+  it("preserves normal download failure behavior when manifest expiresAt is omitted", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveManifest: () => ({
+          snapshotId: "broken-without-expiry",
+          namespaces: [
+            {
+              key: "nature",
+              items: [
+                {
+                  id: "forest",
+                  version: "v1",
+                  kind: "video",
+                  assets: [
+                    {
+                      id: "main",
+                      role: "primary",
+                      kind: "video",
+                      fileName: "nonretryable.mp4",
+                      byteLength: 6,
+                      source: {
+                        url: `${baseUrl}/nonretryable.mp4`,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      {
+        now: () => 1_000,
+        sleep: async () => undefined,
+      },
+    );
+
+    await expect(cache.start()).rejects.toThrow("Download failed");
+    expect(requestCounts["/nonretryable.mp4"] ?? 0).toBe(1);
+
+    const status = await cache.getStatus();
+    expect(status.error?.code).toBe("SYNC_FAILURE");
   });
 
   it("resumes an existing partial download across cache instances", async () => {

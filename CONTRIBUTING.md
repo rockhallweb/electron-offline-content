@@ -46,3 +46,29 @@ GitHub Actions uses the same `pnpm ci:validate` entrypoint. The workflow is rest
 ## Day-to-day workflow
 
 Development uses a path-linked example plus root `pnpm build`. Run `pnpm pack:verify` to exercise the same install path consumers get from the registry tarball (using `examples/local`). This catches export or packaging mistakes that path linking can hide.
+
+## Cursor worktrees
+
+For package work in Cursor, use the root worktree helpers instead of cloning the repo again:
+
+- `pnpm worktree:new <branch>` creates a sibling worktree under `../electron-media-cache-worktrees/<normalized-branch>` and runs `pnpm install --frozen-lockfile` in that worktree.
+- `pnpm worktree:new <branch> -- --open` does the same, then opens the worktree in Cursor via the `cursor` CLI.
+- `pnpm worktree:new <branch> -- --from main` changes the start point for a new branch. If the branch already exists locally, the script reuses it. If it exists on `origin` only, the script creates a tracking branch.
+- `pnpm worktree:open <branch>` reopens an existing worktree in Cursor.
+- `pnpm worktree:list` shows active worktrees.
+- `pnpm worktree:prune` removes stale worktree metadata after you delete or remove worktrees.
+
+This setup is intentionally package-first:
+
+- The helper installs only the root package dependencies.
+- Example app dependencies are not installed automatically.
+- Use the existing example commands only when you explicitly want to exercise `examples/local` or `examples/nasa`.
+
+Typical flow:
+
+```bash
+pnpm worktree:new feat/cache-api -- --open
+cd ../electron-media-cache-worktrees/feat-cache-api
+pnpm test
+pnpm build
+```
