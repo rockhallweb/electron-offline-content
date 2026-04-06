@@ -25,6 +25,14 @@ export class ManifestValidationError extends MediaCacheError {
   }
 }
 
+/** Manifest-derived URLs have passed their declared expiration time and must not be downloaded. */
+export class ManifestExpiredError extends MediaCacheError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, "MANIFEST_EXPIRED", options);
+    this.name = "ManifestExpiredError";
+  }
+}
+
 /** Another process or cache instance already owns the configured storage root. */
 export class StorageOwnershipError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {

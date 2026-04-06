@@ -34,6 +34,7 @@ export interface NormalizedManifest extends MediaCacheManifest {
 
 export function normalizeManifest(input: ManifestInput): NormalizedManifest {
   const manifest = toManifest(input);
+  const expiresAt = normalizeManifestExpiration(manifest.expiresAt);
   const namespaceSeen = new Set<string>();
 
   const namespaces = manifest.namespaces.map((namespace) => {
@@ -104,6 +105,7 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
   return {
     snapshotId: manifest.snapshotId,
     retrievedAt: manifest.retrievedAt,
+    expiresAt,
     namespaces,
   };
 }
@@ -130,4 +132,21 @@ function toManifest(input: ManifestInput): MediaCacheManifest {
   }
 
   return input;
+}
+
+const ISO_8601_OFFSET_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function normalizeManifestExpiration(expiresAt: string | undefined): string | undefined {
+  if (expiresAt === undefined) {
+    return undefined;
+  }
+
+  if (!ISO_8601_OFFSET_TIMESTAMP.test(expiresAt) || Number.isNaN(Date.parse(expiresAt))) {
+    throw new ManifestValidationError(
+      "Manifest expiresAt must be an ISO 8601 timestamp with a timezone offset or Z suffix.",
+    );
+  }
+
+  return expiresAt;
 }

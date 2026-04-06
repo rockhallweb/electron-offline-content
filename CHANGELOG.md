@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Added
+
+- Manifest expiration support: optional `expiresAt` field causes sync to fail fast with `ManifestExpiredError` once pre-signed URLs are past their TTL.
+- Cursor worktree helpers (`pnpm worktree:new`, `worktree:open`, `worktree:list`, `worktree:prune`) for package development workflows.
+
 ## 0.1.2
 
 ### Fixed
