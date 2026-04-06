@@ -182,13 +182,45 @@ Correct — generous expiration plus `expiresAt`, or download-time signing:
 
 ```typescript
 // Option A: generous TTL (24 hours) for small catalogs, plus manifest.expiresAt
-const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+const ttlSeconds = 86400;
+const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
-{
-  expiresIn: 86400;
+async function resolveManifest() {
+  const items = await fetchCatalog();
+  return {
+    expiresAt, // fail fast once shared URL TTL lapses
+    namespaces: [
+      {
+        key: "exhibits",
+        items: await Promise.all(
+          items.map(async (item) => ({
+            id: item.id,
+            version: item.revision,
+            kind: "video" as const,
+            assets: [
+              {
+                id: "main",
+                role: "primary",
+                kind: "video",
+                source: {
+                  url: await getSignedUrl(
+                    s3,
+                    new GetObjectCommand({ Bucket: "b", Key: item.key }),
+                    { expiresIn: ttlSeconds },
+                  ),
+                },
+              },
+            ],
+          })),
+        ),
+      },
+    ],
+  };
 }
 
-// Option B: use resolveAssetRequest for large catalogs (see Setup)
+// Option B: use resolveAssetRequest for large catalogs — signs each URL
+// at download time so TTL pressure is per-asset, not per-manifest.
+// See the Setup section for resolveAssetRequest wiring.
 ```
 
 Source: Maintainer interview

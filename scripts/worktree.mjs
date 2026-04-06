@@ -175,7 +175,9 @@ function parseArgs(argv, schema) {
       continue;
     }
 
-    const name = token.slice(2);
+    const eqIndex = token.indexOf("=");
+    const name = eqIndex === -1 ? token.slice(2) : token.slice(2, eqIndex);
+
     if (schema.boolean.has(name)) {
       values[name] = true;
       continue;
@@ -185,13 +187,15 @@ function parseArgs(argv, schema) {
       fail(`Unknown option: --${name}`);
     }
 
-    const value = argv[index + 1];
-    if (!value || value.startsWith("--")) {
+    const value = eqIndex === -1 ? argv[index + 1] : token.slice(eqIndex + 1);
+    if (value === undefined) {
       fail(`Missing value for --${name}`);
     }
 
     values[name] = value;
-    index += 1;
+    if (eqIndex === -1) {
+      index += 1;
+    }
   }
 
   return { positionals, values };
