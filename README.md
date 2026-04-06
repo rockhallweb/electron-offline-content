@@ -491,23 +491,23 @@ Assets removed from the manifest are not deleted immediately. They are marked fo
 
 Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mode.
 
-**`MediaCacheOptions`**
+`**MediaCacheOptions**`
 
-| Option                | Type                                                   | Required | Description                                                                                     |
-| --------------------- | ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
-| `storagePath`         | `MediaCacheStoragePath`                                | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
-| `resolveManifest`     | `() => ManifestInput \| Promise<ManifestInput>`        | yes      | Returns the full manifest for each sync run.                                                    |
-| `devPassthrough`      | `boolean`                                              | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
-| `assetBaseUrl`        | `string`                                               | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
-| `onSyncFailure`       | `"serve-last-snapshot" \| "throw"`                     | no       | Behavior on sync failure. Default `"serve-last-snapshot"`.                                      |
-| `resolveAssetRequest` | `(ctx) => DownloadRequest \| Promise<DownloadRequest>` | no       | Per-asset hook to customize download URL/headers.                                               |
-| `maxCacheBytes`       | `number`                                               | no       | Soft cap on total cached bytes.                                                                 |
-| `reserveFreeBytes`    | `number`                                               | no       | Minimum free disk bytes to preserve.                                                            |
-| `staleDeleteAfterMs`  | `number`                                               | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
-| `syncHistoryLimit`    | `number`                                               | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
-| `onLog`               | `MediaCacheLogHandler`                                 | no       | Structured log callback.                                                                        |
-| `logLevel`            | `"debug" \| "info" \| "warn" \| "error"`               | no       | Minimum log severity.                                                                           |
-| `logFormat`           | `"english" \| "json"`                                  | no       | Built-in console line format. Default `"english"`.                                              |
+| Option                | Type                      | Required | Description                                                                                     |
+| --------------------- | ------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`   | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveManifest`     | `() => ManifestInput      | Promise` | yes                                                                                             |
+| `devPassthrough`      | `boolean`                 | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                  | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `"serve-last-snapshot"    | "throw"` | no                                                                                              |
+| `resolveAssetRequest` | `(ctx) => DownloadRequest | Promise` | no                                                                                              |
+| `maxCacheBytes`       | `number`                  | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                  | no       | Minimum free disk bytes to preserve.                                                            |
+| `staleDeleteAfterMs`  | `number`                  | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `syncHistoryLimit`    | `number`                  | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `onLog`               | `MediaCacheLogHandler`    | no       | Structured log callback.                                                                        |
+| `logLevel`            | `"debug"                  | "info"   | "warn"                                                                                          |
+| `logFormat`           | `"english"                | "json"`  | no                                                                                              |
 
 #### `MediaCacheMain`
 
@@ -518,7 +518,7 @@ Returned by `createMediaCache`. Requires exclusive ownership of its resolved sto
 | `start()`                                | `Promise<void>`                                       | One-call setup: register protocol, attach IPC, run initial sync.  |
 | `syncNow()`                              | `Promise<void>`                                       | Run or join a sync. Concurrent callers share one run.             |
 | `getStatus()`                            | `Promise<MediaCacheStatus>`                           | Current phase, progress, last run, and error.                     |
-| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem \| null>`           | Single item lookup.                                               |
+| `getItem(namespace, id)`                 | `Promise<ResolvedMediaContentItem                     | null>`                                                            |
 | `listNamespace(namespace, pagination?)`  | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Flat list of items in one namespace.                              |
 | `listNamespaceTree(prefix, pagination?)` | `Promise<PaginationResult<ResolvedMediaContentItem>>` | Items under a namespace prefix and all descendants.               |
 | `findByFileStem(stem, options?)`         | `Promise<PaginationResult<FileStemMatch>>`            | Search by normalized filename stem.                               |
@@ -537,9 +537,9 @@ Granular validation helpers for individual items and assets.
 
 #### Key types
 
-`**MediaCacheManifest**` -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
+`**MediaCacheManifest`\*\* -- `{ snapshotId?, retrievedAt?, namespaces: MediaNamespaceDefinition[] }`
 
-`**MediaNamespaceDefinition**` -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
+`**MediaNamespaceDefinition`\*\* -- `{ key, label?, metadata?, items: MediaContentDefinition[] }`
 
 `**MediaContentDefinition**` -- `{ id, version, kind, title?, description?, summary?, blobs?, metadata?, assets: MediaAssetDefinition[] }`
 

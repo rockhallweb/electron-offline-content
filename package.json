@@ -1,6 +1,6 @@
 {
   "name": "@rockhallweb/electron-offline-content",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "license": "UNLICENSED",
   "files": [
@@ -48,6 +48,7 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@tanstack/intent": "^0.0.29",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
