@@ -1,6 +1,7 @@
 dist
 node_modules
 coverage
+.turbo
 .DS_Store
 *.DS_Store
 examples/local/.smoke/

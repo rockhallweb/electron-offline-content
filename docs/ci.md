@@ -1,12 +1,17 @@
 # CI
 
-This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), to run the maintainer validation chain:
+This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), to run a Turbo-backed root validation pipeline plus explicit example setup:
 
 ```bash
-pnpm ci:validate
+pnpm validate
+pnpm install:example:local:ci
+pnpm install:example:nasa:ci
+pnpm examples:verify
 ```
 
-`ci:validate` ends with `pnpm pack:verify`, which packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, test, build, then `pack:verify`. `pack:verify` still packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+
+`pnpm examples:verify` keeps `examples/local` and `examples/nasa` as standalone pnpm projects while letting Turbo orchestrate only their lint, format, and knip checks from the root package. The example installs are explicit setup steps so the verification graph can cache independently. This repository is still not a monorepo workspace.
 
 The workflow is intentionally member-oriented:
 
