@@ -58,21 +58,24 @@ const mediaCache = createMediaCache({
     return defineManifest({
       namespaces: {
         videos: {
-          items: itemsFromEntries(data.videos, (v: { slug: string; updatedAt: string; title: string; videoUrl: string }) => [
-            v.slug,
-            defineItem({
-              version: v.updatedAt,
-              kind: "video",
-              title: v.title,
-              assets: {
-                main: defineAsset({
-                  role: "primary",
-                  kind: "video",
-                  source: { url: v.videoUrl },
-                }),
-              },
-            }),
-          ]),
+          items: itemsFromEntries(
+            data.videos,
+            (v: { slug: string; updatedAt: string; title: string; videoUrl: string }) => [
+              v.slug,
+              defineItem({
+                version: v.updatedAt,
+                kind: "video",
+                title: v.title,
+                assets: {
+                  main: defineAsset({
+                    role: "primary",
+                    kind: "video",
+                    source: { url: v.videoUrl },
+                  }),
+                },
+              }),
+            ],
+          ),
         },
       },
     });

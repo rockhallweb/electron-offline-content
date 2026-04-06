@@ -67,7 +67,9 @@ export function namespacesFromEntries<T>(
     const key = tuple[0];
     const value = tuple[1];
     if (!key) {
-      throw new ManifestValidationError(`namespacesFromEntries: empty namespace key at index ${i}.`);
+      throw new ManifestValidationError(
+        `namespacesFromEntries: empty namespace key at index ${i}.`,
+      );
     }
     const first = keyToFirstIndex.get(key);
     if (first !== undefined) {

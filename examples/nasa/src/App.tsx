@@ -17,9 +17,7 @@ type DownloadActionProps = {
 export function App() {
   const { syncNow, phase, errors } = useMediaBridge();
   const [isStartingDownload, setIsStartingDownload] = useState(false);
-  const [downloadStartError, setDownloadStartError] = useState<string | null>(
-    null,
-  );
+  const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
 
   // Example of starting a sync imperatively
   const startDownload = async () => {
@@ -41,9 +39,7 @@ export function App() {
   ]);
 
   return (
-    <main
-      className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}
-    >
+    <main className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}>
       <div className="grid w-full gap-0">
         {errors.syncError?.message ? (
           <section className={errorClasses}>
@@ -118,13 +114,7 @@ function StatusReadout({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CompactStatusBar({
-  phase,
-  generation,
-}: {
-  phase: string;
-  generation: string;
-}) {
+function CompactStatusBar({ phase, generation }: { phase: string; generation: string }) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2.5">
       <p className="text-tech flex items-center gap-2 text-[11px] tracking-[0.2em] text-text-dim">
@@ -148,8 +138,7 @@ function PreDownloadView({
   const status = useMediaCacheStatus();
   const { phase } = status;
   const generation = String(status.data?.activeGenerationId ?? "none");
-  const storagePath =
-    status.data?.storageRoot ?? "Resolving local storage path...";
+  const storagePath = status.data?.storageRoot ?? "Resolving local storage path...";
   const actionError = downloadStartError ?? status.data?.error?.message ?? null;
 
   return (
@@ -157,24 +146,19 @@ function PreDownloadView({
       <Header phase={phase} generation={generation} />
       <div className="grid min-h-[420px] place-items-center border border-border bg-surface-alt p-7 text-center">
         <div className="grid max-w-[72ch] gap-4">
-          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">
-            Download required
-          </p>
+          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">Download required</p>
           <p className="font-display text-[clamp(2rem,4vw,3.2rem)] tracking-[-0.02em] text-[#e4e4e7]">
             Archive content is downloaded to your local machine.
           </p>
           <p className="font-body mx-auto max-w-[54ch] text-lg text-[#a1a1aa]">
-            This NASA demo is focused on runtime offline behavior. When you
-            start the download, media files are cached locally and then served
-            from the `media:` protocol.
+            This NASA demo is focused on runtime offline behavior. When you start the download,
+            media files are cached locally and then served from the `media:` protocol.
           </p>
           <p className="mx-auto max-w-[64ch] break-all border border-border bg-black/30 px-4 py-3 font-tech text-xs text-[#d4d4d8]">
             {storagePath}
           </p>
           {actionError ? (
-            <p className="font-body text-sm text-[#fca5a5]">
-              Download failed: {actionError}
-            </p>
+            <p className="font-body text-sm text-[#fca5a5]">Download failed: {actionError}</p>
           ) : null}
           <div>
             <button
@@ -198,10 +182,7 @@ function PreDownloadView({
   );
 }
 
-function DownloadingView({
-  onStartDownload,
-  isStartingDownload,
-}: DownloadActionProps) {
+function DownloadingView({ onStartDownload, isStartingDownload }: DownloadActionProps) {
   const status = useMediaCacheStatus();
   const generation = String(status.data?.activeGenerationId ?? "none");
   const progress = status.data?.progress ?? null;
@@ -209,17 +190,14 @@ function DownloadingView({
   const completedAssets = progress?.completedAssets ?? 0;
   const downloadedAssets = progress?.downloadedAssets ?? 0;
   const bytesDownloaded = progress?.bytesDownloaded ?? 0;
-  const progressFraction =
-    totalAssets === 0 ? 0 : Math.min(completedAssets / totalAssets, 1);
+  const progressFraction = totalAssets === 0 ? 0 : Math.min(completedAssets / totalAssets, 1);
 
   return (
     <section className="grid gap-6 border border-border bg-surface px-5 py-6 min-[860px]:px-7 min-[860px]:py-7">
       <Header phase={status.phase} generation={generation} />
       <div className="grid min-h-[420px] place-items-center border border-border bg-surface-alt p-7 text-center">
         <div className="grid w-full max-w-[72ch] gap-4">
-          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">
-            Sync in progress
-          </p>
+          <p className="text-tech text-[11px] tracking-[0.2em] text-text-dim">Sync in progress</p>
           <p className="font-display text-[clamp(2rem,4vw,3.2rem)] tracking-[-0.02em] text-[#e4e4e7]">
             Downloading NASA archive
             <span className="ml-1 inline-block text-accent [animation:archivePulse_1.2s_ease-in-out_infinite]">
@@ -227,22 +205,10 @@ function DownloadingView({
             </span>
           </p>
           <div className="grid gap-2 border border-border bg-black/30 px-4 py-4 text-left">
-            <StatusReadout
-              label="Step"
-              value={progress?.phase.replace(/-/g, " ") ?? "Waiting"}
-            />
-            <StatusReadout
-              label="Assets"
-              value={`${completedAssets}/${totalAssets}`}
-            />
-            <StatusReadout
-              label="Downloaded assets"
-              value={String(downloadedAssets)}
-            />
-            <StatusReadout
-              label="Bytes downloaded"
-              value={formatBytes(bytesDownloaded)}
-            />
+            <StatusReadout label="Step" value={progress?.phase.replace(/-/g, " ") ?? "Waiting"} />
+            <StatusReadout label="Assets" value={`${completedAssets}/${totalAssets}`} />
+            <StatusReadout label="Downloaded assets" value={String(downloadedAssets)} />
+            <StatusReadout label="Bytes downloaded" value={formatBytes(bytesDownloaded)} />
           </div>
           <div className="h-2 w-full border border-border bg-black/20">
             <div
@@ -305,18 +271,12 @@ function ArchiveView() {
     namespace: item.namespace,
     itemId: item.id,
     title: item.title ?? item.id,
-    description:
-      item.description ??
-      item.summary ??
-      "Cached and ready for offline playback.",
+    description: item.description ?? item.summary ?? "Cached and ready for offline playback.",
     posterUrl: item.assetsByRole.poster?.url ?? null,
-    leadKind:
-      item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
+    leadKind: item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
   }));
   const selectedExists = queue.some(
-    (item) =>
-      item.namespace === selectedIntent.namespace &&
-      item.itemId === selectedIntent.itemId,
+    (item) => item.namespace === selectedIntent.namespace && item.itemId === selectedIntent.itemId,
   );
   const selected = selectedExists
     ? selectedIntent
@@ -332,18 +292,13 @@ function ArchiveView() {
   const description =
     currentItem.data?.description ??
     "Metadata will appear here after the cache exposes the current item.";
-  const leadAsset =
-    currentItem.data?.assetsByRole.primary ??
-    currentItem.data?.assets[0] ??
-    null;
+  const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0] ?? null;
   const posterAssetUrl = currentItem.data?.assetsByRole.poster?.url ?? null;
   const subtitleAssetUrl = currentItem.data?.assetsByRole.subtitle?.url ?? null;
   const filteredQueue =
     filter === "all"
       ? queue
-      : queue.filter(
-          (item) => mediaKindFromNamespace(item.namespace) === filter,
-        );
+      : queue.filter((item) => mediaKindFromNamespace(item.namespace) === filter);
 
   return (
     <section className="min-h-screen border-x border-border bg-surface">
@@ -359,9 +314,7 @@ function ArchiveView() {
         >
           <div className="grid gap-2 border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-sm tracking-[-0.01em] text-[#e4e4e7]">
-                Archive
-              </h3>
+              <h3 className="font-display text-sm tracking-[-0.01em] text-[#e4e4e7]">Archive</h3>
               <p className="font-tech text-[10px] tracking-[0.16em] text-text-dim">
                 {filteredQueue.length} items
               </p>
@@ -392,8 +345,7 @@ function ArchiveView() {
           >
             {filteredQueue.map((item) => {
               const isActive =
-                item.namespace === selected.namespace &&
-                item.itemId === selected.itemId;
+                item.namespace === selected.namespace && item.itemId === selected.itemId;
               const cardKind = mediaKindFromNamespace(item.namespace);
               return (
                 <button
@@ -431,9 +383,7 @@ function ArchiveView() {
                     <span
                       className={cn([
                         "absolute bottom-1 right-1 px-1.5 py-0.5 font-tech text-[8px] uppercase tracking-[0.14em]",
-                        cardKind === "video"
-                          ? "bg-accent/90 text-white"
-                          : "bg-white/80 text-black",
+                        cardKind === "video" ? "bg-accent/90 text-white" : "bg-white/80 text-black",
                       ])}
                     >
                       {cardKind}
@@ -466,12 +416,7 @@ function ArchiveView() {
                 poster={posterAssetUrl ?? undefined}
               >
                 {subtitleAssetUrl ? (
-                  <track
-                    kind="subtitles"
-                    src={subtitleAssetUrl}
-                    default
-                    label="Captions"
-                  />
+                  <track kind="subtitles" src={subtitleAssetUrl} default label="Captions" />
                 ) : null}
               </video>
             ) : posterAssetUrl ? (
@@ -499,14 +444,9 @@ function ArchiveView() {
             <h2 className="font-display text-[clamp(1.4rem,2vw,2rem)] leading-[1.05] text-[#e4e4e7]">
               {title}
             </h2>
-            <p className="font-body text-[1rem] leading-[1.55] text-[#a1a1aa]">
-              {description}
-            </p>
+            <p className="font-body text-[1rem] leading-[1.55] text-[#a1a1aa]">{description}</p>
             <dl className="mt-1 grid gap-2">
-              <FactRow
-                label="Primary URL"
-                value={leadAsset?.url ?? "pending"}
-              />
+              <FactRow label="Primary URL" value={leadAsset?.url ?? "pending"} />
               <FactRow
                 label="Root namespace"
                 value={`space (${rootNamespace.data?.items.length ?? 0})`}

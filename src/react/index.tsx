@@ -127,14 +127,9 @@ export function MediaCacheProvider({
   bridge,
   children,
 }: PropsWithChildren<{ bridge?: MediaCacheBridge }>) {
-  const valueBridge = useMemo(
-    () => bridge ?? window.mediaCache ?? null,
-    [bridge],
-  );
+  const valueBridge = useMemo(() => bridge ?? window.mediaCache ?? null, [bridge]);
   const status = useMediaCacheStatusState(valueBridge, valueBridge !== null);
-  const [queryErrorsById, setQueryErrorsById] = useState<Map<string, Error>>(
-    () => new Map(),
-  );
+  const [queryErrorsById, setQueryErrorsById] = useState<Map<string, Error>>(() => new Map());
 
   const reportQueryError = useCallback((id: string, error: Error | null) => {
     setQueryErrorsById((previous) => {
@@ -157,10 +152,7 @@ export function MediaCacheProvider({
     });
   }, []);
 
-  const queryErrors = useMemo(
-    () => Array.from(queryErrorsById.values()),
-    [queryErrorsById],
-  );
+  const queryErrors = useMemo(() => Array.from(queryErrorsById.values()), [queryErrorsById]);
   const value = useMemo(
     () => ({
       bridge: valueBridge,
@@ -171,11 +163,7 @@ export function MediaCacheProvider({
     [valueBridge, status, queryErrors, reportQueryError],
   );
 
-  return (
-    <MediaCacheContext.Provider value={value}>
-      {children}
-    </MediaCacheContext.Provider>
-  );
+  return <MediaCacheContext.Provider value={value}>{children}</MediaCacheContext.Provider>;
 }
 
 /**
@@ -190,10 +178,7 @@ export function MediaCacheProvider({
  */
 export function useMediaBridge(): UseMediaBridgeResult {
   const { bridge, status, queryErrors } = useMediaCacheRuntime();
-  const errors = useMemo(
-    () => buildMediaCacheErrors(status, queryErrors),
-    [status, queryErrors],
-  );
+  const errors = useMemo(() => buildMediaCacheErrors(status, queryErrors), [status, queryErrors]);
 
   return useMemo(
     () => ({
@@ -241,9 +226,7 @@ export function useMediaCacheStatus(): UseMediaCacheStatusResult {
  */
 export function useMedia(options: UseMediaItemOptions): UseMediaItemResult;
 export function useMedia(options: UseMediaListOptions): UseMediaListResult;
-export function useMedia(
-  options: UseMediaOptions,
-): UseMediaItemResult | UseMediaListResult {
+export function useMedia(options: UseMediaOptions): UseMediaItemResult | UseMediaListResult {
   const { bridge, status, queryErrors } = useMediaCacheRuntime();
   const query = useAsyncResource<
     ResolvedMediaContentItem | null | PaginationResult<ResolvedMediaContentItem>
@@ -266,10 +249,7 @@ export function useMedia(
       refetchOnSyncComplete: options.refetchOnSyncComplete,
     },
   );
-  const errors = useMemo(
-    () => buildMediaCacheErrors(status, queryErrors),
-    [status, queryErrors],
-  );
+  const errors = useMemo(() => buildMediaCacheErrors(status, queryErrors), [status, queryErrors]);
 
   const phase = derivePhase(status);
 
@@ -420,11 +400,7 @@ function useAsyncResource<T>(
     }
   }, []);
 
-  useRefetchOnReadyGeneration(
-    status,
-    options?.refetchOnSyncComplete ?? true,
-    () => void refresh(),
-  );
+  useRefetchOnReadyGeneration(status, options?.refetchOnSyncComplete ?? true, () => void refresh());
   useQueryErrorRegistration(error);
 
   // Intentionally no dependency array: this runs after each render so we can
@@ -434,9 +410,7 @@ function useAsyncResource<T>(
     const shouldRefresh =
       previousDeps === null ||
       previousDeps.length !== refreshDeps.length ||
-      refreshDeps.some(
-        (dependency, index) => !Object.is(dependency, previousDeps[index]),
-      );
+      refreshDeps.some((dependency, index) => !Object.is(dependency, previousDeps[index]));
 
     if (!shouldRefresh) {
       return;
@@ -460,10 +434,7 @@ function useMediaCacheRuntime(): {
 } {
   const runtime = useContext(MediaCacheContext);
   const bridge = runtime?.bridge;
-  const standaloneStatus = useMediaCacheStatusState(
-    bridge,
-    runtime === null && bridge !== null,
-  );
+  const standaloneStatus = useMediaCacheStatusState(bridge, runtime === null && bridge !== null);
 
   if (!bridge) {
     throw new Error(MISSING_BRIDGE_ERROR);
@@ -482,8 +453,7 @@ function buildMediaCacheErrors(
 ): MediaCacheErrors {
   const syncError = status.data?.error ?? null;
   const statusError = status.error;
-  const primaryError =
-    statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
+  const primaryError = statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
 
   return {
     syncError,
@@ -590,10 +560,7 @@ function useMediaCacheStatusState(
     };
   }, [bridge, enabled, refresh]);
 
-  return useMemo(
-    () => ({ data, loading, error, refresh }),
-    [data, loading, error, refresh],
-  );
+  return useMemo(() => ({ data, loading, error, refresh }), [data, loading, error, refresh]);
 }
 
 function toPrimaryError(syncError: MediaCacheStatus["error"]): Error | null {

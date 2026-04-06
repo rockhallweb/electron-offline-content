@@ -7,18 +7,10 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MediaCacheManifest } from "@rockhallweb/electron-offline-content/main";
-import {
-  exampleClientConfig,
-  type ExampleClientConfig,
-} from "./example-client-config.js";
+import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
 // Resolve fixtures relative to this module, not process.cwd(), so packaged runs still work.
-const fixturesDir = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "fixtures",
-  "local",
-);
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "local");
 
 export interface ExampleContext {
   clientConfig: ExampleClientConfig;
@@ -81,11 +73,9 @@ function localManifest(baseUrl: string): MediaCacheManifest {
             kind: "video",
             title: "Rose Cut",
             description: "Subtree fixture item with a subtitle track.",
-            summary:
-              "Used for subtree and file stem lookup in the example app.",
+            summary: "Used for subtree and file stem lookup in the example app.",
             blobs: {
-              captionExcerpt:
-                "A quiet looping cut for namespace-tree validation.",
+              captionExcerpt: "A quiet looping cut for namespace-tree validation.",
             },
             assets: {
               main: {
@@ -115,10 +105,7 @@ function localManifest(baseUrl: string): MediaCacheManifest {
 async function startFixtureServer() {
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-    const filePath = join(
-      fixturesDir,
-      pathname === "/" ? "forest-loop.mp4" : pathname.slice(1),
-    );
+    const filePath = join(fixturesDir, pathname === "/" ? "forest-loop.mp4" : pathname.slice(1));
 
     try {
       const payload = await readFile(filePath);

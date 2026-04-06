@@ -55,17 +55,11 @@ async function resolveManifest(): Promise<ReturnType<typeof defineManifest>> {
     namespaces: {
       "courses.beginner": {
         label: "Beginner Courses",
-        items: itemsFromEntries(beginnerCourses, (course) => [
-          course.id,
-          courseToItem(course),
-        ]),
+        items: itemsFromEntries(beginnerCourses, (course) => [course.id, courseToItem(course)]),
       },
       "courses.advanced": {
         label: "Advanced Courses",
-        items: itemsFromEntries(advancedCourses, (course) => [
-          course.id,
-          courseToItem(course),
-        ]),
+        items: itemsFromEntries(advancedCourses, (course) => [course.id, courseToItem(course)]),
       },
     },
   });

@@ -110,7 +110,10 @@ describe("producer helpers", () => {
 
   it("itemsFromEntries detects duplicate keys", () => {
     expect(() =>
-      itemsFromEntries(["a", "b"], (x, i) => [i === 0 ? "dup" : "dup", { version: "1", kind: "video", assets: {} }]),
+      itemsFromEntries(["a", "b"], (x, i) => [
+        i === 0 ? "dup" : "dup",
+        { version: "1", kind: "video", assets: {} },
+      ]),
     ).toThrow(ManifestValidationError);
   });
 
@@ -133,6 +136,8 @@ describe("producer helpers", () => {
   });
 
   it("itemsFromEntries returns empty record for empty source", () => {
-    expect(itemsFromEntries([], () => ["x", { version: "1", kind: "video", assets: {} }])).toEqual({});
+    expect(itemsFromEntries([], () => ["x", { version: "1", kind: "video", assets: {} }])).toEqual(
+      {},
+    );
   });
 });

@@ -326,11 +326,11 @@ createMediaCache({
 
 ## resolveManifest
 
-|              |                                                 |
-| ------------ | ----------------------------------------------- |
+|              |                                                           |
+| ------------ | --------------------------------------------------------- |
 | **Type**     | `() => Promise<MediaCacheManifest> \| MediaCacheManifest` |
-| **Required** | Yes                                             |
-| **Default**  | —                                               |
+| **Required** | Yes                                                       |
+| **Default**  | —                                                         |
 
 Function called at the start of each sync cycle to produce the current manifest. May be async. The return value is normalized and validated before the download pipeline begins.
 

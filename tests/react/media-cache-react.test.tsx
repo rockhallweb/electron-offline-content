@@ -24,8 +24,7 @@ describe("react hooks", () => {
     const firstItem = deferred<ResolvedMediaContentItem | null>();
     const secondItem = deferred<ResolvedMediaContentItem | null>();
     const bridge = createBridge({
-      getItem: async (_namespace, id) =>
-        id === "one" ? firstItem.promise : secondItem.promise,
+      getItem: async (_namespace, id) => (id === "one" ? firstItem.promise : secondItem.promise),
     });
 
     const { rerender } = render(
@@ -211,16 +210,10 @@ describe("react hooks", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("ready-flag").textContent).toBe("false");
-      expect(screen.getByTestId("media-status-phase").textContent).toBe(
-        "error",
-      );
+      expect(screen.getByTestId("media-status-phase").textContent).toBe("error");
       expect(screen.getByTestId("error-flag").textContent).toBe("true");
-      expect(screen.getByTestId("sync-error-code").textContent).toBe(
-        "SYNC_FAILURE",
-      );
-      expect(screen.getByTestId("primary-error-message").textContent).toBe(
-        "query failed",
-      );
+      expect(screen.getByTestId("sync-error-code").textContent).toBe("SYNC_FAILURE");
+      expect(screen.getByTestId("primary-error-message").textContent).toBe("query failed");
       expect(screen.getByTestId("query-error-count").textContent).toBe("1");
     });
   });
@@ -242,12 +235,8 @@ describe("react hooks", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("global-query-error-count").textContent).toBe(
-        "2",
-      );
-      expect(
-        screen.getByTestId("global-primary-error-message").textContent,
-      ).toBe("item failed");
+      expect(screen.getByTestId("global-query-error-count").textContent).toBe("2");
+      expect(screen.getByTestId("global-primary-error-message").textContent).toBe("item failed");
     });
   });
 
@@ -312,15 +301,11 @@ describe("react hooks", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("bridge-status-phase").textContent).toBe(
-        "ready",
+      expect(screen.getByTestId("bridge-status-phase").textContent).toBe("ready");
+      expect(screen.getByTestId("bridge-query-error-count").textContent).toBe("1");
+      expect(screen.getByTestId("bridge-primary-error-message").textContent).toBe(
+        "bridge query failed",
       );
-      expect(screen.getByTestId("bridge-query-error-count").textContent).toBe(
-        "1",
-      );
-      expect(
-        screen.getByTestId("bridge-primary-error-message").textContent,
-      ).toBe("bridge query failed");
     });
 
     await act(async () => {
@@ -347,9 +332,7 @@ describe("react hooks", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("provider-runtime-phase").textContent).toBe(
-        "ready",
-      );
+      expect(screen.getByTestId("provider-runtime-phase").textContent).toBe("ready");
     });
     expect(subscribeStatusCalls).toBe(1);
   });
@@ -373,12 +356,8 @@ describe("react hooks", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("sync-primary-error-name").textContent).toBe(
-        "SyncFailureError",
-      );
-      expect(screen.getByTestId("sync-primary-error-message").textContent).toBe(
-        "sync failed",
-      );
+      expect(screen.getByTestId("sync-primary-error-name").textContent).toBe("SyncFailureError");
+      expect(screen.getByTestId("sync-primary-error-message").textContent).toBe("sync failed");
     });
   });
 
@@ -398,20 +377,14 @@ function MediaItemProbe({ itemId }: { itemId: string }) {
   return <div data-testid="item-id">{item.data?.id ?? "loading"}</div>;
 }
 
-function MediaVersionProbe({
-  refetchOnSyncComplete,
-}: {
-  refetchOnSyncComplete?: boolean;
-}) {
+function MediaVersionProbe({ refetchOnSyncComplete }: { refetchOnSyncComplete?: boolean }) {
   const item = useMedia({
     kind: "item",
     namespace: "nature",
     id: "forest",
     refetchOnSyncComplete,
   });
-  return (
-    <div data-testid="item-version">{item.data?.version ?? "loading"}</div>
-  );
+  return <div data-testid="item-version">{item.data?.version ?? "loading"}</div>;
 }
 
 function MediaListProbe({ recursive }: { recursive: boolean }) {
@@ -450,15 +423,9 @@ function ReadyAndErrorProbe() {
       <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
       <div data-testid="media-status-phase">{media.phase}</div>
       <div data-testid="error-flag">{String(errors.hasError)}</div>
-      <div data-testid="sync-error-code">
-        {errors.syncError?.code ?? "none"}
-      </div>
-      <div data-testid="primary-error-message">
-        {errors.primaryError?.message ?? "none"}
-      </div>
-      <div data-testid="query-error-count">
-        {String(errors.queryErrors.length)}
-      </div>
+      <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
+      <div data-testid="primary-error-message">{errors.primaryError?.message ?? "none"}</div>
+      <div data-testid="query-error-count">{String(errors.queryErrors.length)}</div>
     </div>
   );
 }
@@ -470,12 +437,8 @@ function GlobalErrorsProbe() {
 
   return (
     <div>
-      <div data-testid="global-query-error-count">
-        {String(errors.queryErrors.length)}
-      </div>
-      <div data-testid="global-primary-error-message">
-        {errors.primaryError?.message ?? "none"}
-      </div>
+      <div data-testid="global-query-error-count">{String(errors.queryErrors.length)}</div>
+      <div data-testid="global-primary-error-message">{errors.primaryError?.message ?? "none"}</div>
     </div>
   );
 }
@@ -490,12 +453,8 @@ function BridgeProbe() {
         sync-now
       </button>
       <div data-testid="bridge-status-phase">{phase}</div>
-      <div data-testid="bridge-query-error-count">
-        {String(errors.queryErrors.length)}
-      </div>
-      <div data-testid="bridge-primary-error-message">
-        {errors.primaryError?.message ?? "none"}
-      </div>
+      <div data-testid="bridge-query-error-count">{String(errors.queryErrors.length)}</div>
+      <div data-testid="bridge-primary-error-message">{errors.primaryError?.message ?? "none"}</div>
     </div>
   );
 }
@@ -504,11 +463,7 @@ function ProviderRuntimeProbe() {
   const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
   const errors = useMediaCacheErrors();
 
-  return (
-    <div data-testid="provider-runtime-phase">
-      {errors.hasError ? "error" : media.phase}
-    </div>
-  );
+  return <div data-testid="provider-runtime-phase">{errors.hasError ? "error" : media.phase}</div>;
 }
 
 function SyncPrimaryErrorProbe() {
@@ -516,19 +471,13 @@ function SyncPrimaryErrorProbe() {
 
   return (
     <div>
-      <div data-testid="sync-primary-error-name">
-        {errors.primaryError?.name ?? "none"}
-      </div>
-      <div data-testid="sync-primary-error-message">
-        {errors.primaryError?.message ?? "none"}
-      </div>
+      <div data-testid="sync-primary-error-name">{errors.primaryError?.name ?? "none"}</div>
+      <div data-testid="sync-primary-error-message">{errors.primaryError?.message ?? "none"}</div>
     </div>
   );
 }
 
-function createBridge(
-  overrides: Partial<MediaCacheBridge> = {},
-): MediaCacheBridge {
+function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCacheBridge {
   return {
     getStatus: async () => buildStatus("idle"),
     syncNow: async () => undefined,
@@ -554,20 +503,14 @@ function buildItem(id: string): ResolvedMediaContentItem {
   };
 }
 
-function buildItemWithVersion(
-  id: string,
-  version: string,
-): ResolvedMediaContentItem {
+function buildItemWithVersion(id: string, version: string): ResolvedMediaContentItem {
   return {
     ...buildItem(id),
     version,
   };
 }
 
-function buildStatus(
-  phase: MediaCacheStatus["phase"],
-  activeGenerationId = 0,
-): MediaCacheStatus {
+function buildStatus(phase: MediaCacheStatus["phase"], activeGenerationId = 0): MediaCacheStatus {
   return {
     phase,
     storageRoot: "/tmp/media-cache",

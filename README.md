@@ -220,7 +220,11 @@ A manifest has **namespaces**, each containing **items**, each containing **asse
 `defineManifest` validates your manifest with Zod before sync starts. Use it as the return value of `resolveManifest`. Build assets and items as standalone variables to keep nesting shallow and lines short:
 
 ```ts
-import { defineAsset, defineItem, defineManifest } from "@rockhallweb/electron-offline-content/main";
+import {
+  defineAsset,
+  defineItem,
+  defineManifest,
+} from "@rockhallweb/electron-offline-content/main";
 
 const mainVideo = defineAsset({
   role: "primary",
@@ -298,9 +302,21 @@ Namespaces let you organize content into logical groups (app sections, exhibits,
 ```ts
 defineManifest({
   namespaces: {
-    courses: { items: { /* top-level items */ } },
-    "courses.beginner": { items: { /* ... */ } },
-    "courses.advanced": { items: { /* ... */ } },
+    courses: {
+      items: {
+        /* top-level items */
+      },
+    },
+    "courses.beginner": {
+      items: {
+        /* ... */
+      },
+    },
+    "courses.advanced": {
+      items: {
+        /* ... */
+      },
+    },
   },
 });
 ```
@@ -534,7 +550,7 @@ Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mo
 | `devPassthrough`      | `boolean`                  | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
 | `assetBaseUrl`        | `string`                   | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
 | `onSyncFailure`       | `SyncFailureMode`          | no       | Behavior when a sync fails after a prior snapshot exists (`serve-last-snapshot` or `throw`).    |
-| `resolveAssetRequest` | callback                   | no       | Optional per-asset hook: given context, return `DownloadRequest` or a `Promise` of it.        |
+| `resolveAssetRequest` | callback                   | no       | Optional per-asset hook: given context, return `DownloadRequest` or a `Promise` of it.          |
 | `maxCacheBytes`       | `number`                   | no       | Soft cap on total cached bytes.                                                                 |
 | `reserveFreeBytes`    | `number`                   | no       | Minimum free disk bytes to preserve.                                                            |
 | `staleDeleteAfterMs`  | `number`                   | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |

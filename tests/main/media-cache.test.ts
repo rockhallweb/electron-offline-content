@@ -1400,34 +1400,35 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => recordManifest({
-          snapshotId: "expired-before-download",
-          expiresAt: "2026-04-06T12:30:00.000Z",
-          namespaces: [
-            {
-              key: "nature",
-              items: [
-                {
-                  id: "forest",
-                  version: "v1",
-                  kind: "video",
-                  assets: [
-                    {
-                      id: "main",
-                      role: "primary",
-                      kind: "video",
-                      fileName: "main.mp4",
-                      byteLength: 9,
-                      source: {
-                        url: `${baseUrl}/main.mp4`,
+        resolveManifest: () =>
+          recordManifest({
+            snapshotId: "expired-before-download",
+            expiresAt: "2026-04-06T12:30:00.000Z",
+            namespaces: [
+              {
+                key: "nature",
+                items: [
+                  {
+                    id: "forest",
+                    version: "v1",
+                    kind: "video",
+                    assets: [
+                      {
+                        id: "main",
+                        role: "primary",
+                        kind: "video",
+                        fileName: "main.mp4",
+                        byteLength: 9,
+                        source: {
+                          url: `${baseUrl}/main.mp4`,
+                        },
                       },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        }),
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
       },
       {
         now: () => currentNow,
@@ -1473,44 +1474,45 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => recordManifest({
-          snapshotId: "expires-mid-sync",
-          expiresAt: new Date(1_500).toISOString(),
-          namespaces: [
-            {
-              key: "nature",
-              items: [
-                {
-                  id: "forest",
-                  version: "v1",
-                  kind: "video",
-                  assets: [
-                    {
-                      id: "main",
-                      role: "primary",
-                      kind: "video",
-                      fileName: "main.mp4",
-                      byteLength: "video-one".length,
-                      source: {
-                        url: `${baseUrl}/main.mp4`,
+        resolveManifest: () =>
+          recordManifest({
+            snapshotId: "expires-mid-sync",
+            expiresAt: new Date(1_500).toISOString(),
+            namespaces: [
+              {
+                key: "nature",
+                items: [
+                  {
+                    id: "forest",
+                    version: "v1",
+                    kind: "video",
+                    assets: [
+                      {
+                        id: "main",
+                        role: "primary",
+                        kind: "video",
+                        fileName: "main.mp4",
+                        byteLength: "video-one".length,
+                        source: {
+                          url: `${baseUrl}/main.mp4`,
+                        },
                       },
-                    },
-                    {
-                      id: "poster",
-                      role: "poster",
-                      kind: "poster",
-                      fileName: "poster.jpg",
-                      byteLength: "poster".length,
-                      source: {
-                        url: `${baseUrl}/poster.jpg`,
+                      {
+                        id: "poster",
+                        role: "poster",
+                        kind: "poster",
+                        fileName: "poster.jpg",
+                        byteLength: "poster".length,
+                        source: {
+                          url: `${baseUrl}/poster.jpg`,
+                        },
                       },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        }),
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
         resolveAssetRequest: async ({ asset }) => {
           resolvedAssetIds.push(asset.id);
           if (asset.id === "main") {
@@ -1597,33 +1599,34 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => recordManifest({
-          snapshotId: "broken-without-expiry",
-          namespaces: [
-            {
-              key: "nature",
-              items: [
-                {
-                  id: "forest",
-                  version: "v1",
-                  kind: "video",
-                  assets: [
-                    {
-                      id: "main",
-                      role: "primary",
-                      kind: "video",
-                      fileName: "nonretryable.mp4",
-                      byteLength: 6,
-                      source: {
-                        url: `${baseUrl}/nonretryable.mp4`,
+        resolveManifest: () =>
+          recordManifest({
+            snapshotId: "broken-without-expiry",
+            namespaces: [
+              {
+                key: "nature",
+                items: [
+                  {
+                    id: "forest",
+                    version: "v1",
+                    kind: "video",
+                    assets: [
+                      {
+                        id: "main",
+                        role: "primary",
+                        kind: "video",
+                        fileName: "nonretryable.mp4",
+                        byteLength: 6,
+                        source: {
+                          url: `${baseUrl}/nonretryable.mp4`,
+                        },
                       },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        }),
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
       },
       {
         now: () => 1_000,
@@ -2011,33 +2014,34 @@ describe("media cache sync and queries", () => {
     const retryableRoot = createStorageRoot();
     const retryableCache = createNoSleepCache({
       storageRoot: retryableRoot,
-      resolveManifest: () => recordManifest({
-        snapshotId: "retry-once",
-        namespaces: [
-          {
-            key: "nature",
-            items: [
-              {
-                id: "forest",
-                version: "v1",
-                kind: "video",
-                assets: [
-                  {
-                    id: "main",
-                    role: "primary",
-                    kind: "video",
-                    fileName: "retry-once.mp4",
-                    byteLength: "retry-success".length,
-                    source: {
-                      url: `${baseUrl}/retry-once.mp4`,
+      resolveManifest: () =>
+        recordManifest({
+          snapshotId: "retry-once",
+          namespaces: [
+            {
+              key: "nature",
+              items: [
+                {
+                  id: "forest",
+                  version: "v1",
+                  kind: "video",
+                  assets: [
+                    {
+                      id: "main",
+                      role: "primary",
+                      kind: "video",
+                      fileName: "retry-once.mp4",
+                      byteLength: "retry-success".length,
+                      source: {
+                        url: `${baseUrl}/retry-once.mp4`,
+                      },
                     },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      }),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
     });
 
     await retryableCache.start();
@@ -2047,33 +2051,34 @@ describe("media cache sync and queries", () => {
     const nonRetryableCache = createNoSleepCache({
       storageRoot: nonRetryableRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => recordManifest({
-        snapshotId: "nonretryable",
-        namespaces: [
-          {
-            key: "nature",
-            items: [
-              {
-                id: "forest",
-                version: "v1",
-                kind: "video",
-                assets: [
-                  {
-                    id: "main",
-                    role: "primary",
-                    kind: "video",
-                    fileName: "nonretryable.mp4",
-                    byteLength: 1,
-                    source: {
-                      url: `${baseUrl}/nonretryable.mp4`,
+      resolveManifest: () =>
+        recordManifest({
+          snapshotId: "nonretryable",
+          namespaces: [
+            {
+              key: "nature",
+              items: [
+                {
+                  id: "forest",
+                  version: "v1",
+                  kind: "video",
+                  assets: [
+                    {
+                      id: "main",
+                      role: "primary",
+                      kind: "video",
+                      fileName: "nonretryable.mp4",
+                      byteLength: 1,
+                      source: {
+                        url: `${baseUrl}/nonretryable.mp4`,
+                      },
                     },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      }),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
     });
 
     await expect(nonRetryableCache.start()).rejects.toThrow("Download failed");
@@ -3173,10 +3178,11 @@ describe("media cache sync and queries", () => {
 
   it("requires storagePath configuration", async () => {
     const cache = new MediaCache({
-      resolveManifest: () => recordManifest({
-        snapshotId: "missing-storage-path",
-        namespaces: [],
-      }),
+      resolveManifest: () =>
+        recordManifest({
+          snapshotId: "missing-storage-path",
+          namespaces: [],
+        }),
     });
 
     await expect(cache.start()).rejects.toThrow(DataValidationError);
