@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Fixed
+
+- Clean up orphaned staged generations during startup so interrupted syncs do not leave behind unused SQLite rows or blob files.
+
 ## 0.1.1
 
 ### Added

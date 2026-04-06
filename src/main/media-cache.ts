@@ -555,6 +555,7 @@ export class MediaCache implements MediaCacheMain {
     let storedStatus: MediaCacheStatus | null = null;
     let activeGenerationId: number | null = null;
     if (!this.devPassthrough) {
+      activeGenerationId = this.reconcileOrphanedStagedGenerations();
       try {
         storedStatus = this.db.loadStatus();
       } catch (error) {
@@ -567,7 +568,6 @@ export class MediaCache implements MediaCacheMain {
           error_message: error.message,
         });
       }
-      activeGenerationId = this.db.getActiveGenerationId();
       if (storedStatus) {
         this.status = storedStatus;
       } else if (activeGenerationId !== null) {
@@ -590,6 +590,28 @@ export class MediaCache implements MediaCacheMain {
       active_generation_id: this.status.activeGenerationId,
       dev_passthrough_enabled: this.devPassthrough,
     });
+  }
+
+  private reconcileOrphanedStagedGenerations(): number | null {
+    const activeGenerationId = this.db!.getActiveGenerationId();
+    const stagedGenerationIds = this.db!.listStagedGenerationIds().filter(
+      (generationId) => generationId !== activeGenerationId,
+    );
+    if (stagedGenerationIds.length === 0) {
+      return activeGenerationId;
+    }
+
+    for (const stagedGenerationId of stagedGenerationIds) {
+      this.cleanupStagedGenerationFiles(stagedGenerationId, activeGenerationId);
+      this.db!.deleteGeneration(stagedGenerationId);
+    }
+
+    this.emitLog("warn", "orphaned_staged_generations_removed", {
+      active_generation_id: activeGenerationId,
+      removed_generation_ids: stagedGenerationIds,
+      removed_generation_count: stagedGenerationIds.length,
+    });
+    return activeGenerationId;
   }
 
   private prepareDevRuntimeState(): void {

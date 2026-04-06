@@ -220,6 +220,10 @@ export const syncRunIdRowSchema = z.object({
   id: nonNegativeIntegerSchema,
 });
 
+export const generationIdRowSchema = z.object({
+  id: nonNegativeIntegerSchema,
+});
+
 export const activeGenerationRowSchema = z.object({
   generation_id: nonNegativeIntegerSchema,
 });
