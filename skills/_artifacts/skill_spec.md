@@ -23,7 +23,7 @@ are expected.
 | cache-configuration     | core      | config-ops      | createMediaCache options, storage, passthrough, logging, limits   | 5             |
 | react-rendering         | framework | renderer-access | Provider, hooks, AsyncState, error aggregation, media:// URLs     | 5             |
 | authenticated-downloads | core      | content-sync    | resolveAssetRequest, signed URLs, bearer tokens, source headers   | 4             |
-| production-checklist    | lifecycle | config-ops      | Go-live audit: limits, logging, failure mode, scope boundaries    | 7             |
+| production-checklist    | lifecycle | config-ops      | Go-live audit: limits, logging, failure mode, scope boundaries    | 6             |
 
 ## Failure Mode Inventory
 
@@ -79,7 +79,7 @@ are expected.
 | 3   | Confusing resolveAssetRequest with resolveManifest     | MEDIUM   | types.ts; README     | —                                            |
 | 4   | Using resolveAssetRequest for long-lived static tokens | MEDIUM   | README               | —                                            |
 
-### production-checklist (7 failure modes)
+### production-checklist (6 failure modes)
 
 | #   | Mistake                                        | Priority | Source                   | Cross-skill?                              |
 | --- | ---------------------------------------------- | -------- | ------------------------ | ----------------------------------------- |
