@@ -41,6 +41,10 @@
     "example:local:lint": {},
     "example:local:format:check": {},
     "example:local:knip": {},
+    "example:local:validate": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "example:local:start": {
       "dependsOn": ["build"],
       "cache": false,
@@ -49,6 +53,10 @@
     "example:nasa:lint": {},
     "example:nasa:format:check": {},
     "example:nasa:knip": {},
+    "example:nasa:validate": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "example:nasa:start": {
       "dependsOn": ["build"],
       "cache": false,
