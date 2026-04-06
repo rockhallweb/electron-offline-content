@@ -3,8 +3,13 @@
   "version": "0.1.1",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "license": "UNLICENSED",
+  "keywords": [
+    "tanstack-intent"
+  ],
   "files": [
     "dist",
+    "skills",
+    "!skills/_artifacts",
     "README.md"
   ],
   "type": "module",
