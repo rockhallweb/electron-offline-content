@@ -200,23 +200,25 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   resolveManifest: async () => {
     const items = await fetchCatalog();
-    return items.map((item) => ({
-      id: item.id,
-      version: item.revision,
-      kind: "video" as const,
-      assets: [
-        {
-          id: "main",
-          role: "primary",
-          kind: "video",
-          source: {
-            url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
-              expiresIn: 900,
-            }),
+    return Promise.all(
+      items.map(async (item) => ({
+        id: item.id,
+        version: item.revision,
+        kind: "video" as const,
+        assets: [
+          {
+            id: "main",
+            role: "primary",
+            kind: "video",
+            source: {
+              url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
+                expiresIn: 900,
+              }),
+            },
           },
-        },
-      ],
-    }));
+        ],
+      })),
+    );
   },
 });
 ```
