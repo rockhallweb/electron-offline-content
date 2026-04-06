@@ -183,7 +183,7 @@ function useMediaItem(
 
 | Parameter   | Type                                 | Description                                                |
 | ----------- | ------------------------------------ | ---------------------------------------------------------- |
-| `namespace` | `string`                             | Content namespace (e.g. `"videos"`, `"exhibits/floor-1"`). |
+| `namespace` | `string`                             | Content namespace (e.g. `"videos"`, `"exhibits.floor-1"`). |
 | `id`        | `string`                             | Unique item identifier within the namespace.               |
 | `options`   | `MediaQuerySyncOptions \| undefined` | Optional. Sync-related options.                            |
 

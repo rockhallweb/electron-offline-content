@@ -79,7 +79,7 @@ skills:
 
           const mediaCache = createMediaCache({ /* ... */ });
           await app.whenReady();
-          await mediaCache.start();
+          mediaCache.start();
         source: "README quick start; media-cache.ts constructor calls ensureMediaCacheProtocolSchemesPrivileged()"
         priority: CRITICAL
         status: active

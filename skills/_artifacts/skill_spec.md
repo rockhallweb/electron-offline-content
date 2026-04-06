@@ -18,7 +18,7 @@ are expected.
 
 | Skill                   | Type      | Domain          | What it covers                                                    | Failure modes |
 | ----------------------- | --------- | --------------- | ----------------------------------------------------------------- | ------------- |
-| getting-started         | lifecycle | content-sync    | Full wiring: main → preload → renderer, first offline render      | 7             |
+| getting-started         | lifecycle | content-sync    | Full wiring: main → preload → renderer, first offline render      | 6             |
 | manifest-authoring      | core      | content-sync    | resolveManifest, define helpers, namespaces, validation, versions | 7             |
 | cache-configuration     | core      | config-ops      | createMediaCache options, storage, passthrough, logging, limits   | 5             |
 | react-rendering         | framework | renderer-access | Provider, hooks, AsyncState, error aggregation, media:// URLs     | 5             |
@@ -27,7 +27,7 @@ are expected.
 
 ## Failure Mode Inventory
 
-### getting-started (7 failure modes)
+### getting-started (6 failure modes)
 
 | #   | Mistake                                  | Priority | Source                             | Cross-skill? |
 | --- | ---------------------------------------- | -------- | ---------------------------------- | ------------ |

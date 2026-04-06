@@ -234,9 +234,9 @@ if (!item.loading && item.data) {
   const subtitleEs = item.data.assetsByRole["subtitle-es"];
 
   return (
-    <video src={video.url} poster={poster.url}>
-      <track src={subtitleEn.url} srcLang="en" label="English" default />
-      <track src={subtitleEs.url} srcLang="es" label="Español" />
+    <video src={video?.url} poster={poster?.url}>
+      {subtitleEn && <track src={subtitleEn.url} srcLang="en" label="English" default />}
+      {subtitleEs && <track src={subtitleEs.url} srcLang="es" label="Español" />}
     </video>
   );
 }
