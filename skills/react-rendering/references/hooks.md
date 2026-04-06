@@ -354,7 +354,7 @@ interface MediaCacheErrors {
 | `statusError`  | Error fetching status (from `status.error`).                                               |
 | `queryErrors`  | Array of non-null errors from the provided query states.                                   |
 | `hasError`     | `true` if any of the above are set.                                                        |
-| `primaryError` | First available error in priority order: `syncError` → `statusError` → first `queryError`. |
+| `primaryError` | First available error in priority order: `statusError` → first `queryError` → `syncError`. |
 
 ```tsx
 import {

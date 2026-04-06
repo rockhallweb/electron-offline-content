@@ -293,7 +293,7 @@ Per-asset callback invoked before each download. Use to add authentication heade
 
 ```typescript
 resolveAssetRequest: async (ctx) => ({
-  url: await getSignedUrl(ctx.sourceUrl),
+  url: await getSignedUrl(ctx.asset.source.url),
   headers: { Authorization: `Bearer ${await getToken()}` },
 });
 ```
