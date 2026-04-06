@@ -2,13 +2,12 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   MediaCacheProvider,
+  useFileStemMatch,
+  useMedia,
+  useMediaBridge,
   useMediaCacheErrors,
   useMediaCacheReady,
   useMediaCacheStatus,
-  useMediaItem,
-  useMediaItems,
-  useMediaNamespace,
-  useMediaNamespaceTree,
 } from "../../src/react/index.js";
 import type {
   MediaCacheBridge,
@@ -25,18 +24,19 @@ describe("react hooks", () => {
     const firstItem = deferred<ResolvedMediaContentItem | null>();
     const secondItem = deferred<ResolvedMediaContentItem | null>();
     const bridge = createBridge({
-      getItem: async (_namespace, id) => (id === "one" ? firstItem.promise : secondItem.promise),
+      getItem: async (_namespace, id) =>
+        id === "one" ? firstItem.promise : secondItem.promise,
     });
 
     const { rerender } = render(
       <MediaCacheProvider bridge={bridge}>
-        <ItemProbe namespace="nature" itemId="one" />
+        <MediaItemProbe itemId="one" />
       </MediaCacheProvider>,
     );
 
     rerender(
       <MediaCacheProvider bridge={bridge}>
-        <ItemProbe namespace="nature" itemId="two" />
+        <MediaItemProbe itemId="two" />
       </MediaCacheProvider>,
     );
 
@@ -92,7 +92,7 @@ describe("react hooks", () => {
     });
   });
 
-  it("uses flat and recursive list queries via useMediaItems", async () => {
+  it("uses flat and recursive list queries via useMedia", async () => {
     let listNamespaceCalls = 0;
     let listNamespaceTreeCalls = 0;
     const bridge = createBridge({
@@ -108,7 +108,7 @@ describe("react hooks", () => {
 
     const { rerender } = render(
       <MediaCacheProvider bridge={bridge}>
-        <ItemsProbe namespace="nature" recursive={false} />
+        <MediaListProbe recursive={false} />
       </MediaCacheProvider>,
     );
 
@@ -118,36 +118,11 @@ describe("react hooks", () => {
 
     rerender(
       <MediaCacheProvider bridge={bridge}>
-        <ItemsProbe namespace="nature" recursive />
+        <MediaListProbe recursive />
       </MediaCacheProvider>,
     );
+
     await screen.findByText("tree");
-    expect(listNamespaceTreeCalls).toBeGreaterThan(0);
-  });
-
-  it("keeps legacy list hooks as wrappers around useMediaItems", async () => {
-    let listNamespaceCalls = 0;
-    let listNamespaceTreeCalls = 0;
-    const bridge = createBridge({
-      listNamespace: async () => {
-        listNamespaceCalls += 1;
-        return { items: [buildItem("legacy-flat")], nextCursor: null };
-      },
-      listNamespaceTree: async () => {
-        listNamespaceTreeCalls += 1;
-        return { items: [buildItem("legacy-tree")], nextCursor: null };
-      },
-    });
-
-    render(
-      <MediaCacheProvider bridge={bridge}>
-        <LegacyListProbe />
-      </MediaCacheProvider>,
-    );
-
-    await screen.findByText("legacy-flat");
-    await screen.findByText("legacy-tree");
-    expect(listNamespaceCalls).toBeGreaterThan(0);
     expect(listNamespaceTreeCalls).toBeGreaterThan(0);
   });
 
@@ -169,7 +144,7 @@ describe("react hooks", () => {
 
     render(
       <MediaCacheProvider bridge={bridge}>
-        <ItemVersionProbe namespace="nature" itemId="forest" />
+        <MediaVersionProbe refetchOnSyncComplete />
       </MediaCacheProvider>,
     );
 
@@ -199,7 +174,7 @@ describe("react hooks", () => {
 
     render(
       <MediaCacheProvider bridge={bridge}>
-        <ItemVersionProbe namespace="nature" itemId="forest" refetchOnSyncComplete={false} />
+        <MediaVersionProbe refetchOnSyncComplete={false} />
       </MediaCacheProvider>,
     );
 
@@ -213,7 +188,7 @@ describe("react hooks", () => {
     expect(calls).toBe(1);
   });
 
-  it("exposes derived readiness and aggregated errors", async () => {
+  it("exposes shared status and aggregated errors from useMedia", async () => {
     const bridge = createBridge({
       getStatus: async () => ({
         ...buildStatus("error"),
@@ -236,14 +211,126 @@ describe("react hooks", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("ready-flag").textContent).toBe("false");
+      expect(screen.getByTestId("media-status-phase").textContent).toBe(
+        "error",
+      );
       expect(screen.getByTestId("error-flag").textContent).toBe("true");
-      expect(screen.getByTestId("sync-error-code").textContent).toBe("SYNC_FAILURE");
-      expect(screen.getByTestId("primary-error-message").textContent).toBe("query failed");
+      expect(screen.getByTestId("sync-error-code").textContent).toBe(
+        "SYNC_FAILURE",
+      );
+      expect(screen.getByTestId("primary-error-message").textContent).toBe(
+        "query failed",
+      );
       expect(screen.getByTestId("query-error-count").textContent).toBe("1");
     });
   });
 
-  it("lets useMediaCacheErrors reuse a caller-provided status subscription", async () => {
+  it("lets useMediaCacheErrors aggregate provider-wide query errors without arguments", async () => {
+    const bridge = createBridge({
+      getItem: async () => {
+        throw new Error("item failed");
+      },
+      findByFileStem: async () => {
+        throw new Error("stem failed");
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <GlobalErrorsProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("global-query-error-count").textContent).toBe(
+        "2",
+      );
+      expect(
+        screen.getByTestId("global-primary-error-message").textContent,
+      ).toBe("item failed");
+    });
+  });
+
+  it("exposes top-level loading phase from useMediaCacheStatus before first snapshot", async () => {
+    const initialStatus = deferred<MediaCacheStatus>();
+    const bridge = createBridge({
+      getStatus: async () => initialStatus.promise,
+      subscribeStatus: () => () => undefined,
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <MediaCacheStatusPhaseProbe />
+      </MediaCacheProvider>,
+    );
+
+    expect(screen.getByTestId("status-hook-phase").textContent).toBe("loading");
+
+    await act(async () => {
+      initialStatus.resolve(buildStatus("idle"));
+      await initialStatus.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status-hook-phase").textContent).toBe("idle");
+    });
+  });
+
+  it("exposes matching top-level phase from useMediaBridge and useMedia", async () => {
+    const bridge = createBridge({
+      getStatus: async () => buildStatus("syncing"),
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <MediaAndBridgePhaseProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("media-phase").textContent).toBe("syncing");
+      expect(screen.getByTestId("bridge-phase").textContent).toBe("syncing");
+    });
+  });
+
+  it("exposes bridge methods, status, and aggregated errors from useMediaBridge", async () => {
+    let syncNowCalls = 0;
+    const bridge = createBridge({
+      getStatus: async () => buildStatus("ready", 1),
+      syncNow: async () => {
+        syncNowCalls += 1;
+      },
+      getItem: async () => {
+        throw new Error("bridge query failed");
+      },
+    });
+
+    render(
+      <MediaCacheProvider bridge={bridge}>
+        <BridgeProbe />
+      </MediaCacheProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("bridge-status-phase").textContent).toBe(
+        "ready",
+      );
+      expect(screen.getByTestId("bridge-query-error-count").textContent).toBe(
+        "1",
+      );
+      expect(
+        screen.getByTestId("bridge-primary-error-message").textContent,
+      ).toBe("bridge query failed");
+    });
+
+    await act(async () => {
+      screen.getByRole("button", { name: "sync-now" }).click();
+    });
+
+    expect(syncNowCalls).toBe(1);
+  });
+
+  it("uses one provider status subscription for media and error state", async () => {
     let subscribeStatusCalls = 0;
     const bridge = createBridge({
       getStatus: async () => buildStatus("ready", 1),
@@ -255,12 +342,14 @@ describe("react hooks", () => {
 
     render(
       <MediaCacheProvider bridge={bridge}>
-        <StatusBackedErrorProbe />
+        <ProviderRuntimeProbe />
       </MediaCacheProvider>,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("status-backed-error-ready").textContent).toBe("ready");
+      expect(screen.getByTestId("provider-runtime-phase").textContent).toBe(
+        "ready",
+      );
     });
     expect(subscribeStatusCalls).toBe(1);
   });
@@ -284,92 +373,162 @@ describe("react hooks", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("sync-primary-error-name").textContent).toBe("SyncFailureError");
-      expect(screen.getByTestId("sync-primary-error-message").textContent).toBe("sync failed");
+      expect(screen.getByTestId("sync-primary-error-name").textContent).toBe(
+        "SyncFailureError",
+      );
+      expect(screen.getByTestId("sync-primary-error-message").textContent).toBe(
+        "sync failed",
+      );
     });
+  });
+
+  it("does not export removed media query hooks", async () => {
+    const reactModule = await import("../../src/react/index.js");
+    expect("useMediaItem" in reactModule).toBe(false);
+    expect("useMediaItems" in reactModule).toBe(false);
+    expect("useMediaNamespace" in reactModule).toBe(false);
+    expect("useMediaNamespaceTree" in reactModule).toBe(false);
+    expect("useMediaCacheBridge" in reactModule).toBe(false);
+    expect("useMediaBridge" in reactModule).toBe(true);
   });
 });
 
-function ItemProbe({ namespace, itemId }: { namespace: string; itemId: string }) {
-  const item = useMediaItem(namespace, itemId);
+function MediaItemProbe({ itemId }: { itemId: string }) {
+  const item = useMedia({ kind: "item", namespace: "nature", id: itemId });
   return <div data-testid="item-id">{item.data?.id ?? "loading"}</div>;
 }
 
-function ItemVersionProbe({
-  namespace,
-  itemId,
+function MediaVersionProbe({
   refetchOnSyncComplete,
 }: {
-  namespace: string;
-  itemId: string;
   refetchOnSyncComplete?: boolean;
 }) {
-  const item = useMediaItem(namespace, itemId, { refetchOnSyncComplete });
-  return <div data-testid="item-version">{item.data?.version ?? "loading"}</div>;
-}
-
-function ItemsProbe({ namespace, recursive }: { namespace: string; recursive: boolean }) {
-  const items = useMediaItems(namespace, { recursive });
-  return <div>{items.data?.items[0]?.id ?? "loading"}</div>;
-}
-
-function LegacyListProbe() {
-  const namespace = useMediaNamespace("nature", { limit: 10 });
-  const tree = useMediaNamespaceTree("nature", { limit: 10 });
+  const item = useMedia({
+    kind: "item",
+    namespace: "nature",
+    id: "forest",
+    refetchOnSyncComplete,
+  });
   return (
-    <div>
-      <div>{namespace.data?.items[0]?.id ?? "loading-flat"}</div>
-      <div>{tree.data?.items[0]?.id ?? "loading-tree"}</div>
-    </div>
+    <div data-testid="item-version">{item.data?.version ?? "loading"}</div>
   );
+}
+
+function MediaListProbe({ recursive }: { recursive: boolean }) {
+  const items = useMedia({ kind: "list", namespace: "nature", recursive });
+  return <div>{items.data?.items[0]?.id ?? "loading"}</div>;
 }
 
 function StatusProbe() {
   const status = useMediaCacheStatus();
-  return <div data-testid="status-phase">{status.data?.phase ?? "loading"}</div>;
+  return <div data-testid="status-phase">{status.phase}</div>;
 }
 
-function ReadyAndErrorProbe() {
+function MediaCacheStatusPhaseProbe() {
   const status = useMediaCacheStatus();
-  const ready = useMediaCacheReady();
-  const item = useMediaItem("nature", "forest");
-  const errors = useMediaCacheErrors(status, item);
+  return <div data-testid="status-hook-phase">{status.phase}</div>;
+}
 
+function MediaAndBridgePhaseProbe() {
+  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const bridge = useMediaBridge();
   return (
     <div>
-      <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
-      <div data-testid="error-flag">{String(errors.hasError)}</div>
-      <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
-      <div data-testid="primary-error-message">{errors.primaryError?.message ?? "none"}</div>
-      <div data-testid="query-error-count">{String(errors.queryErrors.length)}</div>
+      <div data-testid="media-phase">{media.phase}</div>
+      <div data-testid="bridge-phase">{bridge.phase}</div>
     </div>
   );
 }
 
-function StatusBackedErrorProbe() {
-  const status = useMediaCacheStatus();
-  const errors = useMediaCacheErrors(status);
+function ReadyAndErrorProbe() {
+  const ready = useMediaCacheReady();
+  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const errors = useMediaCacheErrors();
 
   return (
-    <div data-testid="status-backed-error-ready">
-      {errors.hasError ? "error" : (status.data?.phase ?? "loading")}
+    <div>
+      <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
+      <div data-testid="media-status-phase">{media.phase}</div>
+      <div data-testid="error-flag">{String(errors.hasError)}</div>
+      <div data-testid="sync-error-code">
+        {errors.syncError?.code ?? "none"}
+      </div>
+      <div data-testid="primary-error-message">
+        {errors.primaryError?.message ?? "none"}
+      </div>
+      <div data-testid="query-error-count">
+        {String(errors.queryErrors.length)}
+      </div>
+    </div>
+  );
+}
+
+function GlobalErrorsProbe() {
+  useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  useFileStemMatch("forest");
+  const errors = useMediaCacheErrors();
+
+  return (
+    <div>
+      <div data-testid="global-query-error-count">
+        {String(errors.queryErrors.length)}
+      </div>
+      <div data-testid="global-primary-error-message">
+        {errors.primaryError?.message ?? "none"}
+      </div>
+    </div>
+  );
+}
+
+function BridgeProbe() {
+  useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const { syncNow, phase, errors } = useMediaBridge();
+
+  return (
+    <div>
+      <button type="button" onClick={() => void syncNow()}>
+        sync-now
+      </button>
+      <div data-testid="bridge-status-phase">{phase}</div>
+      <div data-testid="bridge-query-error-count">
+        {String(errors.queryErrors.length)}
+      </div>
+      <div data-testid="bridge-primary-error-message">
+        {errors.primaryError?.message ?? "none"}
+      </div>
+    </div>
+  );
+}
+
+function ProviderRuntimeProbe() {
+  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const errors = useMediaCacheErrors();
+
+  return (
+    <div data-testid="provider-runtime-phase">
+      {errors.hasError ? "error" : media.phase}
     </div>
   );
 }
 
 function SyncPrimaryErrorProbe() {
-  const status = useMediaCacheStatus();
-  const errors = useMediaCacheErrors(status);
+  const errors = useMediaCacheErrors();
 
   return (
     <div>
-      <div data-testid="sync-primary-error-name">{errors.primaryError?.name ?? "none"}</div>
-      <div data-testid="sync-primary-error-message">{errors.primaryError?.message ?? "none"}</div>
+      <div data-testid="sync-primary-error-name">
+        {errors.primaryError?.name ?? "none"}
+      </div>
+      <div data-testid="sync-primary-error-message">
+        {errors.primaryError?.message ?? "none"}
+      </div>
     </div>
   );
 }
 
-function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCacheBridge {
+function createBridge(
+  overrides: Partial<MediaCacheBridge> = {},
+): MediaCacheBridge {
   return {
     getStatus: async () => buildStatus("idle"),
     syncNow: async () => undefined,
@@ -395,14 +554,20 @@ function buildItem(id: string): ResolvedMediaContentItem {
   };
 }
 
-function buildItemWithVersion(id: string, version: string): ResolvedMediaContentItem {
+function buildItemWithVersion(
+  id: string,
+  version: string,
+): ResolvedMediaContentItem {
   return {
     ...buildItem(id),
     version,
   };
 }
 
-function buildStatus(phase: MediaCacheStatus["phase"], activeGenerationId = 0): MediaCacheStatus {
+function buildStatus(
+  phase: MediaCacheStatus["phase"],
+  activeGenerationId = 0,
+): MediaCacheStatus {
   return {
     phase,
     storageRoot: "/tmp/media-cache",
