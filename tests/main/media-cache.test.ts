@@ -24,7 +24,7 @@ import {
   resetMediaCacheStorageRootLocksForTests,
   type MediaCacheMain,
 } from "../../src/main/media-cache.js";
-import { defineManifest, defineManifestAsset, defineManifestItem } from "../../src/main/index.js";
+import { defineAsset, defineItem, defineManifest } from "../../src/main/index.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
@@ -35,11 +35,64 @@ import {
 } from "../../src/shared/errors.js";
 import { MEDIA_CACHE_IPC } from "../../src/shared/ipc.js";
 import type {
-  ManifestInput,
-  MediaAssetDefinition,
-  MediaCacheLogEvent,
   JsonValue,
+  MediaAssetValue,
+  MediaCacheLogEvent,
+  MediaCacheManifest,
+  MediaItemValue,
+  SyncManifestAsset,
 } from "../../src/shared/types.js";
+
+/** Build a record-shaped manifest from legacy `{ key, items: [{ id, assets: [{ id, ... }] }] }[]` test fixtures. */
+type LegacyManifestAsset = { id: string } & MediaAssetValue;
+type LegacyManifestItem = { id: string; assets: LegacyManifestAsset[] } & Omit<
+  MediaItemValue,
+  "assets"
+>;
+type LegacyManifestNamespace = {
+  key: string;
+  label?: string;
+  metadata?: Record<string, JsonValue>;
+  items: LegacyManifestItem[];
+};
+
+function recordManifest(input: {
+  snapshotId?: string;
+  retrievedAt?: string;
+  expiresAt?: string;
+  namespaces: LegacyManifestNamespace[];
+}): MediaCacheManifest {
+  const namespaces: MediaCacheManifest["namespaces"] = {};
+  for (const ns of input.namespaces) {
+    const { key, items, ...nsRest } = ns;
+    namespaces[key] = {
+      ...nsRest,
+      items: Object.fromEntries(
+        items.map((item) => {
+          const { id, assets, ...itemRest } = item;
+          return [
+            id,
+            {
+              ...itemRest,
+              assets: Object.fromEntries(
+                assets.map((a) => {
+                  const { id: assetId, ...assetRest } = a;
+                  return [assetId, assetRest];
+                }),
+              ),
+            },
+          ];
+        }),
+      ),
+    };
+  }
+  return {
+    snapshotId: input.snapshotId,
+    retrievedAt: input.retrievedAt,
+    expiresAt: input.expiresAt,
+    namespaces,
+  };
+}
 
 type TestMediaCacheOptions = Omit<
   ConstructorParameters<typeof RawMediaCacheBase>[0],
@@ -114,24 +167,28 @@ const storageRootLockFixturePath = fileURLToPath(
 );
 
 describe("manifest normalization", () => {
-  it("normalizes flat arrays into the default namespace", () => {
-    const manifest = normalizeManifest([
-      {
-        id: "item-1",
-        version: "v1",
-        kind: "video",
-        assets: [
-          {
-            id: "main",
-            role: "primary",
-            kind: "video",
-            source: {
-              url: "https://example.com/file.mp4",
+  it("normalizes record-shaped namespaces into ordered arrays with injected ids", () => {
+    const manifest = normalizeManifest({
+      namespaces: {
+        default: {
+          items: {
+            "item-1": {
+              version: "v1",
+              kind: "video",
+              assets: {
+                main: {
+                  role: "primary",
+                  kind: "video",
+                  source: {
+                    url: "https://example.com/file.mp4",
+                  },
+                },
+              },
             },
           },
-        ],
+        },
       },
-    ]);
+    });
 
     expect(manifest.namespaces).toHaveLength(1);
     expect(manifest.namespaces[0]?.key).toBe("default");
@@ -139,24 +196,28 @@ describe("manifest normalization", () => {
   });
 
   it("prefers explicit fileName over URL-derived defaults", () => {
-    const manifest = normalizeManifest([
-      {
-        id: "item-1",
-        version: "v1",
-        kind: "video",
-        assets: [
-          {
-            id: "main",
-            role: "primary",
-            kind: "video",
-            fileName: "custom-name.mp4",
-            source: {
-              url: "https://example.com/file.mp4",
+    const manifest = normalizeManifest({
+      namespaces: {
+        default: {
+          items: {
+            "item-1": {
+              version: "v1",
+              kind: "video",
+              assets: {
+                main: {
+                  role: "primary",
+                  kind: "video",
+                  fileName: "custom-name.mp4",
+                  source: {
+                    url: "https://example.com/file.mp4",
+                  },
+                },
+              },
             },
           },
-        ],
+        },
       },
-    ]);
+    });
 
     expect(manifest.namespaces[0]?.items[0]?.assets[0]?.normalizedFileName).toBe("custom-name.mp4");
   });
@@ -164,12 +225,9 @@ describe("manifest normalization", () => {
   it("preserves a valid manifest expiresAt timestamp", () => {
     const manifest = normalizeManifest({
       expiresAt: "2026-04-06T12:30:00.000Z",
-      namespaces: [
-        {
-          key: "gallery",
-          items: [],
-        },
-      ],
+      namespaces: {
+        gallery: { items: {} },
+      },
     });
 
     expect(manifest.expiresAt).toBe("2026-04-06T12:30:00.000Z");
@@ -179,79 +237,7 @@ describe("manifest normalization", () => {
     expect(() =>
       normalizeManifest({
         expiresAt: "2026-04-06 12:30:00",
-        namespaces: [],
-      }),
-    ).toThrow(ManifestValidationError);
-  });
-
-  it("rejects duplicate namespace keys, item ids, and asset ids", () => {
-    expect(() =>
-      normalizeManifest({
-        namespaces: [
-          {
-            key: "dup",
-            items: [],
-          },
-          {
-            key: "dup",
-            items: [],
-          },
-        ],
-      }),
-    ).toThrow(ManifestValidationError);
-
-    expect(() =>
-      normalizeManifest({
-        namespaces: [
-          {
-            key: "gallery",
-            items: [
-              {
-                id: "same",
-                version: "v1",
-                kind: "image",
-                assets: [],
-              },
-              {
-                id: "same",
-                version: "v1",
-                kind: "image",
-                assets: [],
-              },
-            ],
-          },
-        ],
-      }),
-    ).toThrow(ManifestValidationError);
-
-    expect(() =>
-      normalizeManifest({
-        namespaces: [
-          {
-            key: "gallery",
-            items: [
-              {
-                id: "item",
-                version: "v1",
-                kind: "image",
-                assets: [
-                  {
-                    id: "dup",
-                    role: "primary",
-                    kind: "image",
-                    source: { url: "https://example.com/a.jpg" },
-                  },
-                  {
-                    id: "dup",
-                    role: "thumbnail",
-                    kind: "thumbnail",
-                    source: { url: "https://example.com/b.jpg" },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
+        namespaces: {},
       }),
     ).toThrow(ManifestValidationError);
   });
@@ -259,36 +245,32 @@ describe("manifest normalization", () => {
 
 describe("producer manifest helpers", () => {
   it("validates and returns manifest assets and items", () => {
-    const asset = defineManifestAsset({
-      id: "main",
+    const asset = defineAsset({
       role: "primary",
       kind: "video",
       source: {
         url: "https://cdn.example.com/forest.mp4",
       },
     });
-    const item = defineManifestItem({
-      id: "forest",
+    const item = defineItem({
       version: "v1",
       kind: "video",
-      assets: [asset],
+      assets: { main: asset },
     });
     const manifest = defineManifest({
-      namespaces: [
-        {
-          key: "nature",
-          items: [item],
+      namespaces: {
+        nature: {
+          items: { forest: item },
         },
-      ],
+      },
     });
 
-    expect(manifest.namespaces[0]?.items[0]?.id).toBe("forest");
-    expect(manifest.namespaces[0]?.items[0]?.assets[0]?.id).toBe("main");
+    expect(manifest.namespaces.nature?.items.forest).toBeDefined();
+    expect(manifest.namespaces.nature?.items.forest?.assets.main).toBeDefined();
   });
 
   it("derives fileName by default and keeps explicit overrides", () => {
-    const derivedAsset = defineManifestAsset({
-      id: "main",
+    const derivedAsset = defineAsset({
       role: "primary",
       kind: "video",
       source: {
@@ -297,8 +279,7 @@ describe("producer manifest helpers", () => {
     });
     expect(derivedAsset.fileName).toBe("forest.mp4");
 
-    const explicitAsset = defineManifestAsset({
-      id: "main",
+    const explicitAsset = defineAsset({
       role: "primary",
       kind: "video",
       fileName: "custom-forest.mp4",
@@ -311,8 +292,7 @@ describe("producer manifest helpers", () => {
 
   it("throws DataValidationError for invalid producer helper input", () => {
     expect(() =>
-      defineManifestAsset({
-        id: "",
+      defineAsset({
         role: "primary",
         kind: "video",
         source: {
@@ -322,21 +302,16 @@ describe("producer manifest helpers", () => {
     ).toThrow(DataValidationError);
   });
 
-  it("throws ManifestValidationError when semantic manifest checks fail", () => {
-    expect(() =>
-      defineManifest({
+  it("defineManifest accepts distinct namespace keys (duplicates cannot appear in object literals)", () => {
+    const manifest = defineManifest(
+      recordManifest({
         namespaces: [
-          {
-            key: "dup",
-            items: [],
-          },
-          {
-            key: "dup",
-            items: [],
-          },
+          { key: "a", items: [] },
+          { key: "b", items: [] },
         ],
       }),
-    ).toThrow(ManifestValidationError);
+    );
+    expect(Object.keys(manifest.namespaces).sort()).toEqual(["a", "b"]);
   });
 });
 
@@ -347,7 +322,7 @@ describe("media cache sync and queries", () => {
   let requestMethods: Record<string, string[]>;
   let requestRanges: Record<string, string[]>;
   let requestAuthHeaders: Record<string, string[]>;
-  let manifests: ManifestInput;
+  let manifests: MediaCacheManifest;
 
   beforeAll(async () => {
     requestCounts = {};
@@ -509,7 +484,7 @@ describe("media cache sync and queries", () => {
     requestMethods = {};
     requestRanges = {};
     requestAuthHeaders = {};
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "initial",
       namespaces: [
         {
@@ -578,7 +553,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
   });
 
   function createStorageRoot(): string {
@@ -882,7 +857,7 @@ describe("media cache sync and queries", () => {
       bytesDownloaded: 0,
     });
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "passthrough-v2",
       namespaces: [
         {
@@ -907,7 +882,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await cache.syncNow();
 
@@ -918,7 +893,7 @@ describe("media cache sync and queries", () => {
 
   it("uses assetBaseUrl as an origin override in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
-    const manifestWithQuerySource: ManifestInput = {
+    const manifestWithQuerySource: MediaCacheManifest = recordManifest({
       snapshotId: "asset-base-url",
       namespaces: [
         {
@@ -942,7 +917,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const passthroughCache = new RawMediaCache({
       storageRoot,
@@ -960,7 +935,7 @@ describe("media cache sync and queries", () => {
   it("emits resolve_asset_base_url_fallback and returns source URL when asset URL cannot be parsed in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const logs: MediaCacheLogEvent[] = [];
-    const invalidUrlManifest: ManifestInput = {
+    const invalidUrlManifest: MediaCacheManifest = recordManifest({
       snapshotId: "invalid-url-fallback",
       namespaces: [
         {
@@ -985,7 +960,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = new RawMediaCache({
       storageRoot,
@@ -1097,7 +1072,7 @@ describe("media cache sync and queries", () => {
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(1);
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "v2",
       namespaces: [
         {
@@ -1123,7 +1098,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(2);
@@ -1201,7 +1176,7 @@ describe("media cache sync and queries", () => {
 
   it("supports pipe characters in namespace, item, and asset ids", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "pipe-ids",
       namespaces: [
         {
@@ -1227,7 +1202,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createMediaCache({
       storageRoot,
@@ -1250,7 +1225,7 @@ describe("media cache sync and queries", () => {
 
   it("preserves JSON.stringify semantics for undefined manifest metadata and blobs", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "undefined-json-fields",
       namespaces: [
         {
@@ -1292,7 +1267,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createMediaCache({
       storageRoot,
@@ -1319,10 +1294,10 @@ describe("media cache sync and queries", () => {
     const filesBefore = collectFiles(initialBlobRoot);
     expect(filesBefore.length).toBeGreaterThan(0);
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "empty",
       namespaces: [],
-    };
+    });
 
     await cache.syncNow();
     const filesAfter = collectFiles(initialBlobRoot);
@@ -1340,7 +1315,7 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "broken",
       namespaces: [
         {
@@ -1366,7 +1341,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
     const item = await cache.getItem("nature", "forest");
@@ -1385,7 +1360,7 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "broken",
       namespaces: [
         {
@@ -1411,7 +1386,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await expect(cache.syncNow()).rejects.toThrow("Download failed");
     const item = await cache.getItem("nature", "forest");
@@ -1425,7 +1400,7 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => ({
+        resolveManifest: () => recordManifest({
           snapshotId: "expired-before-download",
           expiresAt: "2026-04-06T12:30:00.000Z",
           namespaces: [
@@ -1498,7 +1473,7 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => ({
+        resolveManifest: () => recordManifest({
           snapshotId: "expires-mid-sync",
           expiresAt: new Date(1_500).toISOString(),
           namespaces: [
@@ -1577,7 +1552,7 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     currentNow = 2_000;
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "expired-update",
       expiresAt: new Date(1_500).toISOString(),
       namespaces: [
@@ -1604,7 +1579,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
     expect(requestCounts["/expired-update.mp4"] ?? 0).toBe(0);
@@ -1622,7 +1597,7 @@ describe("media cache sync and queries", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => ({
+        resolveManifest: () => recordManifest({
           snapshotId: "broken-without-expiry",
           namespaces: [
             {
@@ -1673,7 +1648,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "resume",
       namespaces: [
         {
@@ -1699,7 +1674,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -1728,7 +1703,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body.slice(0, 990_000));
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "reserve-resume",
       namespaces: [
         {
@@ -1754,7 +1729,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = new MediaCache(
       {
@@ -1827,7 +1802,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "resume-retryable",
       namespaces: [
         {
@@ -1853,7 +1828,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -1881,7 +1856,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "range-ignored",
       namespaces: [
         {
@@ -1907,7 +1882,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -1930,7 +1905,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "range-mismatch",
       namespaces: [
         {
@@ -1956,7 +1931,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -1986,7 +1961,7 @@ describe("media cache sync and queries", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body);
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "range-not-satisfiable",
       namespaces: [
         {
@@ -2012,7 +1987,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -2036,7 +2011,7 @@ describe("media cache sync and queries", () => {
     const retryableRoot = createStorageRoot();
     const retryableCache = createNoSleepCache({
       storageRoot: retryableRoot,
-      resolveManifest: () => ({
+      resolveManifest: () => recordManifest({
         snapshotId: "retry-once",
         namespaces: [
           {
@@ -2072,7 +2047,7 @@ describe("media cache sync and queries", () => {
     const nonRetryableCache = createNoSleepCache({
       storageRoot: nonRetryableRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => ({
+      resolveManifest: () => recordManifest({
         snapshotId: "nonretryable",
         namespaces: [
           {
@@ -2107,7 +2082,7 @@ describe("media cache sync and queries", () => {
 
   it("preserves partial files after exhausting retryable download failures", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "drop-after-two",
       namespaces: [
         {
@@ -2133,7 +2108,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -2244,7 +2219,7 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "cleanup-failed-stage",
       namespaces: [
         {
@@ -2280,7 +2255,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await cache.syncNow();
 
@@ -2333,43 +2308,45 @@ describe("media cache sync and queries", () => {
     const activeGenerationId = initialDb.getActiveGenerationId();
     expect(activeGenerationId).not.toBeNull();
 
-    const orphanManifest = normalizeManifest({
-      snapshotId: "orphaned-stage",
-      namespaces: [
-        {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  byteLength: "video-one".length,
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
+    const orphanManifest = normalizeManifest(
+      recordManifest({
+        snapshotId: "orphaned-stage",
+        namespaces: [
+          {
+            key: "nature",
+            items: [
+              {
+                id: "forest",
+                version: "v2",
+                kind: "video",
+                assets: [
+                  {
+                    id: "main",
+                    role: "primary",
+                    kind: "video",
+                    fileName: "main.mp4",
+                    byteLength: "video-one".length,
+                    source: {
+                      url: `${baseUrl}/main.mp4`,
+                    },
                   },
-                },
-                {
-                  id: "poster",
-                  role: "poster",
-                  kind: "poster",
-                  fileName: "poster-v2.jpg",
-                  byteLength: "poster".length,
-                  source: {
-                    url: `${baseUrl}/poster.jpg`,
+                  {
+                    id: "poster",
+                    role: "poster",
+                    kind: "poster",
+                    fileName: "poster-v2.jpg",
+                    byteLength: "poster".length,
+                    source: {
+                      url: `${baseUrl}/poster.jpg`,
+                    },
                   },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    });
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
     const stagedGenerationId = initialDb.createStagedGeneration(orphanManifest, 2);
     const reusedMainPath = blobPathFor("nature", "forest", "main", "v1", "main.mp4");
     const orphanPosterPath = blobPathFor("nature", "forest", "poster", "v2", "poster-v2.jpg");
@@ -2454,7 +2431,7 @@ describe("media cache sync and queries", () => {
   it("prunes expired deletions before enforcing storage limits", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "small-initial",
       namespaces: [
         {
@@ -2480,7 +2457,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
     const cache = new MediaCache(
       {
         storageRoot,
@@ -2496,14 +2473,14 @@ describe("media cache sync and queries", () => {
 
     await cache.start();
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "pending-delete",
       namespaces: [],
-    };
+    });
     await cache.syncNow();
 
     currentNow = 2_000;
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "after-prune",
       namespaces: [
         {
@@ -2529,7 +2506,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
     expect(
@@ -2543,7 +2520,7 @@ describe("media cache sync and queries", () => {
   it("retains multiple obsolete blob versions until each expires", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "retain-v1",
       namespaces: [
         {
@@ -2569,7 +2546,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = new MediaCache(
       {
@@ -2586,7 +2563,7 @@ describe("media cache sync and queries", () => {
     await cache.start();
 
     currentNow = 1_100;
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "retain-v2",
       namespaces: [
         {
@@ -2612,11 +2589,11 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
     await cache.syncNow();
 
     currentNow = 1_200;
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "retain-v3",
       namespaces: [
         {
@@ -2642,7 +2619,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
     await cache.syncNow();
 
     const v1Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
@@ -2665,7 +2642,7 @@ describe("media cache sync and queries", () => {
 
   it("uses response content type only as a mimeType fallback", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "mime-fallback",
       namespaces: [
         {
@@ -2709,7 +2686,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createNoSleepCache({
       storageRoot,
@@ -2724,7 +2701,7 @@ describe("media cache sync and queries", () => {
     const manifestItem = await cache.getItem("nature", "manifest");
     expect(manifestItem?.assets[0]?.mimeType).toBe("video/mp4");
 
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "mime-fallback-skip",
       namespaces: [
         {
@@ -2767,7 +2744,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     await cache.syncNow();
     expect(requestCounts["/mime-fallback.bin"]).toBe(1);
@@ -3196,7 +3173,7 @@ describe("media cache sync and queries", () => {
 
   it("requires storagePath configuration", async () => {
     const cache = new MediaCache({
-      resolveManifest: () => ({
+      resolveManifest: () => recordManifest({
         snapshotId: "missing-storage-path",
         namespaces: [],
       }),
@@ -3473,7 +3450,7 @@ describe("media cache sync and queries", () => {
     const storageRoot = createStorageRoot();
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "circular-metadata",
       namespaces: [
         {
@@ -3482,7 +3459,7 @@ describe("media cache sync and queries", () => {
           items: [],
         },
       ],
-    };
+    });
 
     const cache = createMediaCache({
       storageRoot,
@@ -3495,7 +3472,7 @@ describe("media cache sync and queries", () => {
 
   it("accepts non-integer manifest byteLength values", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "fractional-byte-length",
       namespaces: [
         {
@@ -3518,7 +3495,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createMediaCache({
       storageRoot,
@@ -3533,7 +3510,7 @@ describe("media cache sync and queries", () => {
 
   it("rejects invalid persisted item kinds", async () => {
     const storageRoot = createStorageRoot();
-    manifests = {
+    manifests = recordManifest({
       snapshotId: "invalid-item-kind",
       namespaces: [
         {
@@ -3555,7 +3532,7 @@ describe("media cache sync and queries", () => {
           ],
         },
       ],
-    };
+    });
 
     const cache = createMediaCache({
       storageRoot,
@@ -3580,11 +3557,11 @@ describe("media cache sync and queries", () => {
       try {
         new RawMediaCache({
           devPassthrough: false,
-          resolveManifest: async () => ({ namespaces: [] }),
+          resolveManifest: async () => recordManifest({ namespaces: [] }),
         });
         new RawMediaCache({
           devPassthrough: false,
-          resolveManifest: async () => ({ namespaces: [] }),
+          resolveManifest: async () => recordManifest({ namespaces: [] }),
         });
         expect(spy).toHaveBeenCalledTimes(1);
       } finally {
@@ -3763,7 +3740,7 @@ async function createIpcHandlers(
   return handlers;
 }
 
-function mimeManifest(baseUrl: string): ManifestInput {
+function mimeManifest(baseUrl: string): MediaCacheManifest {
   const assetDefinitions = [
     ["main", "sample.mp4", `${baseUrl}/main.mp4`],
     ["webm", "sample.webm", `${baseUrl}/main.mp4`],
@@ -3783,7 +3760,7 @@ function mimeManifest(baseUrl: string): ManifestInput {
     ["pdf", "sample.pdf", `${baseUrl}/main.mp4`],
   ] as const;
   type MimeAssetId = (typeof assetDefinitions)[number][0];
-  const kindByAssetId: Record<MimeAssetId, MediaAssetDefinition["kind"]> = {
+  const kindByAssetId: Record<MimeAssetId, SyncManifestAsset["kind"]> = {
     main: "video",
     webm: "video",
     mov: "video",
@@ -3802,7 +3779,7 @@ function mimeManifest(baseUrl: string): ManifestInput {
     pdf: "document",
   };
 
-  return {
+  return recordManifest({
     snapshotId: "mime-types",
     namespaces: [
       {
@@ -3825,5 +3802,5 @@ function mimeManifest(baseUrl: string): ManifestInput {
         ],
       },
     ],
-  };
+  });
 }

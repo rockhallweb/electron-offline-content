@@ -3,14 +3,13 @@ import { fileStem } from "./stem.js";
 import { deriveAssetFileName } from "../internal/asset-file-name.js";
 import type {
   JsonValue,
-  ManifestInput,
-  MediaAssetDefinition,
   MediaCacheManifest,
   MediaContentDefinition,
   MediaNamespaceDefinition,
+  SyncManifestAsset,
 } from "./types.js";
 
-export interface NormalizedAsset extends MediaAssetDefinition {
+export interface NormalizedAsset extends SyncManifestAsset {
   resolvedVersion: string;
   normalizedFileName: string;
   normalizedFileStem: string;
@@ -28,58 +27,42 @@ export interface NormalizedNamespace extends Omit<MediaNamespaceDefinition, "ite
   items: NormalizedItem[];
 }
 
-export interface NormalizedManifest extends MediaCacheManifest {
+/** Normalized manifest: namespaces/items/assets as ordered arrays with injected `key` / `id` fields. */
+export interface NormalizedManifest {
+  snapshotId?: string;
+  retrievedAt?: string;
+  expiresAt?: string;
   namespaces: NormalizedNamespace[];
 }
 
-export function normalizeManifest(input: ManifestInput): NormalizedManifest {
-  const manifest = toManifest(input);
+export function normalizeManifest(manifest: MediaCacheManifest): NormalizedManifest {
   const expiresAt = normalizeManifestExpiration(manifest.expiresAt);
-  const namespaceSeen = new Set<string>();
 
-  const namespaces = manifest.namespaces.map((namespace) => {
-    if (!namespace.key) {
+  const namespaces = Object.entries(manifest.namespaces).map(([namespaceKey, namespace]) => {
+    if (!namespaceKey) {
       throw new ManifestValidationError("Namespace key is required.");
     }
 
-    if (namespaceSeen.has(namespace.key)) {
-      throw new ManifestValidationError(`Duplicate namespace key "${namespace.key}".`);
-    }
-    namespaceSeen.add(namespace.key);
-
-    const itemSeen = new Set<string>();
-    const items = namespace.items.map((item) => {
-      if (!item.id) {
-        throw new ManifestValidationError(`Item ID is required in namespace "${namespace.key}".`);
+    const items = Object.entries(namespace.items).map(([itemId, item]) => {
+      if (!itemId) {
+        throw new ManifestValidationError(`Item ID is required in namespace "${namespaceKey}".`);
       }
       if (!item.version) {
         throw new ManifestValidationError(
-          `Item version is required for "${namespace.key}/${item.id}".`,
+          `Item version is required for "${namespaceKey}/${itemId}".`,
         );
       }
-      if (itemSeen.has(item.id)) {
-        throw new ManifestValidationError(
-          `Duplicate item ID "${item.id}" in namespace "${namespace.key}".`,
-        );
-      }
-      itemSeen.add(item.id);
 
-      const assetSeen = new Set<string>();
-      const assets = item.assets.map((asset) => {
-        if (!asset.id) {
+      const assets = Object.entries(item.assets).map(([assetId, asset]) => {
+        if (!assetId) {
           throw new ManifestValidationError(
-            `Asset ID is required for "${namespace.key}/${item.id}".`,
+            `Asset ID is required for "${namespaceKey}/${itemId}".`,
           );
         }
-        if (assetSeen.has(asset.id)) {
-          throw new ManifestValidationError(
-            `Duplicate asset ID "${asset.id}" in "${namespace.key}/${item.id}".`,
-          );
-        }
-        assetSeen.add(asset.id);
 
         const normalizedFileName = asset.fileName ?? deriveAssetFileName(asset.source);
         return {
+          id: assetId,
           ...asset,
           normalizedFileName,
           normalizedFileStem: fileStem(normalizedFileName),
@@ -88,7 +71,12 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
       });
 
       return {
-        ...item,
+        id: itemId,
+        version: item.version,
+        kind: item.kind,
+        title: item.title,
+        description: item.description,
+        summary: item.summary,
         blobs: item.blobs ?? {},
         metadata: item.metadata ?? {},
         assets,
@@ -96,7 +84,8 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
     });
 
     return {
-      ...namespace,
+      key: namespaceKey,
+      label: namespace.label,
       metadata: namespace.metadata ?? {},
       items,
     };
@@ -108,30 +97,6 @@ export function normalizeManifest(input: ManifestInput): NormalizedManifest {
     expiresAt,
     namespaces,
   };
-}
-
-function toManifest(input: ManifestInput): MediaCacheManifest {
-  if (Array.isArray(input)) {
-    if (input.length === 0) {
-      return { namespaces: [] };
-    }
-
-    const first = input[0] as MediaNamespaceDefinition | MediaContentDefinition;
-    if ("items" in first) {
-      return { namespaces: input as MediaNamespaceDefinition[] };
-    }
-
-    return {
-      namespaces: [
-        {
-          key: "default",
-          items: input as MediaContentDefinition[],
-        },
-      ],
-    };
-  }
-
-  return input;
 }
 
 const ISO_8601_OFFSET_TIMESTAMP =

@@ -83,33 +83,30 @@ export interface MediaCacheManifest {
    * Used to fail syncs before opaque late-queue 403s from short-lived pre-signed URLs.
    */
   expiresAt?: string;
-  /** Content namespaces; order is preserved where the implementation surfaces ordered lists. */
-  namespaces: MediaNamespaceDefinition[];
-}
-
-/** A logical bucket of content (e.g. app section); `key` is used in URLs and queries. */
-export interface MediaNamespaceDefinition {
-  /** Stable namespace identifier used in `getItem`, `listNamespace`, and hierarchical `listNamespaceTree`. */
-  key: string;
-  /** Optional human-readable title for UI (the `key` remains the programmatic identifier). */
-  label?: string;
-  /** App-specific JSON metadata attached to the namespace. */
-  metadata?: Record<string, JsonValue>;
-  /** Catalog items belonging to this namespace. */
-  items: MediaContentDefinition[];
+  /**
+   * Content namespaces keyed by stable namespace id (same string as used in `getItem` / list APIs).
+   * Iteration order follows ECMAScript `[[OwnPropertyKeys]]` (insertion order for string keys).
+   */
+  namespaces: Record<string, MediaNamespaceValue>;
 }
 
 /**
- * One catalog entry: human-facing fields plus `assets` that sync downloads to disk.
- *
- * Pass objects of this shape to {@link import("../main/producer.js").defineManifestItem}.
+ * One namespace’s payload for manifest authoring (key is the record key in {@link MediaCacheManifest.namespaces}).
  */
-export interface MediaContentDefinition {
-  /**
-   * Stable identifier for this item within its namespace. Used in cache keys, `getItem` / list APIs,
-   * and when matching assets to content.
-   */
-  id: string;
+export interface MediaNamespaceValue {
+  /** Optional human-readable title for UI (the map key remains the programmatic identifier). */
+  label?: string;
+  /** App-specific JSON metadata attached to the namespace. */
+  metadata?: Record<string, JsonValue>;
+  /** Catalog items keyed by stable item id within this namespace. */
+  items: Record<string, MediaItemValue>;
+}
+
+/**
+ * One catalog entry for authoring: human-facing fields plus `assets` that sync downloads to disk.
+ * Pass values of this shape to {@link import("../main/producer.js").defineItem}.
+ */
+export interface MediaItemValue {
   /**
    * Logical content revision (non-empty string). When this changes relative to a previously synced
    * generation, the cache can treat the item as updated and reconcile downloads accordingly.
@@ -128,7 +125,7 @@ export interface MediaContentDefinition {
   summary?: string;
   /**
    * Small string key–value payloads stored with the item (JSON-serialized), distinct from binary
-   * {@link MediaAssetDefinition | assets}. Use for inline data such as captions IDs or API hints.
+   * {@link MediaAssetValue | assets}. Use for inline data such as captions IDs or API hints.
    */
   blobs?: Record<string, string>;
   /**
@@ -137,16 +134,14 @@ export interface MediaContentDefinition {
    */
   metadata?: Record<string, JsonValue>;
   /**
-   * Files to fetch and persist for this item. Each entry defines a role, remote `source`, and
-   * optional MIME type, file name, and size. At least one asset is typical (e.g. primary media).
+   * Files to fetch and persist for this item, keyed by stable asset id within the item.
+   * At least one asset is typical (e.g. primary media).
    */
-  assets: MediaAssetDefinition[];
+  assets: Record<string, MediaAssetValue>;
 }
 
-/** A single downloadable file for a content item; `source` is the remote fetch template. */
-export interface MediaAssetDefinition {
-  /** Stable asset id within the parent item (used in sync, protocol URLs, and stem search). */
-  id: string;
+/** One downloadable asset for manifest authoring (id is the record key in {@link MediaItemValue.assets}). */
+export interface MediaAssetValue {
   /** Semantic role for consumers (for example `primary`, `poster`, `subtitle`). Indexed on {@link ResolvedMediaContentItem.assetsByRole}. */
   role: string;
   /**
@@ -160,7 +155,7 @@ export interface MediaAssetDefinition {
   mimeType?: string;
   /**
    * On-disk file name used under the item’s storage folder. If omitted, the implementation may
-   * derive a name from the download URL (see `defineManifestAsset`).
+   * derive a name from the download URL (see {@link import("../main/producer.js").defineAsset}).
    */
   fileName?: string;
   /** Expected size in bytes when known (used for progress and storage planning). */
@@ -171,11 +166,53 @@ export interface MediaAssetDefinition {
   metadata?: Record<string, JsonValue>;
 }
 
-/** Producer-friendly alias for one manifest item definition. */
-export type ManifestItem = MediaContentDefinition;
+/**
+ * Expanded namespace during sync and in {@link ResolveAssetRequestContext} (includes `key` and item array).
+ */
+export interface SyncManifestNamespace {
+  /** Stable namespace identifier used in `getItem`, `listNamespace`, and hierarchical `listNamespaceTree`. */
+  key: string;
+  label?: string;
+  metadata?: Record<string, JsonValue>;
+  items: SyncManifestItem[];
+}
 
-/** Producer-friendly alias for one manifest asset definition. */
-export type ManifestAsset = MediaAssetDefinition;
+/**
+ * Expanded catalog item during sync (includes `id` and asset array).
+ */
+export interface SyncManifestItem {
+  id: string;
+  version: string;
+  kind: MediaKind;
+  title?: string;
+  description?: string;
+  summary?: string;
+  blobs?: Record<string, string>;
+  metadata?: Record<string, JsonValue>;
+  assets: SyncManifestAsset[];
+}
+
+/** Expanded asset during sync (includes `id`). */
+export interface SyncManifestAsset {
+  id: string;
+  role: string;
+  kind: MediaKind | "subtitle" | "caption" | "poster" | "thumbnail";
+  version?: string;
+  mimeType?: string;
+  fileName?: string;
+  byteLength?: number;
+  source: MediaRemoteSource;
+  metadata?: Record<string, JsonValue>;
+}
+
+/** @deprecated Use {@link SyncManifestNamespace} — internal alias for normalized manifest rows. */
+export type MediaNamespaceDefinition = SyncManifestNamespace;
+
+/** @deprecated Use {@link SyncManifestItem} — internal alias for normalized manifest rows. */
+export type MediaContentDefinition = SyncManifestItem;
+
+/** @deprecated Use {@link SyncManifestAsset} — internal alias for normalized manifest rows. */
+export type MediaAssetDefinition = SyncManifestAsset;
 
 /** Remote request template used during sync to fetch an asset (URL plus optional headers). */
 export interface MediaRemoteSource {
@@ -190,15 +227,6 @@ export interface MediaRemoteSource {
   headers?: Record<string, string>;
 }
 
-/**
- * Accepted shapes from `MediaCacheOptions.resolveManifest`: full manifest, or a flat list of
- * namespaces or items (normalized into one manifest internally).
- */
-export type ManifestInput =
-  | MediaCacheManifest
-  | MediaNamespaceDefinition[]
-  | MediaContentDefinition[];
-
 /** Concrete HTTP request used to download bytes during sync (from manifest or `resolveAssetRequest`). */
 export interface DownloadRequest {
   /** Final URL to fetch after any manifest or `resolveAssetRequest` rewriting. */
@@ -212,11 +240,11 @@ export interface DownloadRequest {
 /** Arguments passed to `resolveAssetRequest` when overriding how an asset is fetched. */
 export interface ResolveAssetRequestContext {
   /** Namespace that owns the item being synced. */
-  namespace: MediaNamespaceDefinition;
+  namespace: SyncManifestNamespace;
   /** Manifest item whose asset is being resolved. */
-  item: MediaContentDefinition;
+  item: SyncManifestItem;
   /** The specific asset row from the manifest (includes default `source` unless overridden). */
-  asset: MediaAssetDefinition;
+  asset: SyncManifestAsset;
 }
 
 /**
@@ -311,10 +339,10 @@ export interface MediaCacheOptions {
    */
   logging?: MediaCacheLoggingOptions;
   /**
-   * Produces the manifest (or shorthand namespace/item lists) for each sync. May be async.
+   * Produces the manifest for each sync. May be async.
    * Thrown errors or rejected promises fail the sync run.
    */
-  resolveManifest: () => Promise<ManifestInput> | ManifestInput;
+  resolveManifest: () => Promise<MediaCacheManifest> | MediaCacheManifest;
   /**
    * Optional per-asset hook to customize URL, method, or headers before download (signing, CDNs, etc.).
    */
@@ -362,6 +390,12 @@ export interface MediaCacheStatus {
   /** `Date.now()` (ms) when this snapshot was produced for subscribers. */
   updatedAt: number;
 }
+
+/**
+ * UI-facing lifecycle for cache status hooks: includes {@link MediaCacheStatus.phase} plus
+ * `"loading"` before the first status snapshot arrives from the bridge.
+ */
+export type MediaCachePhase = MediaCacheStatus["phase"] | "loading";
 
 /** Fine-grained sync pipeline step and counters while a run is active. */
 export interface SyncProgress {
@@ -547,7 +581,7 @@ export interface MediaQuerySyncOptions {
   refetchOnSyncComplete?: boolean;
 }
 
-/** Options for list queries in React (`useMediaItems`). */
+/** Options for list queries in React (`useMedia({ kind: "list", ... })`). */
 export interface MediaItemsQueryOptions extends PaginationInput, MediaQuerySyncOptions {
   /** When `true`, list across the namespace tree under the given prefix instead of a single namespace. */
   recursive?: boolean;
@@ -573,7 +607,7 @@ export interface MediaCacheReadyState {
   syncError: SerializedMediaCacheError | null;
 }
 
-/** Aggregated error view for `useMediaCacheErrors()`. */
+/** Aggregated error view for the provider-driven `useMediaCacheErrors()`. */
 export interface MediaCacheErrors {
   /** Error serialized from the last failed sync, if any. */
   syncError: SerializedMediaCacheError | null;

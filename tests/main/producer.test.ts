@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  assetsFromEntries,
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestAsset,
-  defineManifestItem,
+  itemsFromEntries,
+  namespacesFromEntries,
 } from "../../src/main/producer.js";
-import { DataValidationError } from "../../src/shared/errors.js";
+import { DataValidationError, ManifestValidationError } from "../../src/shared/errors.js";
 
 describe("producer helpers", () => {
-  it("defineManifestAsset rejects non-http(s) source URLs", () => {
+  it("defineAsset rejects non-http(s) source URLs", () => {
     expect(() =>
-      defineManifestAsset({
-        id: "main",
+      defineAsset({
         role: "primary",
         kind: "video",
         source: {
@@ -23,35 +25,31 @@ describe("producer helpers", () => {
   it("defineManifest rejects manifests with non-http(s) asset URLs", () => {
     expect(() =>
       defineManifest({
-        namespaces: [
-          {
-            key: "nature",
-            items: [
-              {
-                id: "forest",
+        namespaces: {
+          nature: {
+            items: {
+              forest: {
                 version: "v1",
                 kind: "video",
-                assets: [
-                  {
-                    id: "main",
+                assets: {
+                  main: {
                     role: "primary",
                     kind: "video",
                     source: {
                       url: "file:///tmp/video.mp4",
                     },
                   },
-                ],
+                },
               },
-            ],
+            },
           },
-        ],
+        },
       }),
     ).toThrow(DataValidationError);
   });
 
-  it("defineManifestAsset accepts https URLs and derives fileName", () => {
-    const asset = defineManifestAsset({
-      id: "main",
+  it("defineAsset accepts https URLs and derives fileName", () => {
+    const asset = defineAsset({
       role: "primary",
       kind: "video",
       source: {
@@ -62,10 +60,9 @@ describe("producer helpers", () => {
     expect(asset.fileName).toBe("video.mp4");
   });
 
-  it("defineManifestAsset rejects empty asset version strings", () => {
+  it("defineAsset rejects empty asset version strings", () => {
     expect(() =>
-      defineManifestAsset({
-        id: "main",
+      defineAsset({
         role: "primary",
         kind: "video",
         version: "",
@@ -76,37 +73,66 @@ describe("producer helpers", () => {
     ).toThrow(DataValidationError);
   });
 
-  it("defineManifestItem accepts valid item input unchanged", () => {
-    const item = defineManifestItem({
-      id: "forest",
+  it("defineItem accepts valid item input unchanged", () => {
+    const item = defineItem({
       version: "v1",
       kind: "video",
-      assets: [
-        {
-          id: "main",
+      assets: {
+        main: {
           role: "primary",
           kind: "video",
           source: {
             url: "https://example.com/media/video.mp4",
           },
         },
-      ],
+      },
     });
 
-    expect(item.id).toBe("forest");
     expect(item.version).toBe("v1");
-    expect(item.assets).toHaveLength(1);
-    expect(item.assets[0]?.id).toBe("main");
+    expect(Object.keys(item.assets)).toEqual(["main"]);
   });
 
-  it("defineManifestItem rejects invalid item input", () => {
+  it("defineItem rejects invalid item input", () => {
     expect(() =>
-      defineManifestItem({
-        id: "",
-        version: "v1",
+      defineItem({
+        version: "",
         kind: "video",
-        assets: [],
+        assets: {
+          main: {
+            role: "primary",
+            kind: "video",
+            source: { url: "https://example.com/a.mp4" },
+          },
+        },
       }),
     ).toThrow(DataValidationError);
+  });
+
+  it("itemsFromEntries detects duplicate keys", () => {
+    expect(() =>
+      itemsFromEntries(["a", "b"], (x, i) => [i === 0 ? "dup" : "dup", { version: "1", kind: "video", assets: {} }]),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it("assetsFromEntries detects duplicate keys", () => {
+    expect(() =>
+      assetsFromEntries([1, 2], () => [
+        "same",
+        { role: "primary", kind: "video", source: { url: "https://example.com/a.mp4" } },
+      ]),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it("namespacesFromEntries detects duplicate keys", () => {
+    expect(() =>
+      namespacesFromEntries([1, 2], () => [
+        "ns",
+        { items: { x: { version: "1", kind: "video", assets: {} } } },
+      ]),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it("itemsFromEntries returns empty record for empty source", () => {
+    expect(itemsFromEntries([], () => ["x", { version: "1", kind: "video", assets: {} }])).toEqual({});
   });
 });
