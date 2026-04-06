@@ -27,15 +27,16 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Examples
 
-| Command                         | Description                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `pnpm install:example:local`    | Install dependencies for `examples/local` for local development or lockfile updates. |
-| `pnpm install:example:nasa`     | Install dependencies for `examples/nasa` for local development or lockfile updates.  |
-| `pnpm install:example:local:ci` | Install `examples/local` with `--frozen-lockfile` for CI-style verification.         |
-| `pnpm install:example:nasa:ci`  | Install `examples/nasa` with `--frozen-lockfile` for CI-style verification.          |
-| `pnpm example:local:dev`        | Build the library and launch the local-fixtures example.                             |
-| `pnpm example:nasa:dev`         | Build the library and launch the NASA example.                                       |
-| `pnpm examples:verify`          | Run the Turbo verification graph for example lint, format, and knip checks only.     |
+| Command                         | Description                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `pnpm install:example:local`    | Install dependencies for `examples/local` for local development or lockfile updates.              |
+| `pnpm install:example:nasa`     | Install dependencies for `examples/nasa` for local development or lockfile updates.               |
+| `pnpm install:example:local:ci` | Install `examples/local` with `--frozen-lockfile` for CI-style verification.                      |
+| `pnpm install:example:nasa:ci`  | Install `examples/nasa` with `--frozen-lockfile` for CI-style verification.                       |
+| `pnpm example:local:dev`        | Build the library and launch the local-fixtures example.                                          |
+| `pnpm example:nasa:dev`         | Build the library and launch the NASA example.                                                    |
+| `pnpm examples:verify`          | Run the Turbo verification graph for example lint, format, and knip checks only.                  |
+| `pnpm examples:validate`        | Build the root package first, then run per-example verification groups against that latest build. |
 
 ### Validation
 
@@ -58,6 +59,7 @@ The repo remains intentionally package-first:
 - Turbo orchestrates tasks from the root package only.
 - `examples/local` and `examples/nasa` are still standalone pnpm projects.
 - Example installs are explicit setup steps; `pnpm examples:verify` only runs verification tasks.
+- `pnpm examples:validate` is the consumer-oriented entrypoint when you want example checks to depend on a fresh root build in the Turbo graph.
 - No folder move or workspace expansion is required for the current setup.
 
 ## Cursor worktrees
