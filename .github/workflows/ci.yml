@@ -76,7 +76,7 @@ jobs:
         run: pnpm examples:verify
 
   test-integration:
-    name: test integration (full suite, node ${{ matrix.node-version }})
+    name: test integration (main Vitest, node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -101,7 +101,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run full Vitest suite
+      - name: Run main-process Vitest suite (integration)
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: xvfb-run -a pnpm test
+        # Full `pnpm test` also runs renderer hook tests; those stall Vitest on ubuntu runners (see test:react locally).
+        run: xvfb-run -a pnpm exec vitest run --config vitest.node.config.ts

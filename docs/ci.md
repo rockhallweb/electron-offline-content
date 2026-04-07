@@ -9,7 +9,7 @@ pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa
 pnpm examples:verify
 ```
 
-`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (Vitest excluding `media-cache.integration.test.ts`), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. Run `pnpm test` locally (or on `main` / `workflow_dispatch` in CI) for the full suite including integration tests. `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (main-process Vitest only; excludes `media-cache.integration.test.ts` and React hook tests), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. On `main` / `workflow_dispatch`, CI runs the main-process Vitest suite including integration tests. Run `pnpm test` and `pnpm test:react` locally for the full matrix including renderer hooks. `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
 
 `pnpm examples:verify` runs each example’s `validate` script (lint, format check, knip) in `examples/local` and `examples/nasa` in parallel via [`scripts/run-examples.mjs`](../scripts/run-examples.mjs). CI installs example dependencies with `--ignore-scripts` (skips Electron postinstall) because verification does not need the binary. This repository is still not a monorepo workspace.
 
