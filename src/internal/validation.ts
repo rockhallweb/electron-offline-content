@@ -4,15 +4,17 @@ import type { ActiveAssetRow, PendingDeletion } from "../main/database.js";
 import type {
   DownloadRequest,
   JsonValue,
-  ManifestItem,
   MediaAssetDefinition,
+  MediaAssetValue,
   MediaCacheAppPath,
+  MediaCacheManifest,
   MediaCacheStatus,
   MediaCacheStoragePath,
   MediaContentDefinition,
+  MediaItemValue,
   MediaKind,
   MediaNamespaceDefinition,
-  MediaCacheManifest,
+  MediaNamespaceValue,
   MediaRemoteSource,
   SerializedMediaCacheError,
   SyncProgress,
@@ -124,6 +126,7 @@ export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
   headers: stringRecordSchema.optional(),
 });
 
+/** Expanded asset row (includes `id`) — sync / SQLite paths. */
 export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.object({
   id: z.string().min(1),
   role: z.string().min(1),
@@ -142,18 +145,47 @@ export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.obj
   metadata: jsonObjectSchema.optional(),
 });
 
-export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition | ManifestItem> =
-  z.object({
-    id: z.string().min(1),
-    version: z.string().min(1),
-    kind: mediaKindSchema,
-    title: z.string().optional(),
-    description: z.string().optional(),
-    summary: z.string().optional(),
-    blobs: stringRecordSchema.optional(),
-    metadata: jsonObjectSchema.optional(),
-    assets: z.array(mediaAssetDefinitionSchema),
-  });
+/** Manifest authoring: asset value without `id` (id is the record key). */
+export const mediaAssetValueSchema: z.ZodType<MediaAssetValue> = z.object({
+  role: z.string().min(1),
+  kind: z.union([
+    mediaKindSchema,
+    z.literal("subtitle"),
+    z.literal("caption"),
+    z.literal("poster"),
+    z.literal("thumbnail"),
+  ]),
+  version: z.string().min(1).optional(),
+  mimeType: z.string().optional(),
+  fileName: z.string().min(1).optional(),
+  byteLength: z.number().nonnegative().optional(),
+  source: mediaRemoteSourceSchema,
+  metadata: jsonObjectSchema.optional(),
+});
+
+export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition> = z.object({
+  id: z.string().min(1),
+  version: z.string().min(1),
+  kind: mediaKindSchema,
+  title: z.string().optional(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  blobs: stringRecordSchema.optional(),
+  metadata: jsonObjectSchema.optional(),
+  assets: z.array(mediaAssetDefinitionSchema),
+});
+
+/** Manifest authoring: item value without `id` (id is the record key). */
+export const mediaItemValueSchema: z.ZodType<MediaItemValue> = z.object({
+  version: z.string().min(1),
+  kind: mediaKindSchema,
+  title: z.string().optional(),
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  blobs: stringRecordSchema.optional(),
+  metadata: jsonObjectSchema.optional(),
+  assets: z.record(z.string().min(1), mediaAssetValueSchema),
+});
 
 export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition> = z.object({
   key: z.string().min(1),
@@ -162,11 +194,18 @@ export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition>
   items: z.array(mediaContentDefinitionSchema),
 });
 
+/** Manifest authoring: namespace value without `key` (key is the record key). */
+export const mediaNamespaceValueSchema: z.ZodType<MediaNamespaceValue> = z.object({
+  label: z.string().optional(),
+  metadata: jsonObjectSchema.optional(),
+  items: z.record(z.string().min(1), mediaItemValueSchema),
+});
+
 export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
   snapshotId: z.string().optional(),
   retrievedAt: z.string().datetime({ offset: true }).optional(),
   expiresAt: z.string().datetime({ offset: true }).optional(),
-  namespaces: z.array(mediaNamespaceDefinitionSchema),
+  namespaces: z.record(z.string().min(1), mediaNamespaceValueSchema),
 });
 
 const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([

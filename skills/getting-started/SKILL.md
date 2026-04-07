@@ -9,7 +9,7 @@ description: >
   app.whenReady, and mediaCache.start() fire-and-forget pattern.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.3.0"
 sources:
   - "rockhallweb/electron-offline-content:README.md"
   - "rockhallweb/electron-offline-content:src/main/index.ts"
@@ -40,9 +40,10 @@ import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import {
   createMediaCache,
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
+  itemsFromEntries,
 } from "@rockhallweb/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
@@ -55,27 +56,28 @@ const mediaCache = createMediaCache({
     const res = await fetch("https://cms.example.com/api/content");
     const data = await res.json();
     return defineManifest({
-      namespaces: [
-        {
-          key: "videos",
-          items: data.videos.map((v: any) =>
-            defineManifestItem({
-              id: v.slug,
-              version: v.updatedAt,
-              kind: "video",
-              title: v.title,
-              assets: [
-                defineManifestAsset({
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: { url: v.videoUrl },
-                }),
-              ],
-            }),
+      namespaces: {
+        videos: {
+          items: itemsFromEntries(
+            data.videos,
+            (v: { slug: string; updatedAt: string; title: string; videoUrl: string }) => [
+              v.slug,
+              defineItem({
+                version: v.updatedAt,
+                kind: "video",
+                title: v.title,
+                assets: {
+                  main: defineAsset({
+                    role: "primary",
+                    kind: "video",
+                    source: { url: v.videoUrl },
+                  }),
+                },
+              }),
+            ],
           ),
         },
-      ],
+      },
     });
   },
 });
@@ -114,13 +116,13 @@ This calls `contextBridge.exposeInMainWorld` to put the IPC bridge on `window.me
 ```tsx
 import {
   MediaCacheProvider,
-  useMediaItems,
+  useMedia,
   useMediaCacheReady,
 } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
   const ready = useMediaCacheReady();
-  const videos = useMediaItems("videos", { limit: 20 });
+  const videos = useMedia({ kind: "list", namespace: "videos", limit: 20 });
 
   if (!ready.data?.ready) return <p>Preparing offline content...</p>;
   if (videos.loading) return <p>Loading...</p>;
@@ -181,39 +183,36 @@ ipcMain.handle("begin-sync", () => {
 
 ### Using define helpers for readable manifests
 
-The `defineManifestAsset`, `defineManifestItem`, and `defineManifest` helpers validate each piece individually and surface errors at the point of definition. Build assets and items as standalone variables to keep nesting shallow:
+The `defineAsset`, `defineItem`, and `defineManifest` helpers validate each piece individually and surface errors at the point of definition. Build assets and items as standalone variables to keep nesting shallow:
 
 ```typescript
 import {
+  defineAsset,
+  defineItem,
   defineManifest,
-  defineManifestItem,
-  defineManifestAsset,
 } from "@rockhallweb/electron-offline-content/main";
 
-const mainVideo = defineManifestAsset({
-  id: "main",
+const mainVideo = defineAsset({
   role: "primary",
   kind: "video",
   source: { url: "https://cdn.example.com/welcome.v2.mp4" },
 });
 
-const posterImage = defineManifestAsset({
-  id: "poster",
+const posterImage = defineAsset({
   role: "poster",
   kind: "poster",
   source: { url: "https://cdn.example.com/welcome-poster.jpg" },
 });
 
-const welcomeItem = defineManifestItem({
-  id: "welcome",
+const welcomeItem = defineItem({
   version: "v2",
   kind: "video",
   title: "Welcome Video",
-  assets: [mainVideo, posterImage],
+  assets: { main: mainVideo, poster: posterImage },
 });
 
 const manifest = defineManifest({
-  namespaces: [{ key: "lobby", items: [welcomeItem] }],
+  namespaces: { lobby: { items: { welcome: welcomeItem } } },
 });
 ```
 
@@ -274,19 +273,19 @@ import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/pr
 exposeMediaCacheBridge();
 ```
 
-Source: react/index.tsx `useMediaCacheBridge()` throw
+Source: react/index.tsx `useMediaBridge()` throw
 
 ### HIGH: Missing MediaCacheProvider in React tree
 
-All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaCacheBridge()` throws.
+All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaBridge()` and the query hooks throw.
 
 Wrong:
 
 ```tsx
-import { useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
-  const items = useMediaItems("videos", { limit: 20 });
+  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
   return (
     <div>
       {items.data?.items.map((item) => (
@@ -300,10 +299,10 @@ function App() {
 Correct:
 
 ```tsx
-import { MediaCacheProvider, useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider, useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
-  const items = useMediaItems("videos", { limit: 20 });
+  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
   return (
     <div>
       {items.data?.items.map((item) => (
@@ -419,9 +418,9 @@ async function bootstrap() {
 
 Source: Maintainer interview
 
-### HIGH Tension: Manifest flexibility vs validation strictness
+### HIGH Tension: Manifest validation vs sync-time failures
 
-`resolveManifest` accepts multiple input shapes (full manifest, namespace array, item array) for convenience, but validation is strict on uniqueness and required fields. Agents using flexible shorthand may forget the required `version` field or produce duplicate keys, causing errors at sync time.
+`resolveManifest` must return a **`MediaCacheManifest`** (record-shaped namespaces, items, and assets). Validation is strict on required fields like `version` and on HTTP(S) asset URLs. Use **`defineManifest`** / **`defineItem`** / **`itemsFromEntries`** so errors surface when you build the manifest, not only during sync.
 
 See also: manifest-authoring/SKILL.md § Common Mistakes
 

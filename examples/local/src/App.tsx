@@ -1,31 +1,31 @@
 import { useEffect, useState } from "react";
 // These hooks call the preload bridge; wrap the tree in `<MediaCacheProvider>` (see renderer.tsx).
 import {
+  useMedia,
   useMediaCacheErrors,
-  useMediaCacheReady,
   useMediaCacheStatus,
   useFileStemMatch,
-  useMediaItem,
-  useMediaItems,
 } from "@rockhallweb/electron-offline-content/react";
-import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
-
-declare global {
-  interface Window {
-    mediaCacheExample?: ExampleClientConfig;
-  }
-}
+import { exampleClientConfig } from "./example-client-config.js";
 
 export function App() {
-  const config = window.mediaCacheExample ?? exampleClientConfig;
+  const cacheStatus = useMediaCacheStatus();
+  const rootNamespace = useMedia({
+    kind: "list",
+    namespace: exampleClientConfig.rootNamespace,
+    limit: 20,
+  });
+  const tree = useMedia({
+    kind: "list",
+    namespace: exampleClientConfig.namespaceTreePrefix,
+    recursive: true,
+    limit: 40,
+  });
+  const fileStemMatches = useFileStemMatch(exampleClientConfig.fileStem, {
+    limit: 10,
+  });
 
-  const status = useMediaCacheStatus();
-  const ready = useMediaCacheReady();
-  const rootNamespace = useMediaItems(config.rootNamespace, { limit: 20 });
-  const tree = useMediaItems(config.namespaceTreePrefix, { recursive: true, limit: 40 });
-  const fileStemMatches = useFileStemMatch(config.fileStem, { limit: 10 });
-
-  const [selected, setSelected] = useState(config.itemLookup);
+  const [selected, setSelected] = useState(exampleClientConfig.itemLookup);
 
   useEffect(() => {
     const selectedExists = tree.data?.items.some(
@@ -40,12 +40,16 @@ export function App() {
     }
   }, [selected.itemId, selected.namespace, tree.data]);
 
-  const currentItem = useMediaItem(selected.namespace, selected.itemId);
+  const currentItem = useMedia({
+    kind: "item",
+    namespace: selected.namespace,
+    id: selected.itemId,
+  });
   const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0];
   const posterAsset = currentItem.data?.assetsByRole.poster;
   const subtitleAsset = currentItem.data?.assetsByRole.subtitle;
   const queue = tree.data?.items ?? [];
-  const errors = useMediaCacheErrors(status, rootNamespace, tree, fileStemMatches, currentItem);
+  const errors = useMediaCacheErrors();
 
   const panelCard =
     "border border-line bg-[linear-gradient(180deg,rgba(10,16,25,0.8)_0%,rgba(8,12,18,0.86)_100%)] shadow-demo backdrop-blur-[18px]";
@@ -72,18 +76,18 @@ export function App() {
         <header className="flex flex-col items-start justify-between gap-5 min-[1081px]:flex-row">
           <div>
             <p className="mb-2.5 text-[11px] uppercase tracking-[0.24em] text-accent">
-              {config.demoKicker}
+              {exampleClientConfig.demoKicker}
             </p>
             <h1 className="m-0 max-w-[12ch] font-serif text-[clamp(2.6rem,5vw,4.8rem)] leading-[0.94] tracking-[-0.04em]">
               Offline media, staged once, played locally.
             </h1>
           </div>
           <div className="flex flex-wrap justify-start gap-3 min-[1081px]:justify-end">
-            <MetricChip label="Source" value={config.sourceLabel} />
-            <MetricChip label="Phase" value={ready.data?.phase ?? "loading"} />
+            <MetricChip label="Source" value={exampleClientConfig.sourceLabel} />
+            <MetricChip label="Phase" value={cacheStatus.phase} />
             <MetricChip
               label="Generation"
-              value={String(ready.data?.activeGenerationId ?? "none")}
+              value={String(cacheStatus.data?.activeGenerationId ?? "none")}
             />
           </div>
         </header>
@@ -130,7 +134,7 @@ export function App() {
               <FactRow label="Primary URL" value={leadAsset?.url ?? "pending"} />
               <FactRow
                 label="Root namespace"
-                value={`${config.rootNamespace} (${rootNamespace.data?.items.length ?? 0})`}
+                value={`${exampleClientConfig.rootNamespace} (${rootNamespace.data?.items.length ?? 0})`}
               />
               <FactRow
                 label="Stem matches"
@@ -147,7 +151,7 @@ export function App() {
         <div className="flex flex-col items-start justify-between gap-4 min-[1081px]:flex-row min-[1081px]:items-end">
           <div>
             <p className="mb-2.5 text-[11px] uppercase tracking-[0.24em] text-accent">
-              {config.queueLabel}
+              {exampleClientConfig.queueLabel}
             </p>
             <h3 className="m-0 font-serif text-[1.9rem] tracking-[-0.04em]">
               Choose a synced item

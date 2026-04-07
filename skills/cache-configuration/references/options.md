@@ -326,15 +326,15 @@ createMediaCache({
 
 ## resolveManifest
 
-|              |                                                 |
-| ------------ | ----------------------------------------------- |
-| **Type**     | `() => Promise<ManifestInput> \| ManifestInput` |
-| **Required** | Yes                                             |
-| **Default**  | —                                               |
+|              |                                                           |
+| ------------ | --------------------------------------------------------- |
+| **Type**     | `() => Promise<MediaCacheManifest> \| MediaCacheManifest` |
+| **Required** | Yes                                                       |
+| **Default**  | —                                                         |
 
 Function called at the start of each sync cycle to produce the current manifest. May be async. The return value is normalized and validated before the download pipeline begins.
 
-**Constraints:** Must return a valid `ManifestInput`. See manifest-authoring/SKILL.md for structure and validation rules.
+**Constraints:** Must return a valid `MediaCacheManifest`. See manifest-authoring/SKILL.md for structure and validation rules.
 
 ```typescript
 resolveManifest: async () => {

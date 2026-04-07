@@ -15,27 +15,34 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Library
 
-| Command             | Description                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------ |
-| `pnpm lint`         | Run Oxlint across the repository.                                                                |
-| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                  |
-| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                     |
-| `pnpm check`        | Type-check the package.                                                                          |
-| `pnpm test`         | Run package-level behavior tests.                                                                |
-| `pnpm build`        | Build package outputs in `dist/`.                                                                |
-| `pnpm validate`     | Run the Turbo validation graph for lint, format, type-check, test, build, and pack verification. |
+| Command             | Description                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                              |
+| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                                |
+| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                                   |
+| `pnpm check`        | Type-check the package.                                                                                                                                                        |
+| `pnpm test`         | Run all Vitest suites: main unit/smoke, main integration, then React hook tests (`vitest.node.config.ts`, `vitest.node.integration.config.ts`, then `vitest.react.config.ts`). |
+| `pnpm test:smoke`   | Main-process tests only for `pnpm validate` / PR CI (excludes integration tests).                                                                                              |
+| `pnpm test:react`   | React hook tests only (`vitest.react.config.ts`); included in `pnpm validate` and PR CI via Turbo.                                                                             |
+| `pnpm build`        | Build package outputs in `dist/`.                                                                                                                                              |
+| `pnpm validate`     | Turbo graph: lint, format check, type-check, `test:smoke`, `test:react`, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks.         |
 
 ### Examples
 
-| Command                         | Description                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `pnpm install:example:local`    | Install dependencies for `examples/local` for local development or lockfile updates. |
-| `pnpm install:example:nasa`     | Install dependencies for `examples/nasa` for local development or lockfile updates.  |
-| `pnpm install:example:local:ci` | Install `examples/local` with `--frozen-lockfile` for CI-style verification.         |
-| `pnpm install:example:nasa:ci`  | Install `examples/nasa` with `--frozen-lockfile` for CI-style verification.          |
-| `pnpm example:local:dev`        | Build the library and launch the local-fixtures example.                             |
-| `pnpm example:nasa:dev`         | Build the library and launch the NASA example.                                       |
-| `pnpm examples:verify`          | Run the Turbo verification graph for example lint, format, and knip checks only.     |
+Run these commands from the repository root (each example still has its own standalone `pnpm-lock.yaml`):
+
+| Command                                              | Description                                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `pnpm install --dir examples/local`                  | Install `examples/local` (add `--frozen-lockfile` in CI-style runs).                  |
+| `pnpm install --dir examples/nasa`                   | Install `examples/nasa` (add `--frozen-lockfile` in CI-style runs).                   |
+| `pnpm --dir examples/local dev` (or `examples/nasa`) | `predev` builds the root package when `dist/` is missing, then starts Electron Forge. |
+
+From the **repo root**, example checks without changing directory:
+
+| Command                  | Description                                                             |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `pnpm examples:verify`   | Run `validate` (lint, format check, knip) in both examples in parallel. |
+| `pnpm examples:validate` | `pnpm build`, then the same as `examples:verify`.                       |
 
 ### Validation
 
@@ -43,11 +50,18 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm pack:verify` | Pack the library into a tarball, install it into a temporary copy of `examples/local`, and run `tsc --noEmit` to catch publish/resolution issues. |
 | `pnpm ci:validate` | Compatibility alias for `pnpm validate`.                                                                                                          |
-| `pnpm ci:examples` | Compatibility alias that performs CI-style example installs, then runs `pnpm examples:verify`.                                                    |
+| `pnpm ci:examples` | Frozen-lockfile installs for both examples, then `pnpm examples:verify`.                                                                          |
+
+## Pre-release
+
+Before tagging or publishing, run the full local matrix and the same Turbo pipeline CI uses:
+
+- `pnpm test` (main-process smoke/unit, main integration, then React hook tests)
+- `pnpm validate`
 
 ## CI
 
-GitHub Actions uses `pnpm validate` for the root package graph, then runs explicit frozen-lockfile installs for the standalone examples before `pnpm examples:verify`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
+GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
 
 ## Day-to-day workflow
 
@@ -57,7 +71,8 @@ The repo remains intentionally package-first:
 
 - Turbo orchestrates tasks from the root package only.
 - `examples/local` and `examples/nasa` are still standalone pnpm projects.
-- Example installs are explicit setup steps; `pnpm examples:verify` only runs verification tasks.
+- Example installs are explicit setup steps; `pnpm examples:verify` runs each example’s `validate` script (no Turbo graph for examples).
+- `pnpm examples:validate` builds the root package first, then runs the same example checks as `examples:verify`.
 - No folder move or workspace expansion is required for the current setup.
 
 ## Cursor worktrees
@@ -75,7 +90,7 @@ This setup is intentionally package-first:
 
 - The helper installs only the root package dependencies.
 - Example app dependencies are not installed automatically.
-- Use the existing example commands only when you explicitly want to exercise `examples/local` or `examples/nasa`.
+- Use `pnpm install --dir examples/...` and `pnpm --dir examples/local dev` (or `pnpm --dir examples/nasa dev`) when you want to exercise an example app from the repo root.
 
 Typical flow:
 

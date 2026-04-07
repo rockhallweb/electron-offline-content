@@ -9,8 +9,6 @@ import { fileURLToPath } from "node:url";
 import type { MediaCacheManifest } from "@rockhallweb/electron-offline-content/main";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
-export type { ExampleClientConfig };
-
 // Resolve fixtures relative to this module, not process.cwd(), so packaged runs still work.
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "local");
 
@@ -33,13 +31,11 @@ function localManifest(baseUrl: string): MediaCacheManifest {
   return {
     snapshotId: "local-fixtures-v1",
     retrievedAt: new Date().toISOString(),
-    namespaces: [
-      {
-        key: "nature",
+    namespaces: {
+      nature: {
         label: "Nature Queue",
-        items: [
-          {
-            id: "forest-loop",
+        items: {
+          "forest-loop": {
             version: "2026-03-forest-v1",
             kind: "video",
             title: "Forest Loop",
@@ -48,9 +44,8 @@ function localManifest(baseUrl: string): MediaCacheManifest {
             blobs: {
               curatorNote: "Fixture-driven kiosk content for local demo.",
             },
-            assets: [
-              {
-                id: "main",
+            assets: {
+              main: {
                 role: "primary",
                 kind: "video",
                 byteLength: 14638,
@@ -58,8 +53,7 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                   url: `${baseUrl}/forest-loop.mp4`,
                 },
               },
-              {
-                id: "poster",
+              poster: {
                 role: "poster",
                 kind: "poster",
                 byteLength: 3284,
@@ -67,16 +61,14 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                   url: `${baseUrl}/forest-poster.jpg`,
                 },
               },
-            ],
+            },
           },
-        ],
+        },
       },
-      {
-        key: "nature.flowerVideos",
+      "nature.flowerVideos": {
         label: "Flower Videos",
-        items: [
-          {
-            id: "rose-cut",
+        items: {
+          "rose-cut": {
             version: "2026-03-rose-v1",
             kind: "video",
             title: "Rose Cut",
@@ -85,9 +77,8 @@ function localManifest(baseUrl: string): MediaCacheManifest {
             blobs: {
               captionExcerpt: "A quiet looping cut for namespace-tree validation.",
             },
-            assets: [
-              {
-                id: "main",
+            assets: {
+              main: {
                 role: "primary",
                 kind: "video",
                 byteLength: 14600,
@@ -95,8 +86,7 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                   url: `${baseUrl}/rose-cut.mp4`,
                 },
               },
-              {
-                id: "subtitles",
+              subtitles: {
                 role: "subtitle",
                 kind: "subtitle",
                 byteLength: 97,
@@ -104,11 +94,11 @@ function localManifest(baseUrl: string): MediaCacheManifest {
                   url: `${baseUrl}/rose-cut.vtt`,
                 },
               },
-            ],
+            },
           },
-        ],
+        },
       },
-    ],
+    },
   };
 }
 

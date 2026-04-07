@@ -13,10 +13,10 @@ import type {
   FileStemMatchQueryOptions,
   MediaCacheBridge,
   MediaCacheErrors,
+  MediaCachePhase,
   MediaCacheReadyState,
   MediaCacheStatus,
   MediaItemsQueryOptions,
-  PaginationInput,
   PaginationResult,
   MediaQuerySyncOptions,
   ResolvedMediaContentItem,
@@ -27,8 +27,6 @@ declare global {
     mediaCache?: MediaCacheBridge;
   }
 }
-
-const MediaCacheContext = createContext<MediaCacheBridge | null>(null);
 
 interface AsyncState<T> {
   /** Latest resolved value, or `null` while loading/when unavailable. */
@@ -41,7 +39,74 @@ interface AsyncState<T> {
   refresh: () => Promise<void>;
 }
 
-type MediaCacheStatusState = Pick<AsyncState<MediaCacheStatus>, "data" | "error">;
+function derivePhase(status: AsyncState<MediaCacheStatus>): MediaCachePhase {
+  return status.data?.phase ?? (status.loading ? "loading" : "idle");
+}
+
+interface MediaCacheContextValue {
+  bridge: MediaCacheBridge | null;
+  status: AsyncState<MediaCacheStatus>;
+  queryErrors: Error[];
+  reportQueryError: (id: string, error: Error | null) => void;
+}
+
+export interface UseMediaItemOptions extends MediaQuerySyncOptions {
+  /** Item lookup mode. */
+  kind: "item";
+  /** Namespace key containing the item. */
+  namespace: string;
+  /** Item id within the namespace. */
+  id: string;
+}
+
+export interface UseMediaListOptions extends MediaItemsQueryOptions {
+  /** List lookup mode. */
+  kind: "list";
+  /** Namespace key (or prefix when `recursive` is true). */
+  namespace: string;
+}
+
+export type UseMediaOptions = UseMediaItemOptions | UseMediaListOptions;
+
+export interface UseMediaResult<T> extends AsyncState<T> {
+  /** Shared sync status for the active cache provider. */
+  status: AsyncState<MediaCacheStatus>;
+  /** Composite lifecycle: cache phase or `loading` before first status snapshot. */
+  phase: MediaCachePhase;
+  /** Global aggregated errors derived from the active provider runtime. */
+  errors: MediaCacheErrors;
+}
+
+export interface UseMediaBridgeResult extends MediaCacheBridge {
+  /** Shared sync status for the active cache provider. */
+  status: AsyncState<MediaCacheStatus>;
+  /** Composite lifecycle: cache phase or `loading` before first status snapshot. */
+  phase: MediaCachePhase;
+  /** Global aggregated errors derived from the active provider runtime. */
+  errors: MediaCacheErrors;
+}
+
+/** Result of {@link useMediaCacheStatus}: async status plus top-level composite `phase`. */
+export interface UseMediaCacheStatusResult extends AsyncState<MediaCacheStatus> {
+  /** Composite lifecycle: cache phase or `loading` before first status snapshot. */
+  phase: MediaCachePhase;
+}
+
+export interface UseMediaItemResult extends UseMediaResult<ResolvedMediaContentItem | null> {
+  kind: "item";
+}
+
+export interface UseMediaListResult extends UseMediaResult<
+  PaginationResult<ResolvedMediaContentItem>
+> {
+  kind: "list";
+}
+
+const MediaCacheContext = createContext<MediaCacheContextValue | null>(null);
+const EMPTY_QUERY_ERRORS: Error[] = [];
+let nextQueryErrorId = 0;
+const MISSING_BRIDGE_ERROR =
+  "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.";
 
 /**
  * Provides a {@link MediaCacheBridge} to all descendant hooks.
@@ -62,27 +127,68 @@ export function MediaCacheProvider({
   bridge,
   children,
 }: PropsWithChildren<{ bridge?: MediaCacheBridge }>) {
-  const value = useMemo(() => bridge ?? window.mediaCache ?? null, [bridge]);
+  const valueBridge = useMemo(() => bridge ?? window.mediaCache ?? null, [bridge]);
+  const status = useMediaCacheStatusState(valueBridge, valueBridge !== null);
+  const [queryErrorsById, setQueryErrorsById] = useState<Map<string, Error>>(() => new Map());
+
+  const reportQueryError = useCallback((id: string, error: Error | null) => {
+    setQueryErrorsById((previous) => {
+      if (error === null) {
+        if (!previous.has(id)) {
+          return previous;
+        }
+        const next = new Map(previous);
+        next.delete(id);
+        return next;
+      }
+
+      if (previous.get(id) === error) {
+        return previous;
+      }
+
+      const next = new Map(previous);
+      next.set(id, error);
+      return next;
+    });
+  }, []);
+
+  const queryErrors = useMemo(() => Array.from(queryErrorsById.values()), [queryErrorsById]);
+  const value = useMemo(
+    () => ({
+      bridge: valueBridge,
+      status,
+      queryErrors,
+      reportQueryError,
+    }),
+    [valueBridge, status, queryErrors, reportQueryError],
+  );
+
   return <MediaCacheContext.Provider value={value}>{children}</MediaCacheContext.Provider>;
 }
 
 /**
- * Returns the active {@link MediaCacheBridge}.
+ * Returns the active {@link MediaCacheBridge} plus shared status and aggregated errors.
  *
- * This is a low-level hook used by the higher-level query hooks. Most app code should
- * prefer `useMediaCacheStatus`, `useMediaItems`, `useMediaItem`, and `useFileStemMatch`.
+ * This is the primary low-level hook for imperative bridge access. It exposes the underlying
+ * bridge methods while bundling the same `status` and `errors` state used by the higher-level
+ * React hooks.
  *
- * @returns The bridge from context, or `window.mediaCache` as a fallback.
- * @throws When no bridge is available through context or `window.mediaCache`.
+ * @returns The bridge from context with `status` and `errors`.
+ * @throws When no bridge is available through context.
  */
-export function useMediaCacheBridge(): MediaCacheBridge {
-  const bridge = useContext(MediaCacheContext) ?? window.mediaCache ?? null;
-  if (!bridge) {
-    throw new Error(
-      "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.",
-    );
-  }
-  return bridge;
+export function useMediaBridge(): UseMediaBridgeResult {
+  const { bridge, status, queryErrors } = useMediaCacheRuntime();
+  const errors = useMemo(() => buildMediaCacheErrors(status, queryErrors), [status, queryErrors]);
+
+  return useMemo(
+    () => ({
+      ...bridge,
+      status,
+      phase: derivePhase(status),
+      errors,
+    }),
+    [bridge, status, errors],
+  );
 }
 
 /**
@@ -91,176 +197,85 @@ export function useMediaCacheBridge(): MediaCacheBridge {
  * Returns phase, active generation, sync progress, and last sync error. The hook auto-updates
  * when cache status changes and also exposes `refresh()` for manual reloads.
  *
- * @returns `AsyncState<MediaCacheStatus>` with live status updates.
+ * @returns Status async state plus top-level `phase` (see {@link UseMediaCacheStatusResult}).
  * @example
  * ```tsx
  * const status = useMediaCacheStatus();
- * if (status.loading) return <p>Loading cache status...</p>;
- * return <p>Phase: {status.data?.phase ?? "idle"}</p>;
+ * if (status.phase === "loading") return <p>Loading cache status...</p>;
+ * return <p>Phase: {status.phase}</p>;
  * ```
  */
-export function useMediaCacheStatus(): AsyncState<MediaCacheStatus> {
-  const bridge = useMediaCacheBridge();
-  const [data, setData] = useState<MediaCacheStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const requestSequence = useRef(0);
+export function useMediaCacheStatus(): UseMediaCacheStatusResult {
+  const status = useMediaCacheRuntime().status;
+  return useMemo(() => ({ ...status, phase: derivePhase(status) }), [status]);
+}
 
-  useEffect(() => {
-    let cancelled = false;
+/**
+ * Unified media query hook for single-item and namespace-list lookups.
+ *
+ * Item lookups return `ResolvedMediaContentItem | null`; list lookups return a paginated result.
+ * The result always includes shared cache `status` plus global aggregated `errors`.
+ *
+ * @param options - Query definition for either one item or a namespace list/tree.
+ * @returns A typed query result plus shared status and aggregated errors.
+ * @example
+ * ```tsx
+ * const media = useMedia({ kind: "item", namespace: "space", id: "hubble-cosmos" });
+ * const poster = media.data?.assetsByRole.poster;
+ * ```
+ */
+export function useMedia(options: UseMediaItemOptions): UseMediaItemResult;
+export function useMedia(options: UseMediaListOptions): UseMediaListResult;
+export function useMedia(options: UseMediaOptions): UseMediaItemResult | UseMediaListResult {
+  const { bridge, status, queryErrors } = useMediaCacheRuntime();
+  const query = useAsyncResource<
+    ResolvedMediaContentItem | null | PaginationResult<ResolvedMediaContentItem>
+  >(
+    () =>
+      options.kind === "item"
+        ? bridge.getItem(options.namespace, options.id)
+        : options.recursive
+          ? bridge.listNamespaceTree(options.namespace, {
+              cursor: options.cursor,
+              limit: options.limit,
+            })
+          : bridge.listNamespace(options.namespace, {
+              cursor: options.cursor,
+              limit: options.limit,
+            }),
+    buildUseMediaRefreshDeps(bridge, options),
+    status,
+    {
+      refetchOnSyncComplete: options.refetchOnSyncComplete,
+    },
+  );
+  const errors = useMemo(() => buildMediaCacheErrors(status, queryErrors), [status, queryErrors]);
 
-    const load = async () => {
-      const requestId = ++requestSequence.current;
-      setLoading(true);
-      try {
-        const status = await bridge.getStatus();
-        if (!cancelled && requestId === requestSequence.current) {
-          setData(status);
-          setError(null);
-        }
-      } catch (caught) {
-        if (!cancelled && requestId === requestSequence.current) {
-          setError(toError(caught));
-        }
-      } finally {
-        if (!cancelled && requestId === requestSequence.current) {
-          setLoading(false);
-        }
-      }
+  const phase = derivePhase(status);
+
+  if (options.kind === "item") {
+    return {
+      kind: "item",
+      data: query.data as ResolvedMediaContentItem | null,
+      loading: query.loading,
+      error: query.error,
+      refresh: query.refresh,
+      status,
+      phase,
+      errors,
     };
-
-    void load();
-    const unsubscribe = bridge.subscribeStatus((status) => {
-      requestSequence.current += 1;
-      if (!cancelled) {
-        setData(status);
-        setLoading(false);
-        setError(null);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      requestSequence.current += 1;
-      unsubscribe();
-    };
-  }, [bridge]);
+  }
 
   return {
-    data,
-    loading,
-    error,
-    refresh: async () => {
-      const requestId = ++requestSequence.current;
-      setLoading(true);
-      try {
-        const status = await bridge.getStatus();
-        if (requestId === requestSequence.current) {
-          setData(status);
-          setError(null);
-        }
-      } catch (caught) {
-        if (requestId === requestSequence.current) {
-          setError(toError(caught));
-        }
-      } finally {
-        if (requestId === requestSequence.current) {
-          setLoading(false);
-        }
-      }
-    },
+    kind: "list",
+    data: query.data as PaginationResult<ResolvedMediaContentItem> | null,
+    loading: query.loading,
+    error: query.error,
+    refresh: query.refresh,
+    status,
+    phase,
+    errors,
   };
-}
-
-/**
- * Fetches a single item by namespace + item id.
- *
- * @param namespace - Namespace key containing the item.
- * @param id - Item id within the namespace.
- * @param options - Optional sync-triggered refetch behavior.
- * @returns `AsyncState<ResolvedMediaContentItem | null>`. `data` is `null` while loading or when no item exists.
- * @example
- * ```tsx
- * const item = useMediaItem("space", "hubble-cosmos");
- * const poster = item.data?.assetsByRole.poster;
- * ```
- */
-export function useMediaItem(
-  namespace: string,
-  id: string,
-  options?: MediaQuerySyncOptions,
-): AsyncState<ResolvedMediaContentItem | null> {
-  const bridge = useMediaCacheBridge();
-  return useAsyncResource(
-    () => bridge.getItem(namespace, id),
-    [bridge, namespace, id],
-    bridge,
-    options,
-  );
-}
-
-/**
- * Fetches paginated items for a namespace or namespace tree.
- *
- * `recursive: false` (default) returns only items in the exact namespace.
- * `recursive: true` includes dot-delimited descendants (for example `courses` + `courses.advanced`).
- *
- * @param namespaceOrPrefix - Namespace key (or namespace prefix when `recursive` is true).
- * @param options - Pagination + recursive behavior + sync-triggered refetch.
- * @returns `AsyncState<PaginationResult<ResolvedMediaContentItem>>`.
- * @example
- * ```tsx
- * const root = useMediaItems("space", { limit: 20 });
- * const tree = useMediaItems("space", { recursive: true, limit: 40 });
- * ```
- */
-export function useMediaItems(
-  namespaceOrPrefix: string,
-  options?: MediaItemsQueryOptions,
-): AsyncState<PaginationResult<ResolvedMediaContentItem>> {
-  const bridge = useMediaCacheBridge();
-  const cursor = options?.cursor;
-  const limit = options?.limit;
-  const recursive = options?.recursive ?? false;
-  return useAsyncResource(
-    () =>
-      recursive
-        ? bridge.listNamespaceTree(namespaceOrPrefix, { cursor, limit })
-        : bridge.listNamespace(namespaceOrPrefix, { cursor, limit }),
-    [bridge, recursive, namespaceOrPrefix, cursor, limit],
-    bridge,
-    {
-      refetchOnSyncComplete: options?.refetchOnSyncComplete,
-    },
-  );
-}
-
-/**
- * Paginated flat list of items in a single namespace.
- * @deprecated Prefer `useMediaItems(namespace, { ...pagination })` for a single list API.
- */
-export function useMediaNamespace(
-  namespace: string,
-  pagination?: PaginationInput,
-): AsyncState<PaginationResult<ResolvedMediaContentItem>> {
-  return useMediaItems(namespace, {
-    ...pagination,
-    recursive: false,
-  });
-}
-
-/**
- * Paginated items under a namespace key prefix (`listNamespaceTree`).
- * @deprecated Prefer `useMediaItems(prefix, { recursive: true, ...pagination })` for tree queries.
- */
-export function useMediaNamespaceTree(
-  prefix: string,
-  pagination?: PaginationInput,
-): AsyncState<PaginationResult<ResolvedMediaContentItem>> {
-  return useMediaItems(prefix, {
-    ...pagination,
-    recursive: true,
-  });
 }
 
 /**
@@ -280,14 +295,14 @@ export function useFileStemMatch(
   stem: string,
   options?: FileStemMatchQueryOptions,
 ): AsyncState<PaginationResult<FileStemMatch>> {
-  const bridge = useMediaCacheBridge();
+  const { bridge, status } = useMediaCacheRuntime();
   const namespace = options?.namespace;
   const cursor = options?.cursor;
   const limit = options?.limit;
   return useAsyncResource(
     () => bridge.findByFileStem(stem, { namespace, cursor, limit }),
     [bridge, stem, namespace, cursor, limit],
-    bridge,
+    status,
     {
       refetchOnSyncComplete: options?.refetchOnSyncComplete,
     },
@@ -328,45 +343,32 @@ export function useMediaCacheReady(): AsyncState<MediaCacheReadyState> {
 }
 
 /**
- * Aggregates sync and query errors into one UI-friendly error object.
+ * Aggregates sync and active query errors into one UI-friendly error object.
  *
- * Pass a shared status result from {@link useMediaCacheStatus} plus any number of query states
- * (for example item/list/search hooks). This avoids creating a second status subscription just to
- * derive error UI.
+ * The hook is driven by the active {@link MediaCacheProvider} runtime: it uses the shared status
+ * subscription plus any current query errors reported by mounted media query hooks beneath the same
+ * provider. This means callers do not pass status or query states explicitly.
  *
- * @param status - Shared result from `useMediaCacheStatus()`.
- * @param queryStates - Hook states containing an `error` field (typically from media query hooks).
  * @returns `MediaCacheErrors` with `syncError`, `statusError`, `queryErrors`, and `primaryError`.
  * @example
  * ```tsx
- * const status = useMediaCacheStatus();
- * const item = useMediaItem("space", "hubble-cosmos");
- * const list = useMediaItems("space", { limit: 20 });
- * const errors = useMediaCacheErrors(status, item, list);
+ * const media = useMedia({ kind: "item", namespace: "space", id: "hubble-cosmos" });
+ * const errors = useMediaCacheErrors();
+ *
+ * if (errors.hasError) {
+ *   console.error(errors.primaryError);
+ * }
  * ```
  */
-export function useMediaCacheErrors(
-  status: MediaCacheStatusState,
-  ...queryStates: Array<{ error: Error | null }>
-): MediaCacheErrors {
-  const queryErrors = queryStates.flatMap((state) => (state.error ? [state.error] : []));
-  const syncError = status.data?.error ?? null;
-  const statusError = status.error;
-  const primaryError = statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
-
-  return {
-    syncError,
-    statusError,
-    queryErrors,
-    hasError: primaryError !== null,
-    primaryError,
-  };
+export function useMediaCacheErrors(): MediaCacheErrors {
+  const { status, queryErrors } = useMediaCacheRuntime();
+  return buildMediaCacheErrors(status, queryErrors);
 }
 
 function useAsyncResource<T>(
   loader: () => Promise<T>,
   refreshDeps: ReadonlyArray<unknown>,
-  bridge: MediaCacheBridge,
+  status: AsyncState<MediaCacheStatus>,
   options?: MediaQuerySyncOptions,
 ): AsyncState<T> {
   const latestLoader = useRef(loader);
@@ -398,7 +400,8 @@ function useAsyncResource<T>(
     }
   }, []);
 
-  useRefetchOnReadyGeneration(bridge, options?.refetchOnSyncComplete ?? true, () => void refresh());
+  useRefetchOnReadyGeneration(status, options?.refetchOnSyncComplete ?? true, () => void refresh());
+  useQueryErrorRegistration(error);
 
   // Intentionally no dependency array: this runs after each render so we can
   // compare refreshDeps ourselves while always invoking the latest loader.
@@ -424,6 +427,142 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+function useMediaCacheRuntime(): {
+  bridge: MediaCacheBridge;
+  status: AsyncState<MediaCacheStatus>;
+  queryErrors: Error[];
+} {
+  const runtime = useContext(MediaCacheContext);
+  const bridge = runtime?.bridge;
+  const standaloneStatus = useMediaCacheStatusState(bridge, runtime === null && bridge !== null);
+
+  if (!bridge) {
+    throw new Error(MISSING_BRIDGE_ERROR);
+  }
+
+  return {
+    bridge,
+    status: runtime?.status ?? standaloneStatus,
+    queryErrors: runtime?.queryErrors ?? EMPTY_QUERY_ERRORS,
+  };
+}
+
+function buildMediaCacheErrors(
+  status: AsyncState<MediaCacheStatus>,
+  queryErrors: Error[],
+): MediaCacheErrors {
+  const syncError = status.data?.error ?? null;
+  const statusError = status.error;
+  const primaryError = statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
+
+  return {
+    syncError,
+    statusError,
+    queryErrors,
+    hasError: primaryError !== null,
+    primaryError,
+  };
+}
+
+function buildUseMediaRefreshDeps(
+  bridge: MediaCacheBridge,
+  options: UseMediaOptions,
+): ReadonlyArray<unknown> {
+  if (options.kind === "item") {
+    return [bridge, "item", options.namespace, options.id];
+  }
+
+  return [
+    bridge,
+    "list",
+    options.namespace,
+    options.recursive ?? false,
+    options.cursor,
+    options.limit,
+  ];
+}
+
+function useQueryErrorRegistration(error: Error | null): void {
+  const runtime = useContext(MediaCacheContext);
+  const queryErrorId = useRef<string | null>(null);
+
+  if (queryErrorId.current === null) {
+    queryErrorId.current = `query-error-${nextQueryErrorId++}`;
+  }
+
+  useEffect(() => {
+    if (!runtime) {
+      return;
+    }
+
+    runtime.reportQueryError(queryErrorId.current!, error);
+
+    return () => {
+      runtime.reportQueryError(queryErrorId.current!, null);
+    };
+  }, [runtime, error]);
+}
+
+function useMediaCacheStatusState(
+  bridge: MediaCacheBridge | null | undefined,
+  enabled: boolean,
+): AsyncState<MediaCacheStatus> {
+  const [data, setData] = useState<MediaCacheStatus | null>(null);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<Error | null>(null);
+  const requestSequence = useRef(0);
+
+  const refresh = useCallback(async () => {
+    if (!enabled || !bridge) {
+      return;
+    }
+
+    const requestId = ++requestSequence.current;
+    setLoading(true);
+    try {
+      const nextStatus = await bridge.getStatus();
+      if (requestId === requestSequence.current) {
+        setData(nextStatus);
+        setError(null);
+      }
+    } catch (caught) {
+      if (requestId === requestSequence.current) {
+        setError(toError(caught));
+      }
+    } finally {
+      if (requestId === requestSequence.current) {
+        setLoading(false);
+      }
+    }
+  }, [bridge, enabled]);
+
+  useEffect(() => {
+    if (!enabled || !bridge) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void refresh();
+    const unsubscribe = bridge.subscribeStatus((status) => {
+      requestSequence.current += 1;
+      if (!cancelled) {
+        setData(status);
+        setLoading(false);
+        setError(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      requestSequence.current += 1;
+      unsubscribe();
+    };
+  }, [bridge, enabled, refresh]);
+
+  return useMemo(() => ({ data, loading, error, refresh }), [data, loading, error, refresh]);
+}
+
 function toPrimaryError(syncError: MediaCacheStatus["error"]): Error | null {
   if (!syncError) {
     return null;
@@ -435,7 +574,7 @@ function toPrimaryError(syncError: MediaCacheStatus["error"]): Error | null {
 }
 
 function useRefetchOnReadyGeneration(
-  bridge: MediaCacheBridge,
+  status: AsyncState<MediaCacheStatus>,
   enabled: boolean,
   onReadyGeneration: () => void,
 ): void {
@@ -444,21 +583,18 @@ function useRefetchOnReadyGeneration(
   const previousReadyGenerationId = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
+    const phase = status.data?.phase;
+    const activeGenerationId = status.data?.activeGenerationId ?? null;
+
+    if (!enabled || phase !== "ready" || activeGenerationId === null) {
       return;
     }
 
-    return bridge.subscribeStatus((status) => {
-      if (status.phase !== "ready" || status.activeGenerationId === null) {
-        return;
-      }
-
-      if (previousReadyGenerationId.current !== status.activeGenerationId) {
-        previousReadyGenerationId.current = status.activeGenerationId;
-        callbackRef.current();
-      }
-    });
-  }, [bridge, enabled]);
+    if (previousReadyGenerationId.current !== activeGenerationId) {
+      previousReadyGenerationId.current = activeGenerationId;
+      callbackRef.current();
+    }
+  }, [enabled, status.data?.activeGenerationId, status.data?.phase]);
 }
 
 export type {
@@ -466,9 +602,11 @@ export type {
   FileStemMatchQueryOptions,
   MediaCacheBridge,
   MediaCacheErrors,
+  MediaCachePhase,
   MediaCacheReadyState,
   MediaCacheStatus,
   MediaItemsQueryOptions,
+  MediaListQueryOptions,
   MediaQuerySyncOptions,
   ResolvedMediaContentItem,
 } from "../shared/types.js";

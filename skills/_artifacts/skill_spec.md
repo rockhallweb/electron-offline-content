@@ -40,15 +40,15 @@ are expected.
 
 ### manifest-authoring (7 failure modes)
 
-| #   | Mistake                                   | Priority | Source                       | Cross-skill? |
-| --- | ----------------------------------------- | -------- | ---------------------------- | ------------ |
-| 1   | Duplicate namespace keys                  | HIGH     | normalize.ts                 | —            |
-| 2   | Omitting required item version            | HIGH     | normalize.ts; validation.ts  | —            |
-| 3   | Asset URL without filename in path        | HIGH     | internal/asset-file-name.ts  | —            |
-| 4   | Deep nesting instead of using helpers     | HIGH     | Maintainer interview; README | —            |
-| 5   | Using non-HTTP asset source URLs          | MEDIUM   | validation.ts                | —            |
-| 6   | Duplicate item IDs within namespace       | MEDIUM   | normalize.ts                 | —            |
-| 7   | Over-namespacing with too many namespaces | MEDIUM   | Maintainer interview         | —            |
+| #   | Mistake                                        | Priority | Source                       | Cross-skill? |
+| --- | ---------------------------------------------- | -------- | ---------------------------- | ------------ |
+| 1   | Duplicate keys when mapping to manifest maps   | HIGH     | producer.ts \*FromEntries    | —            |
+| 2   | Omitting required item version                 | HIGH     | normalize.ts; validation.ts  | —            |
+| 3   | Asset URL without filename in path             | HIGH     | internal/asset-file-name.ts  | —            |
+| 4   | Deep nesting instead of defineItem/defineAsset | HIGH     | Maintainer interview; README | —            |
+| 5   | Using non-HTTP asset source URLs               | MEDIUM   | validation.ts                | —            |
+| 6   | Duplicate item keys within namespace           | MEDIUM   | producer.ts itemsFromEntries | —            |
+| 7   | Over-namespacing with too many namespaces      | MEDIUM   | Maintainer interview         | —            |
 
 ### cache-configuration (5 failure modes)
 
@@ -62,13 +62,13 @@ are expected.
 
 ### react-rendering (5 failure modes)
 
-| #   | Mistake                                          | Priority | Source               | Cross-skill? |
-| --- | ------------------------------------------------ | -------- | -------------------- | ------------ |
-| 1   | Accessing data before loading completes          | HIGH     | react/index.tsx      | —            |
-| 2   | Fetching remote URLs instead of rendering direct | HIGH     | Maintainer interview | —            |
-| 3   | Using deprecated useMediaNamespace hooks         | MEDIUM   | react/index.tsx      | —            |
-| 4   | Multiple independent status subscriptions        | MEDIUM   | react/index.tsx      | —            |
-| 5   | Hardcoding media:// URLs instead of using hooks  | MEDIUM   | database.ts; README  | —            |
+| #   | Mistake                                              | Priority | Source                     | Cross-skill? |
+| --- | ---------------------------------------------------- | -------- | -------------------------- | ------------ |
+| 1   | Accessing data before loading completes              | HIGH     | react/index.tsx            | —            |
+| 2   | Fetching remote URLs instead of rendering direct     | HIGH     | Maintainer interview       | —            |
+| 3   | Using removed useMediaNamespace hooks (use useMedia) | HIGH     | CHANGELOG; react/index.tsx | —            |
+| 4   | Multiple independent status subscriptions            | MEDIUM   | react/index.tsx            | —            |
+| 5   | Hardcoding media:// URLs instead of using hooks      | MEDIUM   | database.ts; README        | —            |
 
 ### authenticated-downloads (4 failure modes)
 

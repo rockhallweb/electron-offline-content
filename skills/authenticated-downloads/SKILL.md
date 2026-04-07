@@ -82,10 +82,9 @@ const mediaCache = createMediaCache({
 For long-lived API keys or bearer tokens known at manifest build time, set `headers` directly on each asset's `source`. Simpler than `resolveAssetRequest` — no per-download callback.
 
 ```typescript
-import { defineManifestAsset } from "@rockhallweb/electron-offline-content/main";
+import { defineAsset } from "@rockhallweb/electron-offline-content/main";
 
-defineManifestAsset({
-  id: "main",
+defineAsset({
   role: "primary",
   kind: "video",
   source: {
@@ -149,79 +148,9 @@ When using manifest-time pre-signed URLs, the TTL must exceed total download tim
 
 If you must ship pre-signed URLs in the manifest, set top-level `expiresAt` to the earliest shared expiration timestamp so the cache can fail fast with `MANIFEST_EXPIRED` before a later asset request is resolved or fetched with a stale URL.
 
-Wrong — 15-minute TTL for a catalog that takes 2 hours to sync:
+Wrong — embedding short-lived pre-signed URLs in the manifest for a large catalog: late assets hit HTTP 403 when URLs expire before download.
 
-```typescript
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
-async function resolveManifest() {
-  const items = await fetchCatalog();
-  return Promise.all(
-    items.map(async (item) => ({
-      id: item.id,
-      version: item.revision,
-      kind: "video" as const,
-      assets: [
-        {
-          id: "main",
-          role: "primary",
-          kind: "video",
-          source: {
-            url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
-              expiresIn: 900,
-            }),
-          },
-        },
-      ],
-    })),
-  );
-}
-```
-
-Correct — generous expiration plus `expiresAt`, or download-time signing:
-
-```typescript
-// Option A: generous TTL (24 hours) for small catalogs, plus manifest.expiresAt
-const ttlSeconds = 86400;
-const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-
-async function resolveManifest() {
-  const items = await fetchCatalog();
-  return {
-    expiresAt, // fail fast once shared URL TTL lapses
-    namespaces: [
-      {
-        key: "exhibits",
-        items: await Promise.all(
-          items.map(async (item) => ({
-            id: item.id,
-            version: item.revision,
-            kind: "video" as const,
-            assets: [
-              {
-                id: "main",
-                role: "primary",
-                kind: "video",
-                source: {
-                  url: await getSignedUrl(
-                    s3,
-                    new GetObjectCommand({ Bucket: "b", Key: item.key }),
-                    { expiresIn: ttlSeconds },
-                  ),
-                },
-              },
-            ],
-          })),
-        ),
-      },
-    ],
-  };
-}
-
-// Option B: use resolveAssetRequest for large catalogs — signs each URL
-// at download time so TTL pressure is per-asset, not per-manifest.
-// See the Setup section for resolveAssetRequest wiring.
-```
+Prefer **generous shared TTL + `manifest.expiresAt`**, or **`resolveAssetRequest`** to sign at download time (per-asset TTL). Build the manifest with **`defineManifest`**, record-shaped **`namespaces` / `items` / `assets`**, and **`itemsFromEntries`** when mapping from arrays (see manifest-authoring skill).
 
 Source: Maintainer interview
 
@@ -229,56 +158,42 @@ Source: Maintainer interview
 
 `resolveManifest` produces the full content catalog. `resolveAssetRequest` customizes individual download requests. Putting auth logic in the wrong callback breaks either manifest fetching or asset downloading.
 
-Wrong — signing individual URLs inside `resolveManifest`:
+Wrong — signing inside `resolveManifest` when URLs expire before the download queue finishes (use plain keys in manifest + `resolveAssetRequest` instead).
+
+Correct — manifest returns plain HTTPS object keys; `resolveAssetRequest` signs at download time:
 
 ```typescript
+import {
+  createMediaCache,
+  defineItem,
+  defineManifest,
+  itemsFromEntries,
+} from "@rockhallweb/electron-offline-content/main";
+
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   resolveManifest: async () => {
     const items = await fetchCatalog();
-    return Promise.all(
-      items.map(async (item) => ({
-        id: item.id,
-        version: item.revision,
-        kind: "video" as const,
-        assets: [
-          {
-            id: "main",
-            role: "primary",
-            kind: "video",
-            source: {
-              url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
-                expiresIn: 900,
-              }),
-            },
-          },
-        ],
-      })),
-    );
-  },
-});
-```
-
-Correct — manifest returns plain URLs, `resolveAssetRequest` handles signing:
-
-```typescript
-const mediaCache = createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => {
-    const items = await fetchCatalog();
-    return items.map((item) => ({
-      id: item.id,
-      version: item.revision,
-      kind: "video" as const,
-      assets: [
-        {
-          id: "main",
-          role: "primary",
-          kind: "video",
-          source: { url: `https://my-content-bucket.s3.amazonaws.com/${item.key}` },
+    return defineManifest({
+      namespaces: {
+        videos: {
+          items: itemsFromEntries(items, (item) => [
+            item.id,
+            defineItem({
+              version: item.revision,
+              kind: "video",
+              assets: {
+                main: {
+                  role: "primary",
+                  kind: "video",
+                  source: { url: `https://my-content-bucket.s3.amazonaws.com/${item.key}` },
+                },
+              },
+            }),
+          ]),
         },
-      ],
-    }));
+      },
+    });
   },
   resolveAssetRequest: async (ctx) => ({
     url: await getSignedUrl(
@@ -315,10 +230,9 @@ const mediaCache = createMediaCache({
 Correct — set headers on asset sources in the manifest:
 
 ```typescript
-import { defineManifestAsset } from "@rockhallweb/electron-offline-content/main";
+import { defineAsset } from "@rockhallweb/electron-offline-content/main";
 
-defineManifestAsset({
-  id: "main",
+defineAsset({
   role: "primary",
   kind: "video",
   source: {

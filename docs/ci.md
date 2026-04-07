@@ -4,14 +4,14 @@ This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.ym
 
 ```bash
 pnpm validate
-pnpm install:example:local:ci
-pnpm install:example:nasa:ci
+pnpm install --frozen-lockfile --ignore-scripts --dir examples/local
+pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa
 pnpm examples:verify
 ```
 
-`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, test, build, then `pack:verify`. `pack:verify` still packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (main-process Vitest without integration tests, via [`vitest.node.smoke.config.ts`](../vitest.node.smoke.config.ts)), **`pnpm test:react`** (renderer hook tests via [`vitest.react.config.ts`](../vitest.react.config.ts)), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. On `main` / `workflow_dispatch` / merge queue, the **test integration** job runs only `tests/main/**/*.integration.test.ts` via [`vitest.node.integration.config.ts`](../vitest.node.integration.config.ts). `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
 
-`pnpm examples:verify` keeps `examples/local` and `examples/nasa` as standalone pnpm projects while letting Turbo orchestrate only their lint, format, and knip checks from the root package. The example installs are explicit setup steps so the verification graph can cache independently. This repository is still not a monorepo workspace.
+`pnpm examples:verify` runs each example’s `validate` script (lint, format check, knip) in `examples/local` and `examples/nasa` in parallel via [`scripts/run-examples.mjs`](../scripts/run-examples.mjs). CI installs example dependencies with `--ignore-scripts` (skips Electron postinstall) because verification does not need the binary. This repository is still not a monorepo workspace.
 
 The workflow is intentionally member-oriented:
 
@@ -26,7 +26,7 @@ That means public fork PRs may still create a skipped workflow record, but the v
 
 The repository YAML cannot enforce all of the access policy. Configure these in the GitHub UI:
 
-1. Protect `main` and require the `CI / validate` status check before merge.
+1. Protect `main` and require the `CI / validate` status check before merge. If you rely on the integration job for merge queue or release hygiene, also require **CI / test integration**.
 2. Keep branch creation and push access limited to `rockhallweb` members.
 3. In Actions settings, allow only GitHub-authored or explicitly approved actions.
 

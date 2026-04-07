@@ -5,7 +5,7 @@
 
 library:
   name: "@rockhallweb/electron-offline-content"
-  version: "0.1.1"
+  version: "0.3.0"
   repository: "https://github.com/rockhallweb/electron-offline-content"
   description: >
     Electron package for kiosk-style apps that syncs offline media content
@@ -49,11 +49,11 @@ skills:
     path: "skills/manifest-authoring/SKILL.md"
     description: >
       Writing resolveManifest functions against any remote source (CMS, S3,
-      REST API). Using defineManifest, defineManifestItem, defineManifestAsset
+      REST API). Using defineManifest, defineItem, defineAsset
       producer helpers for flat readable configs. Organizing content into
       dot-delimited namespace hierarchies. Validation rules for keys,
       versions, asset URLs, and fileName derivation. Version-driven cache
-      busting. ManifestInput shorthand forms (namespace array, item array).
+      busting. namespacesFromEntries / itemsFromEntries / assetsFromEntries.
     requires:
       - "getting-started"
     sources:
@@ -96,8 +96,8 @@ skills:
     path: "skills/react-rendering/SKILL.md"
     description: >
       React bindings for @rockhallweb/electron-offline-content:
-      MediaCacheProvider context, useMediaCacheStatus for sync phase and
-      progress, useMediaItem and useMediaItems for querying cached content
+      MediaCacheProvider context, useMediaBridge and useMediaCacheStatus for sync phase and
+      progress, useMedia for querying cached content
       by namespace, useFileStemMatch for filename search, useMediaCacheReady
       for download gates, useMediaCacheErrors for aggregated error display.
       AsyncState shape, refetchOnSyncComplete, assetsByRole convenience

@@ -657,7 +657,9 @@ export class MediaCacheDatabase {
 
     const validatedRow = parseWithSchema(protocolAssetTargetRowSchema, row, "protocol asset row");
     return {
-      absolutePath: validatedRow.relative_path ? join(this.root, validatedRow.relative_path) : null,
+      absolutePath: validatedRow.relative_path
+        ? join(this.root, ...validatedRow.relative_path.split(/[\\/]/))
+        : null,
     };
   }
 

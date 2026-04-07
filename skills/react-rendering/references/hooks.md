@@ -50,24 +50,32 @@ import { MediaCacheProvider } from "@rockhallweb/electron-offline-content/react"
 
 ## Hooks
 
-### useMediaCacheBridge
+### useMediaBridge
 
-Low-level access to the underlying bridge instance.
+Low-level access to the underlying bridge methods with shared status and aggregated errors.
 
 ```typescript
-function useMediaCacheBridge(): MediaCacheBridge;
+function useMediaBridge(): UseMediaBridgeResult;
 ```
 
-**Returns:** `MediaCacheBridge` — the bridge instance from context.
+**Returns:** `UseMediaBridgeResult`
+
+```typescript
+interface UseMediaBridgeResult extends MediaCacheBridge {
+  status: AsyncState<MediaCacheStatus>;
+  phase: MediaCachePhase;
+  errors: MediaCacheErrors;
+}
+```
 
 **Throws:** if called outside a `MediaCacheProvider`.
 
 ```tsx
-import { useMediaCacheBridge } from "@rockhallweb/electron-offline-content/react";
+import { useMediaBridge } from "@rockhallweb/electron-offline-content/react";
 
 function DebugPanel() {
-  const bridge = useMediaCacheBridge();
-  // Direct bridge method access for advanced use cases
+  const { syncNow, status, errors } = useMediaBridge();
+  // Direct bridge methods with status + errors bundled together
 }
 ```
 
@@ -122,10 +130,10 @@ function Gate({ children }: { children: React.ReactNode }) {
 Detailed sync status including progress counters.
 
 ```typescript
-function useMediaCacheStatus(): AsyncState<MediaCacheStatus>;
+function useMediaCacheStatus(): UseMediaCacheStatusResult;
 ```
 
-**Returns:** `AsyncState<MediaCacheStatus>`
+**Returns:** `UseMediaCacheStatusResult` — `AsyncState<MediaCacheStatus>` fields plus top-level `phase: MediaCachePhase` (`"loading"` until the first snapshot, then the cache phase).
 
 ```typescript
 interface MediaCacheStatus {
@@ -157,9 +165,9 @@ interface SyncProgress {
 import { useMediaCacheStatus } from "@rockhallweb/electron-offline-content/react";
 
 function SyncProgress() {
-  const { data: status } = useMediaCacheStatus();
+  const { data: status, phase } = useMediaCacheStatus();
 
-  if (status?.phase !== "syncing" || !status.progress) return null;
+  if (phase !== "syncing" || !status?.progress) return null;
 
   const pct = Math.round((status.progress.completedAssets / status.progress.totalAssets) * 100);
 
@@ -169,37 +177,35 @@ function SyncProgress() {
 
 ---
 
-### useMediaItem
+### useMedia
 
-Fetches a single cached content item by namespace and id.
+Primary query hook for item and namespace lookups.
 
 ```typescript
-function useMediaItem(
-  namespace: string,
-  id: string,
-  options?: MediaQuerySyncOptions,
-): AsyncState<ResolvedMediaContentItem | null>;
+function useMedia(
+  options:
+    | { kind: "item"; namespace: string; id: string; refetchOnSyncComplete?: boolean }
+    | {
+        kind: "list";
+        namespace: string;
+        recursive?: boolean;
+        limit?: number;
+        cursor?: string;
+        refetchOnSyncComplete?: boolean;
+      },
+): UseMediaItemResult | UseMediaListResult;
 ```
 
-| Parameter   | Type                                 | Description                                                |
-| ----------- | ------------------------------------ | ---------------------------------------------------------- |
-| `namespace` | `string`                             | Content namespace (e.g. `"videos"`, `"exhibits.floor-1"`). |
-| `id`        | `string`                             | Unique item identifier within the namespace.               |
-| `options`   | `MediaQuerySyncOptions \| undefined` | Optional. Sync-related options.                            |
-
-**MediaQuerySyncOptions:**
-
-| Option                  | Type      | Default | Description                                             |
-| ----------------------- | --------- | ------- | ------------------------------------------------------- |
-| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch automatically when a sync operation completes. |
-
-**Returns:** `AsyncState<ResolvedMediaContentItem | null>` — `null` when the item does not exist.
+**Item example:**
 
 ```tsx
-import { useMediaItem } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function WelcomeVideo() {
-  const { data: item, loading } = useMediaItem("videos", "welcome", {
+  const { data: item, loading } = useMedia({
+    kind: "item",
+    namespace: "videos",
+    id: "welcome",
     refetchOnSyncComplete: true,
   });
 
@@ -213,40 +219,15 @@ function WelcomeVideo() {
 
 ---
 
-### useMediaItems
-
-Paginated query for items within a namespace or namespace prefix.
-
-```typescript
-function useMediaItems(
-  namespaceOrPrefix: string,
-  options?: MediaItemsQueryOptions,
-): AsyncState<PaginationResult<ResolvedMediaContentItem>>;
-```
-
-| Parameter           | Type                                  | Description                                                               |
-| ------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
-| `namespaceOrPrefix` | `string`                              | Exact namespace for flat queries, or a prefix when `recursive` is `true`. |
-| `options`           | `MediaItemsQueryOptions \| undefined` | Pagination and behavior options.                                          |
-
-**MediaItemsQueryOptions:**
-
-| Option                  | Type      | Default | Description                                                 |
-| ----------------------- | --------- | ------- | ----------------------------------------------------------- |
-| `limit`                 | `number`  | —       | Maximum items to return per page.                           |
-| `cursor`                | `string`  | —       | Opaque cursor for fetching the next page.                   |
-| `recursive`             | `boolean` | `false` | When `true`, queries all namespaces under the given prefix. |
-| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch automatically when a sync completes.               |
-
-**Returns:** `AsyncState<PaginationResult<ResolvedMediaContentItem>>`
-
-`PaginationResult<T>` contains `{ items: T[], cursor?: string }`.
+**List example:**
 
 ```tsx
-import { useMediaItems } from "@rockhallweb/electron-offline-content/react";
+import { useMedia } from "@rockhallweb/electron-offline-content/react";
 
 function ExhibitList() {
-  const { data, loading } = useMediaItems("exhibits", {
+  const { data, loading } = useMedia({
+    kind: "list",
+    namespace: "exhibits",
     limit: 30,
     recursive: true,
     refetchOnSyncComplete: true,
@@ -322,19 +303,11 @@ function Search({ query }: { query: string }) {
 
 ### useMediaCacheErrors
 
-Aggregates errors from a shared status subscription and any number of query hook states.
+Aggregates sync errors and provider-wide query errors without requiring caller arguments.
 
 ```typescript
-function useMediaCacheErrors(
-  status: MediaCacheStatusState,
-  ...queryStates: Array<{ error: Error | null }>
-): MediaCacheErrors;
+function useMediaCacheErrors(): MediaCacheErrors;
 ```
-
-| Parameter        | Type                              | Description                                                                           |
-| ---------------- | --------------------------------- | ------------------------------------------------------------------------------------- |
-| `status`         | `MediaCacheStatusState`           | Return value of `useMediaCacheStatus()`. Shared to avoid duplicate IPC subscriptions. |
-| `...queryStates` | `Array<{ error: Error \| null }>` | Spread of any hook return values that have an `error` field.                          |
 
 **Returns:** `MediaCacheErrors`
 
@@ -350,25 +323,19 @@ interface MediaCacheErrors {
 
 | Field          | Description                                                                                |
 | -------------- | ------------------------------------------------------------------------------------------ |
-| `syncError`    | Error from the sync process itself (from `status.data.error`).                             |
-| `statusError`  | Error fetching status (from `status.error`).                                               |
-| `queryErrors`  | Array of non-null errors from the provided query states.                                   |
+| `syncError`    | Error from the sync process itself (from the shared provider status).                      |
+| `statusError`  | Error fetching status.                                                                     |
+| `queryErrors`  | Array of non-null errors from mounted query hooks under the same `MediaCacheProvider`.     |
 | `hasError`     | `true` if any of the above are set.                                                        |
 | `primaryError` | First available error in priority order: `statusError` → first `queryError` → `syncError`. |
 
 ```tsx
-import {
-  useMediaCacheStatus,
-  useMediaItems,
-  useMediaCacheErrors,
-} from "@rockhallweb/electron-offline-content/react";
+import { useMedia, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
 
 function Page() {
-  const status = useMediaCacheStatus();
-  const videos = useMediaItems("videos");
-  const images = useMediaItems("images");
-
-  const errors = useMediaCacheErrors(status, videos, images);
+  const videos = useMedia({ kind: "list", namespace: "videos" });
+  const images = useMedia({ kind: "list", namespace: "images" });
+  const errors = useMediaCacheErrors();
 
   if (errors.hasError) {
     return <p>Error: {errors.primaryError?.message}</p>;
