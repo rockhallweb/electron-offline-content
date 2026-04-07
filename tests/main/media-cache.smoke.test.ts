@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { statfs as statfsAsync } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import {
+  DEFAULT_RESERVE_FREE_BYTES,
   disableMediaCacheStorageRootLockForTests,
+  effectiveReserveFreeBytes,
   enableMediaCacheStorageRootLockForTests,
   resetMediaCacheStorageRootLocksForTests,
 } from "../../src/main/media-cache.js";
@@ -18,6 +22,7 @@ import {
   DataValidationError,
   ManifestExpiredError,
   ManifestValidationError,
+  StorageLimitError,
   StorageOwnershipError,
 } from "../../src/shared/errors.js";
 import { MEDIA_CACHE_IPC } from "../../src/shared/ipc.js";
@@ -40,7 +45,16 @@ import {
   type TestMediaCacheOptions,
 } from "./helpers/media-cache-test-shared.js";
 
+type StubStatFs = Awaited<ReturnType<typeof statfsAsync>>;
+
 type RegisterProtocolOptions = NonNullable<Parameters<MediaCacheMain["registerProtocol"]>[0]>;
+
+const emptyManifest = defineManifest({
+  snapshotId: "reserve-tests",
+  namespaces: {
+    n: { items: {} },
+  },
+});
 
 describe("manifest normalization", () => {
   it("normalizes record-shaped namespaces into ordered arrays with injected ids", () => {
@@ -188,6 +202,184 @@ describe("producer manifest helpers", () => {
       }),
     );
     expect(Object.keys(manifest.namespaces).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("effectiveReserveFreeBytes", () => {
+  it("uses DEFAULT_RESERVE_FREE_BYTES when the option is omitted", () => {
+    expect(effectiveReserveFreeBytes(undefined)).toBe(DEFAULT_RESERVE_FREE_BYTES);
+  });
+
+  it("preserves explicit zero (no headroom)", () => {
+    expect(effectiveReserveFreeBytes(0)).toBe(0);
+  });
+
+  it("preserves an explicit positive value", () => {
+    expect(effectiveReserveFreeBytes(42_000)).toBe(42_000);
+  });
+});
+
+describe("reserveFreeBytes enforcement with default reserve", () => {
+  it("enforceStorageLimits throws when omitted reserve would be violated (stub statfs)", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "media-cache-reserve-default-"));
+    const byteLength = 1000;
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => emptyManifest,
+      },
+      {
+        sleep: async () => undefined,
+        statfs: async (path) => {
+          const base = await statfsAsync(path);
+          return {
+            ...base,
+            bsize: 1n,
+            bavail: BigInt(DEFAULT_RESERVE_FREE_BYTES - 1 + byteLength),
+          } as unknown as StubStatFs;
+        },
+      },
+    );
+
+    await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    await expect(
+      (
+        cache as unknown as {
+          enforceStorageLimits(
+            downloads: Array<{
+              namespace: string;
+              itemId: string;
+              assetId: string;
+              fileName: string;
+              resolvedVersion: string;
+              byteLength?: number;
+            }>,
+          ): Promise<void>;
+        }
+      ).enforceStorageLimits([
+        {
+          namespace: "n",
+          itemId: "i",
+          assetId: "a",
+          fileName: "f.bin",
+          resolvedVersion: "v1",
+          byteLength,
+        },
+      ]),
+    ).rejects.toThrow(StorageLimitError);
+  });
+
+  it("enforceStorageLimits passes when free space after download stays at or above default reserve", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "media-cache-reserve-default-"));
+    const byteLength = 5000;
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => emptyManifest,
+      },
+      {
+        sleep: async () => undefined,
+        statfs: async (path) => {
+          const base = await statfsAsync(path);
+          return {
+            ...base,
+            bsize: 1n,
+            bavail: BigInt(DEFAULT_RESERVE_FREE_BYTES + byteLength),
+          } as unknown as StubStatFs;
+        },
+      },
+    );
+
+    await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    await expect(
+      (
+        cache as unknown as {
+          enforceStorageLimits(
+            downloads: Array<{
+              namespace: string;
+              itemId: string;
+              assetId: string;
+              fileName: string;
+              resolvedVersion: string;
+              byteLength?: number;
+            }>,
+          ): Promise<void>;
+        }
+      ).enforceStorageLimits([
+        {
+          namespace: "n",
+          itemId: "i",
+          assetId: "a",
+          fileName: "f.bin",
+          resolvedVersion: "v1",
+          byteLength,
+        },
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("ensureFileSpaceCommit throws when free space is below default reserve (stub statfs)", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "media-cache-reserve-commit-"));
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => emptyManifest,
+      },
+      {
+        sleep: async () => undefined,
+        statfs: async (path) => {
+          const base = await statfsAsync(path);
+          return {
+            ...base,
+            bsize: 1n,
+            bavail: BigInt(DEFAULT_RESERVE_FREE_BYTES - 1),
+          } as unknown as StubStatFs;
+        },
+      },
+    );
+
+    await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    await expect(
+      (
+        cache as unknown as {
+          ensureFileSpaceCommit(): Promise<void>;
+        }
+      ).ensureFileSpaceCommit(),
+    ).rejects.toThrow(StorageLimitError);
+  });
+
+  it("ensureFileSpaceCommit allows commit when free space equals default reserve (stub statfs)", async () => {
+    const storageRoot = mkdtempSync(join(tmpdir(), "media-cache-reserve-commit-ok-"));
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        resolveManifest: () => emptyManifest,
+      },
+      {
+        sleep: async () => undefined,
+        statfs: async (path) => {
+          const base = await statfsAsync(path);
+          return {
+            ...base,
+            bsize: 1n,
+            bavail: BigInt(DEFAULT_RESERVE_FREE_BYTES),
+          } as unknown as StubStatFs;
+        },
+      },
+    );
+
+    await (cache as unknown as { ensureInitialized(): Promise<void> }).ensureInitialized();
+
+    await expect(
+      (
+        cache as unknown as {
+          ensureFileSpaceCommit(): Promise<void>;
+        }
+      ).ensureFileSpaceCommit(),
+    ).resolves.toBeUndefined();
   });
 });
 

@@ -331,7 +331,12 @@ export interface MediaCacheOptions {
   assetBaseUrl?: string | null;
   /** Soft cap on total bytes of cached asset files; older generations may be pruned to stay under this. */
   maxCacheBytes?: number;
-  /** Minimum free disk space to preserve on the volume; sync may refuse work if free space would drop below this. */
+  /**
+   * Minimum free disk space to preserve on the volume that contains the resolved storage root; offline
+   * sync refuses downloads when projected free space would drop below this value (and commits refuse when
+   * already below it). When omitted, defaults to **1 GiB** (`1024³` bytes). Set **`0`** to disable this
+   * headroom (previous package behavior when the option was omitted).
+   */
   reserveFreeBytes?: number;
   /** After this many milliseconds, assets removed from the manifest may be deleted from disk. */
   staleDeleteAfterMs?: number;

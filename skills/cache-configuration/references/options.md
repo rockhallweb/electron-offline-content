@@ -118,11 +118,11 @@ maxCacheBytes: 10 * 1024 * 1024 * 1024; // 10 GB
 | ------------ | -------------------------- |
 | **Type**     | `number`                   |
 | **Required** | No                         |
-| **Default**  | Unlimited (no reservation) |
+| **Default**  | `1073741824` (1 GiB, `1024³` bytes) |
 
-Minimum free disk space to preserve in bytes. Downloads pause when free space drops below this threshold.
+Minimum free disk space to preserve in bytes on the volume that holds the cache. Sync refuses work when projected free space would drop below this value. **`0`** disables the reservation (legacy behavior when the option was omitted).
 
-**Constraints:** Must be a positive integer when provided.
+**Constraints:** Must be a non-negative integer when provided. Omit the option to use the default; set **`0`** explicitly to allow filling the volume up to other limits.
 
 ```typescript
 reserveFreeBytes: 1 * 1024 * 1024 * 1024; // 1 GB

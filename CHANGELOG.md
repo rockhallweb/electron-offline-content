@@ -100,6 +100,10 @@ defineManifest({
 
 Prefer `itemsFromEntries` / `assetsFromEntries` / `namespacesFromEntries` when building from CMS or API arrays (see README).
 
+### Changed
+
+- **`reserveFreeBytes` default:** When the option is omitted, offline sync now preserves **1 GiB** (`1024³` bytes) of free space on the cache volume instead of treating the reserve as zero. Set **`reserveFreeBytes: 0`** to restore the previous behavior.
+
 ## 0.2.0
 
 ### Changed

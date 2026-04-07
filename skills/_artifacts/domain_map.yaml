@@ -697,9 +697,11 @@ skills:
         skills: ["production-checklist", "cache-configuration"]
       - mistake: "No storage limits on kiosk with limited disk"
         mechanism: >
-          Without maxCacheBytes or reserveFreeBytes, the cache can consume
-          all available disk space. On kiosk hardware with limited SSDs,
-          this can crash the OS or other apps.
+          Without maxCacheBytes, the cache can grow to the full manifest size
+          subject only to disk space and the default 1 GiB reserveFreeBytes
+          headroom. On kiosk hardware with limited SSDs, a large catalog can
+          still exhaust the disk and stress the OS; set maxCacheBytes and tune
+          reserveFreeBytes explicitly.
         source: "README Storage limits section"
         priority: HIGH
         status: active
