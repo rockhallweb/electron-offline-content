@@ -18,10 +18,7 @@ import type {
   MediaItemValue,
   SyncManifestAsset,
 } from "../../../src/shared/types.js";
-import {
-  mediaCacheStoragePathSchema,
-  parseWithSchema,
-} from "../../../src/internal/validation.js";
+import { mediaCacheStoragePathSchema, parseWithSchema } from "../../../src/internal/validation.js";
 
 /** Build a record-shaped manifest from legacy `{ key, items: [{ id, assets: [{ id, ... }] }] }[]` test fixtures. */
 type LegacyManifestAsset = { id: string } & MediaAssetValue;
