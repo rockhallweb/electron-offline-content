@@ -266,6 +266,48 @@ const manifest = defineManifest({
 
 When your source data is array-shaped, use `namespacesFromEntries`, `itemsFromEntries`, and `assetsFromEntries` to produce the `Record` maps `defineManifest` expects (see the [API reference](#api-reference)).
 
+```ts
+import {
+  assetsFromEntries,
+  defineItem,
+  defineManifest,
+  itemsFromEntries,
+  namespacesFromEntries,
+} from "@rockhallweb/electron-offline-content/main";
+
+type VideoRow = { id: string; version: string; title: string; fileUrl: string; posterUrl: string };
+
+const videos: VideoRow[] = /* from CMS/API */;
+
+const manifest = defineManifest({
+  namespaces: namespacesFromEntries([{ key: "exhibits.videos", videos }], ({ key, videos }) => [
+    key,
+    {
+      items: itemsFromEntries(videos, (v) => [
+        v.id,
+        defineItem({
+          version: v.version,
+          kind: "video",
+          title: v.title,
+          assets: assetsFromEntries(
+            [
+              { id: "main", url: v.fileUrl, role: "primary" as const, kind: "video" as const },
+              { id: "poster", url: v.posterUrl, role: "poster" as const, kind: "image" as const },
+            ],
+            (a) => [
+              a.id,
+              { role: a.role, kind: a.kind, source: { url: a.url } },
+            ],
+          ),
+        }),
+      ]),
+    },
+  ]),
+});
+```
+
+Full signatures for each helper are in the [API reference](#api-reference) under **`namespacesFromEntries` / `itemsFromEntries` / `assetsFromEntries`**.
+
 ### Validation rules
 
 - Namespace keys must be unique.

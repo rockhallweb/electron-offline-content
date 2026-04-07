@@ -9,7 +9,7 @@ description: >
   app.whenReady, and mediaCache.start() fire-and-forget pattern.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.3.0"
 sources:
   - "rockhallweb/electron-offline-content:README.md"
   - "rockhallweb/electron-offline-content:src/main/index.ts"

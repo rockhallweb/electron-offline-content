@@ -12,5 +12,5 @@ export function formatBytes(bytes: number): string {
 }
 
 export function mediaKindFromNamespace(namespace: string): "image" | "video" {
-  return namespace.includes(".videos") ? "video" : "image";
+  return namespace.endsWith(".videos") ? "video" : "image";
 }

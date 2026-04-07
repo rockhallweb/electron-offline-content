@@ -63,6 +63,7 @@ function useMediaBridge(): UseMediaBridgeResult;
 ```typescript
 interface UseMediaBridgeResult extends MediaCacheBridge {
   status: AsyncState<MediaCacheStatus>;
+  phase: MediaCachePhase;
   errors: MediaCacheErrors;
 }
 ```

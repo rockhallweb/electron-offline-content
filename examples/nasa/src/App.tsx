@@ -8,10 +8,13 @@ import {
 import { cn } from "./cn";
 import { formatBytes, mediaKindFromNamespace } from "./util";
 
-type DownloadActionProps = {
-  downloadStartError?: string | null;
+type SyncDownloadControlsProps = {
   onStartDownload: () => Promise<void>;
   isStartingDownload: boolean;
+};
+
+type DownloadActionProps = SyncDownloadControlsProps & {
+  downloadStartError?: string | null;
 };
 
 export function App() {
@@ -182,7 +185,7 @@ function PreDownloadView({
   );
 }
 
-function DownloadingView({ onStartDownload, isStartingDownload }: DownloadActionProps) {
+function DownloadingView({ onStartDownload, isStartingDownload }: SyncDownloadControlsProps) {
   const status = useMediaCacheStatus();
   const generation = String(status.data?.activeGenerationId ?? "none");
   const progress = status.data?.progress ?? null;
@@ -205,7 +208,10 @@ function DownloadingView({ onStartDownload, isStartingDownload }: DownloadAction
             </span>
           </p>
           <div className="grid gap-2 border border-border bg-black/30 px-4 py-4 text-left">
-            <StatusReadout label="Step" value={progress?.phase.replace(/-/g, " ") ?? "Waiting"} />
+            <StatusReadout
+              label="Step"
+              value={progress?.phase?.replace(/-/g, " ") ?? "Waiting"}
+            />
             <StatusReadout label="Assets" value={`${completedAssets}/${totalAssets}`} />
             <StatusReadout label="Downloaded assets" value={String(downloadedAssets)} />
             <StatusReadout label="Bytes downloaded" value={formatBytes(bytesDownloaded)} />
