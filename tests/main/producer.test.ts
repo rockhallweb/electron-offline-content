@@ -110,10 +110,7 @@ describe("producer helpers", () => {
 
   it("itemsFromEntries detects duplicate keys", () => {
     expect(() =>
-      itemsFromEntries(["a", "b"], () => [
-        "dup",
-        { version: "1", kind: "video", assets: {} },
-      ]),
+      itemsFromEntries(["a", "b"], () => ["dup", { version: "1", kind: "video", assets: {} }]),
     ).toThrow(ManifestValidationError);
   });
 

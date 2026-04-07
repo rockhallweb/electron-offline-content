@@ -208,10 +208,7 @@ function DownloadingView({ onStartDownload, isStartingDownload }: SyncDownloadCo
             </span>
           </p>
           <div className="grid gap-2 border border-border bg-black/30 px-4 py-4 text-left">
-            <StatusReadout
-              label="Step"
-              value={progress?.phase?.replace(/-/g, " ") ?? "Waiting"}
-            />
+            <StatusReadout label="Step" value={progress?.phase?.replace(/-/g, " ") ?? "Waiting"} />
             <StatusReadout label="Assets" value={`${completedAssets}/${totalAssets}`} />
             <StatusReadout label="Downloaded assets" value={String(downloadedAssets)} />
             <StatusReadout label="Bytes downloaded" value={formatBytes(bytesDownloaded)} />
