@@ -1,7 +1,11 @@
 import { defineConfig } from "vitest/config";
 
+const ci = Boolean(process.env.CI);
+
 export default defineConfig({
   test: {
+    // On CI, default parallelism can exhaust the default ~2GB worker heap (node + jsdom projects).
+    ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
     projects: [
       {
         test: {
