@@ -4,8 +4,8 @@ const ci = Boolean(process.env.CI);
 
 export default defineConfig({
   test: {
-    // On CI, cap workers to stay within ubuntu-latest RAM while overlapping node + jsdom projects.
-    ...(ci ? { maxWorkers: 2 } : {}),
+    // On CI, a single worker avoids stalls seen with maxWorkers>1 (tinypool + node/jsdom projects).
+    ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
     projects: [
       {
         test: {
