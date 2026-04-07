@@ -87,6 +87,8 @@ jobs:
     name: test integration (Vitest node, node ${{ matrix.node-version }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
+    env:
+      TURBO_NODE_VERSION: ${{ matrix.node-version }}
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
