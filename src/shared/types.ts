@@ -594,6 +594,9 @@ export interface MediaItemsQueryOptions extends PaginationInput, MediaQuerySyncO
   recursive?: boolean;
 }
 
+/** Alias matching the `useMedia({ kind: "list", ... })` API surface. */
+export type MediaListQueryOptions = MediaItemsQueryOptions;
+
 /** Options for stem search in React (`useFileStemMatch`). */
 export interface FileStemMatchQueryOptions extends PaginationInput, MediaQuerySyncOptions {
   /** If set, only return matches inside this namespace (or its subtree per hook behavior). */

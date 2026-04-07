@@ -55,6 +55,7 @@
     "ci:validate": "pnpm validate"
   },
   "dependencies": {
+    "vercel": "^50.40.0",
     "zod": "^4.3.0"
   },
   "devDependencies": {

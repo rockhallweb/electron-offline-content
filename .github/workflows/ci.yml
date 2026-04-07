@@ -29,6 +29,10 @@ jobs:
     name: validate (node ${{ matrix.node-version }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
+    # Turborepo remote cache (Vercel): add repo secret TURBO_TOKEN and variable TURBO_TEAM (team slug or hobby username).
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,14 +67,17 @@ jobs:
         run: pnpm validate
 
       - name: Pack verify (main only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.node-version == 24
         run: pnpm pack:verify
 
       - name: Install example dependencies
         run: |
           pnpm install --frozen-lockfile --ignore-scripts --dir examples/local &
+          pid1=$!
           pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa &
-          wait
+          pid2=$!
+          wait $pid1 || exit 1
+          wait $pid2 || exit 1
 
       - name: Verify example apps
         run: pnpm examples:verify
@@ -79,7 +86,10 @@ jobs:
     name: test integration (main Vitest, node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'merge_group'
     strategy:
       fail-fast: false
       matrix:

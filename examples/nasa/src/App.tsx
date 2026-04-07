@@ -18,7 +18,8 @@ type DownloadActionProps = SyncDownloadControlsProps & {
 };
 
 export function App() {
-  const { syncNow, phase, errors } = useMediaBridge();
+  const { syncNow, phase, status, errors } = useMediaBridge();
+  const hasCommittedSnapshot = status.data?.activeGenerationId != null;
   const [isStartingDownload, setIsStartingDownload] = useState(false);
   const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
 
@@ -44,44 +45,29 @@ export function App() {
   return (
     <main className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}>
       <div className="grid w-full gap-0">
-        {errors.syncError?.message ? (
+        {errors.primaryError?.message ?? errors.syncError?.message ? (
           <section className={errorClasses}>
-            <strong className="mr-3 text-[#f87171]">SYNC ERROR:</strong>
+            <strong className="mr-3 text-[#f87171]">ERROR:</strong>
             <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">
-              {errors.syncError?.message}
-            </span>
-          </section>
-        ) : null}
-        {errors.primaryError?.message ? (
-          <section className={errorClasses}>
-            <strong className="mr-3 text-[#f87171]">QUERY ERROR:</strong>
-            <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">
-              {errors.primaryError?.message}
+              {errors.primaryError?.message ?? errors.syncError?.message}
             </span>
           </section>
         ) : null}
 
-        {(() => {
-          switch (phase) {
-            case "syncing":
-              return (
-                <DownloadingView
-                  onStartDownload={startDownload}
-                  isStartingDownload={isStartingDownload}
-                />
-              );
-            case "ready":
-              return <ArchiveView />;
-            default:
-              return (
-                <PreDownloadView
-                  downloadStartError={downloadStartError}
-                  onStartDownload={startDownload}
-                  isStartingDownload={isStartingDownload}
-                />
-              );
-          }
-        })()}
+        {hasCommittedSnapshot ? (
+          <ArchiveView />
+        ) : phase === "syncing" ? (
+          <DownloadingView
+            onStartDownload={startDownload}
+            isStartingDownload={isStartingDownload}
+          />
+        ) : (
+          <PreDownloadView
+            downloadStartError={downloadStartError}
+            onStartDownload={startDownload}
+            isStartingDownload={isStartingDownload}
+          />
+        )}
       </div>
     </main>
   );

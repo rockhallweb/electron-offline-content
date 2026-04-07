@@ -606,6 +606,7 @@ export type {
   MediaCacheReadyState,
   MediaCacheStatus,
   MediaItemsQueryOptions,
+  MediaListQueryOptions,
   MediaQuerySyncOptions,
   ResolvedMediaContentItem,
 } from "../shared/types.js";
