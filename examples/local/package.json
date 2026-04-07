@@ -12,7 +12,8 @@
     "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --node-plugin --fix --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "knip": "knip"
+    "knip": "knip",
+    "validate": "pnpm run lint && pnpm run format:check && pnpm run knip"
   },
   "dependencies": {
     "@rockhallweb/electron-offline-content": "../../",

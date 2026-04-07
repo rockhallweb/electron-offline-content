@@ -62,10 +62,41 @@ jobs:
         run: xvfb-run -a pnpm validate
 
       - name: Install local example dependencies
-        run: pnpm install:example:local:ci
+        run: pnpm install --frozen-lockfile --dir examples/local
 
       - name: Install NASA example dependencies
-        run: pnpm install:example:nasa:ci
+        run: pnpm install --frozen-lockfile --dir examples/nasa
 
-      - name: Verify example apps via Turbo
+      - name: Verify example apps
         run: pnpm examples:verify
+
+  test-integration:
+    name: test integration (full suite, node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24, 25]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run full Vitest suite
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: xvfb-run -a pnpm test
