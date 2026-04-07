@@ -106,8 +106,8 @@ function normalizeTestOptions(
 
 function mergeTestDeps(deps?: TestMediaCacheDeps): TestMediaCacheDeps {
   return {
-    resolveAppPath: deps?.resolveAppPath ?? testResolveAppPath,
     ...deps,
+    resolveAppPath: deps?.resolveAppPath ?? testResolveAppPath,
   };
 }
 
@@ -167,6 +167,14 @@ export async function startExternalStorageRootLock(
       child.stdout.off("data", onStdout);
       child.off("exit", onExit);
       child.stderr.off("data", onStderr);
+      if (!child.killed && child.exitCode === null) {
+        child.kill();
+        setTimeout(() => {
+          if (!child.killed && child.exitCode === null) {
+            child.kill("SIGKILL");
+          }
+        }, 200);
+      }
       reject(new Error(`storage-root lock fixture stderr: ${chunk.toString("utf8").trim()}`));
     };
 
