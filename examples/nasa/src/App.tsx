@@ -45,7 +45,7 @@ export function App() {
   return (
     <main className={cn(["min-h-screen bg-black text-text", "max-[860px]:px-1"])}>
       <div className="grid w-full gap-0">
-        {errors.primaryError?.message ?? errors.syncError?.message ? (
+        {(errors.primaryError?.message ?? errors.syncError?.message) ? (
           <section className={errorClasses}>
             <strong className="mr-3 text-[#f87171]">ERROR:</strong>
             <span className="font-body text-sm tracking-[0.01em] text-[#fecaca]">

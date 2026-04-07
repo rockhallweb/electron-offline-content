@@ -9,7 +9,7 @@ pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa
 pnpm examples:verify
 ```
 
-`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (main-process Vitest only; excludes `media-cache.integration.test.ts` and React hook tests), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. On `main` / `workflow_dispatch`, CI runs the main-process Vitest suite including integration tests. Run `pnpm test` and `pnpm test:react` locally for the full matrix including renderer hooks. `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (main-process Vitest only; excludes `media-cache.integration.test.ts`), **`pnpm test:react`** (renderer hook tests via [`vitest.react.config.ts`](../vitest.react.config.ts)), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. On `main` / `workflow_dispatch` / merge queue, the **test integration** job runs the full main-process Vitest suite (including integration tests) under `xvfb-run`, then `pnpm test:react`. `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
 
 `pnpm examples:verify` runs each example’s `validate` script (lint, format check, knip) in `examples/local` and `examples/nasa` in parallel via [`scripts/run-examples.mjs`](../scripts/run-examples.mjs). CI installs example dependencies with `--ignore-scripts` (skips Electron postinstall) because verification does not need the binary. This repository is still not a monorepo workspace.
 
@@ -26,7 +26,7 @@ That means public fork PRs may still create a skipped workflow record, but the v
 
 The repository YAML cannot enforce all of the access policy. Configure these in the GitHub UI:
 
-1. Protect `main` and require the `CI / validate` status check before merge.
+1. Protect `main` and require the `CI / validate` status check before merge. If you rely on the integration job for merge queue or release hygiene, also require **CI / test integration**.
 2. Keep branch creation and push access limited to `rockhallweb` members.
 3. In Actions settings, allow only GitHub-authored or explicitly approved actions.
 

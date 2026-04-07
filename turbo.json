@@ -44,6 +44,16 @@
         "vitest.react.config.ts"
       ]
     },
+    "test:react": {
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "tsconfig.json",
+        "vitest.react.config.ts"
+      ]
+    },
     "pack:verify": {
       "dependsOn": ["build"],
       "cache": false

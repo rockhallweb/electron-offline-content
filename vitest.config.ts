@@ -7,6 +7,10 @@ const ci = Boolean(process.env.CI);
  * CI and `pnpm test` / `pnpm test:smoke` use `vitest.node.config.ts` + `vitest.react.config.ts` sequentially instead.
  */
 export default defineConfig({
+  esbuild: {
+    jsx: "automatic",
+    jsxImportSource: "react",
+  },
   test: {
     ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
     projects: [
