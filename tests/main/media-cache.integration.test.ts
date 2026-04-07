@@ -1,13 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  copyFileSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  existsSync,
-  statSync,
-  statfsSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync, statfsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   disableMediaCacheStorageRootLockForTests,
@@ -284,9 +276,7 @@ describe("media cache sync and queries (integration)", () => {
       );
     expect(mainAsset?.relativePath).toBeTruthy();
 
-    const originalPath = join(storageRoot, mainAsset!.relativePath!);
     const windowsRelativePath = "blobs\\nature\\forest\\main\\v1\\main.mp4";
-    copyFileSync(originalPath, join(storageRoot, windowsRelativePath));
     db.setAssetRelativePath(activeGenerationId!, "nature", "forest", "main", windowsRelativePath);
 
     await cache.syncNow();

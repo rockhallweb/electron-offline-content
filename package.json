@@ -39,7 +39,7 @@
     "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --fix --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "test": "vitest run --config vitest.node.config.ts && vitest run --config vitest.react.config.ts",
+    "test": "vitest run --config vitest.node.config.ts && vitest run --config vitest.node.integration.config.ts && vitest run --config vitest.react.config.ts",
     "test:smoke": "vitest run --config vitest.node.smoke.config.ts",
     "test:react": "vitest run --config vitest.react.config.ts",
     "test:watch": "vitest",

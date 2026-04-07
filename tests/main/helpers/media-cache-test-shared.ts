@@ -119,12 +119,12 @@ export class RawMediaCache extends RawMediaCacheBase {
 
 export class MediaCache extends RawMediaCache {
   constructor(options: TestMediaCacheOptions, deps?: TestMediaCacheDeps) {
-    super({ devPassthrough: false, ...options }, deps);
+    super({ ...options, devPassthrough: false }, deps);
   }
 }
 
 export function createMediaCache(options: TestMediaCacheOptions) {
-  return new RawMediaCache({ devPassthrough: false, ...options });
+  return new RawMediaCache({ ...options, devPassthrough: false });
 }
 
 export const electronSupportsProtocolRegistration = (() => {
@@ -164,6 +164,9 @@ export async function startExternalStorageRootLock(
       }
     };
     const onStderr = (chunk: Buffer) => {
+      child.stdout.off("data", onStdout);
+      child.off("exit", onExit);
+      child.stderr.off("data", onStderr);
       reject(new Error(`storage-root lock fixture stderr: ${chunk.toString("utf8").trim()}`));
     };
 

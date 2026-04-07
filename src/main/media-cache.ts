@@ -717,9 +717,12 @@ export class MediaCache implements MediaCacheMain {
         const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
         const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
         const activeRelativePath = activeRow?.relativePath ?? null;
+        const normalizedActiveRelativePath =
+          activeRelativePath === null ? null : normalizeStoredRelativePath(activeRelativePath);
         const nextVersion = manifestAsset.asset.resolvedVersion;
         const canReuseActiveBlob =
-          activeRelativePath !== null && existsSync(join(this.storageRoot!, activeRelativePath));
+          normalizedActiveRelativePath !== null &&
+          existsSync(join(this.storageRoot!, normalizedActiveRelativePath));
 
         if (this.devPassthrough) {
           stats.skippedAssets += 1;
@@ -727,14 +730,14 @@ export class MediaCache implements MediaCacheMain {
         }
 
         if (canReuseActiveBlob) {
-          const currentVersion = getResolvedVersionFromPath(activeRelativePath);
+          const currentVersion = getResolvedVersionFromPath(normalizedActiveRelativePath);
           if (currentVersion === nextVersion) {
             this.db!.setAssetDownloadState(
               stagedGenerationId,
               row.namespace,
               row.itemId,
               row.assetId,
-              activeRelativePath,
+              normalizedActiveRelativePath,
               activeRow?.mimeType ?? null,
             );
             stats.skippedAssets += 1;
@@ -1253,17 +1256,22 @@ export class MediaCache implements MediaCacheMain {
     const activePaths = new Set(
       activeGenerationId
         ? this.db!.getGenerationAssets(activeGenerationId).flatMap((row) =>
-            row.relativePath ? [row.relativePath] : [],
+            row.relativePath ? [normalizeStoredRelativePath(row.relativePath)] : [],
           )
         : [],
     );
 
     for (const row of this.db!.getGenerationAssets(stagedGenerationId)) {
-      if (!row.relativePath || activePaths.has(row.relativePath)) {
+      if (!row.relativePath) {
         continue;
       }
 
-      const absolutePath = join(this.storageRoot!, row.relativePath);
+      const normalizedRelativePath = normalizeStoredRelativePath(row.relativePath);
+      if (activePaths.has(normalizedRelativePath)) {
+        continue;
+      }
+
+      const absolutePath = join(this.storageRoot!, normalizedRelativePath);
       rmSync(absolutePath, { force: true });
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
@@ -1316,7 +1324,10 @@ export class MediaCache implements MediaCacheMain {
     }
 
     for (const deletion of expired) {
-      const absolutePath = join(this.storageRoot!, deletion.relativePath);
+      const absolutePath = join(
+        this.storageRoot!,
+        normalizeStoredRelativePath(deletion.relativePath),
+      );
       rmSync(absolutePath, { force: true });
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
@@ -1531,6 +1542,10 @@ function findManifestAsset(
 function getResolvedVersionFromPath(relativePath: string): string | null {
   const parts = relativePath.split(/[\\/]/);
   return parts.length >= 5 ? decodeURIComponent(parts.at(-2)!) : null;
+}
+
+function normalizeStoredRelativePath(relativePath: string): string {
+  return relativePath.split(/[\\/]/).join("/");
 }
 
 function renameSyncSafe(from: string, to: string): void {

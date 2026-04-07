@@ -85,7 +85,11 @@ function fromEntriesWithValidation<T, TValue>(
       );
     }
     keyToFirstIndex.set(key, i);
-    out[key] = parseWithSchema(schema, value, `${options.builderName} index ${i} (${options.keyLabel} "${key}")`);
+    out[key] = parseWithSchema(
+      schema,
+      value,
+      `${options.builderName} index ${i} (${options.keyLabel} "${key}")`,
+    );
   }
 
   return out;

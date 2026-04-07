@@ -15,17 +15,17 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Library
 
-| Command             | Description                                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                      |
-| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                        |
-| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                           |
-| `pnpm check`        | Type-check the package.                                                                                                                                                |
-| `pnpm test`         | Run all Vitest suites: main (including integration) plus React hook tests (`vitest.node.config.ts` then `vitest.react.config.ts`).                                     |
-| `pnpm test:smoke`   | Main-process tests only for `pnpm validate` / PR CI (excludes integration tests).                                                                                      |
-| `pnpm test:react`   | React hook tests only (`vitest.react.config.ts`); included in `pnpm validate` and PR CI via Turbo.                                                                     |
-| `pnpm build`        | Build package outputs in `dist/`.                                                                                                                                      |
-| `pnpm validate`     | Turbo graph: lint, format check, type-check, `test:smoke`, `test:react`, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks. |
+| Command             | Description                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                              |
+| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                                |
+| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                                   |
+| `pnpm check`        | Type-check the package.                                                                                                                                                        |
+| `pnpm test`         | Run all Vitest suites: main unit/smoke, main integration, then React hook tests (`vitest.node.config.ts`, `vitest.node.integration.config.ts`, then `vitest.react.config.ts`). |
+| `pnpm test:smoke`   | Main-process tests only for `pnpm validate` / PR CI (excludes integration tests).                                                                                              |
+| `pnpm test:react`   | React hook tests only (`vitest.react.config.ts`); included in `pnpm validate` and PR CI via Turbo.                                                                             |
+| `pnpm build`        | Build package outputs in `dist/`.                                                                                                                                              |
+| `pnpm validate`     | Turbo graph: lint, format check, type-check, `test:smoke`, `test:react`, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks.         |
 
 ### Examples
 
@@ -33,9 +33,9 @@ Run these commands from the repository root (each example still has its own stan
 
 | Command                                              | Description                                                                           |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `pnpm install --dir examples/local`                  | Install `examples/local` (add `--frozen-lockfile` in CI-style runs).                    |
-| `pnpm install --dir examples/nasa`                   | Install `examples/nasa` (add `--frozen-lockfile` in CI-style runs).                     |
-| `pnpm --dir examples/local dev` (or `examples/nasa`) | `predev` builds the root package when `dist/` is missing, then starts Electron Forge.   |
+| `pnpm install --dir examples/local`                  | Install `examples/local` (add `--frozen-lockfile` in CI-style runs).                  |
+| `pnpm install --dir examples/nasa`                   | Install `examples/nasa` (add `--frozen-lockfile` in CI-style runs).                   |
+| `pnpm --dir examples/local dev` (or `examples/nasa`) | `predev` builds the root package when `dist/` is missing, then starts Electron Forge. |
 
 From the **repo root**, example checks without changing directory:
 
@@ -56,12 +56,12 @@ From the **repo root**, example checks without changing directory:
 
 Before tagging or publishing, run the full local matrix and the same Turbo pipeline CI uses:
 
-- `pnpm test` (main-process Vitest including integration, then React hook tests)
+- `pnpm test` (main-process smoke/unit, main integration, then React hook tests)
 - `pnpm validate`
 
 ## CI
 
-GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs the full main-process Vitest suite under `xvfb-run`; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
+GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
 
 ## Day-to-day workflow
 

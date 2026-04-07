@@ -115,4 +115,4 @@ jobs:
       - name: Run main-process Vitest suite (integration)
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: xvfb-run -a pnpm exec vitest run --config vitest.node.config.ts
+        run: pnpm exec vitest run --config vitest.node.integration.config.ts
