@@ -42,7 +42,7 @@ describe("media cache sync and queries (integration)", () => {
   let baseUrl = "";
   let requestCounts: Record<string, number>;
   let requestRanges: Record<string, string[]>;
-  let manifests: MediaCacheManifest;
+  let manifest: MediaCacheManifest;
 
   beforeAll(async () => {
     fixture = await createMediaCacheTestFixture();
@@ -59,7 +59,7 @@ describe("media cache sync and queries (integration)", () => {
     fixture.resetCounters();
     requestCounts = fixture.counters.requestCounts;
     requestRanges = fixture.counters.requestRanges;
-    manifests = fixture.createDefaultManifests();
+    manifest = fixture.createDefaultManifests();
   });
 
   it("rejects a second process that targets the same storageRoot", async () => {
@@ -71,7 +71,7 @@ describe("media cache sync and queries (integration)", () => {
       try {
         const cache = new RawMediaCache({
           storageRoot,
-          resolveManifest: () => manifests,
+          resolveManifest: () => manifest,
         });
 
         await expect(cache.syncNow()).rejects.toThrow(StorageOwnershipError);
@@ -180,7 +180,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
       resolveAssetRequest: () => {
         resolveCalls += 1;
         return {
@@ -198,7 +198,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await offlineCache.start();
@@ -211,7 +211,7 @@ describe("media cache sync and queries (integration)", () => {
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await passthroughCache.start();
@@ -229,7 +229,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = createMediaCache({
       storageRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
       resolveAssetRequest: ({ asset }) => {
         resolveCalls += 1;
         return asset.source;
@@ -248,7 +248,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -295,7 +295,7 @@ describe("media cache sync and queries (integration)", () => {
 
   it("preserves JSON.stringify semantics for undefined manifest metadata and blobs", async () => {
     const storageRoot = createStorageRoot();
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "undefined-json-fields",
       namespaces: [
         {
@@ -342,7 +342,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = createMediaCache({
       storageRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await expect(cache.start()).resolves.toBeUndefined();
@@ -451,7 +451,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new MediaCache(
       {
         storageRoot,
-        resolveManifest: () => manifests,
+        resolveManifest: () => manifest,
       },
       {
         now: () => currentNow,
@@ -462,7 +462,7 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     currentNow = 2_000;
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "expired-update",
       expiresAt: new Date(1_500).toISOString(),
       namespaces: [
@@ -511,7 +511,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "resume",
       namespaces: [
         {
@@ -541,7 +541,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -566,7 +566,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body.slice(0, 990_000));
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "reserve-resume",
       namespaces: [
         {
@@ -597,7 +597,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new MediaCache(
       {
         storageRoot,
-        resolveManifest: () => manifests,
+        resolveManifest: () => manifest,
       },
       {
         sleep: async () => undefined,
@@ -665,7 +665,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "resume-retryable",
       namespaces: [
         {
@@ -695,7 +695,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -719,7 +719,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "range-ignored",
       namespaces: [
         {
@@ -749,7 +749,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -768,7 +768,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "range-mismatch",
       namespaces: [
         {
@@ -798,7 +798,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -824,7 +824,7 @@ describe("media cache sync and queries (integration)", () => {
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body);
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "range-not-satisfiable",
       namespaces: [
         {
@@ -854,7 +854,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -872,7 +872,7 @@ describe("media cache sync and queries (integration)", () => {
 
   it("preserves partial files after exhausting retryable download failures", async () => {
     const storageRoot = createStorageRoot();
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "drop-after-two",
       namespaces: [
         {
@@ -903,7 +903,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = createNoSleepCache({
       storageRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await expect(cache.start()).rejects.toThrow("terminated");
@@ -931,7 +931,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -954,7 +954,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -968,7 +968,7 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => manifests,
+        resolveManifest: () => manifest,
       },
       {
         sleep: async () => undefined,
@@ -1004,12 +1004,12 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "cleanup-failed-stage",
       namespaces: [
         {
@@ -1064,7 +1064,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const initialCache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await initialCache.start();
@@ -1177,7 +1177,7 @@ describe("media cache sync and queries (integration)", () => {
           logs.push(entry);
         },
       },
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     const status = await cache.getStatus();
@@ -1221,7 +1221,7 @@ describe("media cache sync and queries (integration)", () => {
   it("prunes expired deletions before enforcing storage limits", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "small-initial",
       namespaces: [
         {
@@ -1253,7 +1253,7 @@ describe("media cache sync and queries (integration)", () => {
         storageRoot,
         maxCacheBytes: 15,
         staleDeleteAfterMs: 10,
-        resolveManifest: () => manifests,
+        resolveManifest: () => manifest,
       },
       {
         now: () => currentNow,
@@ -1263,14 +1263,14 @@ describe("media cache sync and queries (integration)", () => {
 
     await cache.start();
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "pending-delete",
       namespaces: [],
     });
     await cache.syncNow();
 
     currentNow = 2_000;
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "after-prune",
       namespaces: [
         {
@@ -1310,7 +1310,7 @@ describe("media cache sync and queries (integration)", () => {
   it("retains multiple obsolete blob versions until each expires", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "retain-v1",
       namespaces: [
         {
@@ -1342,7 +1342,7 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         staleDeleteAfterMs: 1_000,
-        resolveManifest: () => manifests,
+        resolveManifest: () => manifest,
       },
       {
         now: () => currentNow,
@@ -1353,7 +1353,7 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     currentNow = 1_100;
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "retain-v2",
       namespaces: [
         {
@@ -1383,7 +1383,7 @@ describe("media cache sync and queries (integration)", () => {
     await cache.syncNow();
 
     currentNow = 1_200;
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "retain-v3",
       namespaces: [
         {
@@ -1432,7 +1432,7 @@ describe("media cache sync and queries (integration)", () => {
 
   it("uses response content type only as a mimeType fallback", async () => {
     const storageRoot = createStorageRoot();
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "mime-fallback",
       namespaces: [
         {
@@ -1480,7 +1480,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     await cache.start();
@@ -1491,7 +1491,7 @@ describe("media cache sync and queries (integration)", () => {
     const manifestItem = await cache.getItem("nature", "manifest");
     expect(manifestItem?.assets[0]?.mimeType).toBe("video/mp4");
 
-    manifests = recordManifest({
+    manifest = recordManifest({
       snapshotId: "mime-fallback-skip",
       namespaces: [
         {
@@ -1551,7 +1551,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
 
     const handlers = await createIpcHandlers(cache);
@@ -1568,7 +1568,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
-      resolveManifest: () => manifests,
+      resolveManifest: () => manifest,
     });
     await cache.start();
     const handler = await createProtocolHandler(cache, {

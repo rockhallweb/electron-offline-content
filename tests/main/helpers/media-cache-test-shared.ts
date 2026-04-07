@@ -552,7 +552,7 @@ export function partialPathFor(
 }
 
 function walk(path: string): string[] {
-  const stats = existsSync(path) ? readFileSafe(path) : null;
+  const stats = readFileSafe(path);
   if (stats === null) {
     return [];
   }

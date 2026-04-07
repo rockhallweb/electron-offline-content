@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["TURBO_NODE_VERSION"],
   "tasks": {
     "build": {
       "inputs": ["src/**", "package.json", "pnpm-lock.yaml", "tsconfig.json", "tsup.config.ts"],
@@ -41,6 +42,7 @@
         "tsconfig.json",
         "vitest.config.ts",
         "vitest.node.config.ts",
+        "vitest.node.smoke.config.ts",
         "vitest.react.config.ts"
       ]
     },

@@ -14,6 +14,7 @@ import {
   mediaNamespaceValueSchema,
   parseWithSchema,
 } from "../internal/validation.js";
+import { z } from "zod";
 
 /**
  * Validates and returns a producer manifest.
@@ -53,13 +54,19 @@ export function defineAsset(input: MediaAssetValue): MediaAssetValue {
 }
 
 /**
- * Builds a `namespaces` record from an array, validating each value and rejecting duplicate keys.
+ * Builds a record from entries, validating each value and rejecting empty or duplicate keys.
  */
-export function namespacesFromEntries<T>(
+function fromEntriesWithValidation<T, TValue>(
   source: readonly T[],
-  fn: (element: T, index: number) => readonly [string, MediaNamespaceValue],
-): Record<string, MediaNamespaceValue> {
-  const out: Record<string, MediaNamespaceValue> = {};
+  fn: (element: T, index: number) => readonly [string, TValue],
+  schema: z.ZodType<TValue>,
+  options: {
+    builderName: string;
+    entityName: string;
+    keyLabel: string;
+  },
+): Record<string, TValue> {
+  const out: Record<string, TValue> = {};
   const keyToFirstIndex = new Map<string, number>();
 
   for (let i = 0; i < source.length; i++) {
@@ -68,24 +75,34 @@ export function namespacesFromEntries<T>(
     const value = tuple[1];
     if (!key) {
       throw new ManifestValidationError(
-        `namespacesFromEntries: empty namespace key at index ${i}.`,
+        `${options.builderName}: empty ${options.entityName} ${options.keyLabel} at index ${i}.`,
       );
     }
     const first = keyToFirstIndex.get(key);
     if (first !== undefined) {
       throw new ManifestValidationError(
-        `Duplicate namespace key "${key}" in namespacesFromEntries() — first seen at index ${first}, duplicate at index ${i}.`,
+        `Duplicate ${options.entityName} ${options.keyLabel} "${key}" in ${options.builderName}() — first seen at index ${first}, duplicate at index ${i}.`,
       );
     }
     keyToFirstIndex.set(key, i);
-    out[key] = parseWithSchema(
-      mediaNamespaceValueSchema,
-      value,
-      `namespacesFromEntries index ${i} (key "${key}")`,
-    );
+    out[key] = parseWithSchema(schema, value, `${options.builderName} index ${i} (${options.keyLabel} "${key}")`);
   }
 
   return out;
+}
+
+/**
+ * Builds a `namespaces` record from an array, validating each value and rejecting duplicate keys.
+ */
+export function namespacesFromEntries<T>(
+  source: readonly T[],
+  fn: (element: T, index: number) => readonly [string, MediaNamespaceValue],
+): Record<string, MediaNamespaceValue> {
+  return fromEntriesWithValidation(source, fn, mediaNamespaceValueSchema, {
+    builderName: "namespacesFromEntries",
+    entityName: "namespace",
+    keyLabel: "key",
+  });
 }
 
 /**
@@ -95,31 +112,11 @@ export function itemsFromEntries<T>(
   source: readonly T[],
   fn: (element: T, index: number) => readonly [string, MediaItemValue],
 ): Record<string, MediaItemValue> {
-  const out: Record<string, MediaItemValue> = {};
-  const keyToFirstIndex = new Map<string, number>();
-
-  for (let i = 0; i < source.length; i++) {
-    const tuple = fn(source[i]!, i);
-    const key = tuple[0];
-    const value = tuple[1];
-    if (!key) {
-      throw new ManifestValidationError(`itemsFromEntries: empty item id at index ${i}.`);
-    }
-    const first = keyToFirstIndex.get(key);
-    if (first !== undefined) {
-      throw new ManifestValidationError(
-        `Duplicate item id "${key}" in itemsFromEntries() — first seen at index ${first}, duplicate at index ${i}.`,
-      );
-    }
-    keyToFirstIndex.set(key, i);
-    out[key] = parseWithSchema(
-      mediaItemValueSchema,
-      value,
-      `itemsFromEntries index ${i} (id "${key}")`,
-    );
-  }
-
-  return out;
+  return fromEntriesWithValidation(source, fn, mediaItemValueSchema, {
+    builderName: "itemsFromEntries",
+    entityName: "item",
+    keyLabel: "id",
+  });
 }
 
 /**
@@ -129,29 +126,9 @@ export function assetsFromEntries<T>(
   source: readonly T[],
   fn: (element: T, index: number) => readonly [string, MediaAssetValue],
 ): Record<string, MediaAssetValue> {
-  const out: Record<string, MediaAssetValue> = {};
-  const keyToFirstIndex = new Map<string, number>();
-
-  for (let i = 0; i < source.length; i++) {
-    const tuple = fn(source[i]!, i);
-    const key = tuple[0];
-    const value = tuple[1];
-    if (!key) {
-      throw new ManifestValidationError(`assetsFromEntries: empty asset id at index ${i}.`);
-    }
-    const first = keyToFirstIndex.get(key);
-    if (first !== undefined) {
-      throw new ManifestValidationError(
-        `Duplicate asset id "${key}" in assetsFromEntries() — first seen at index ${first}, duplicate at index ${i}.`,
-      );
-    }
-    keyToFirstIndex.set(key, i);
-    out[key] = parseWithSchema(
-      mediaAssetValueSchema,
-      value,
-      `assetsFromEntries index ${i} (id "${key}")`,
-    );
-  }
-
-  return out;
+  return fromEntriesWithValidation(source, fn, mediaAssetValueSchema, {
+    builderName: "assetsFromEntries",
+    entityName: "asset",
+    keyLabel: "id",
+  });
 }

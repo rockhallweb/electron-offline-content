@@ -26,7 +26,7 @@ const NasaSearchItemDataLike = z.object({
   description: z.string(),
   keywords: z.array(z.string()).optional(),
   media_type: z.enum(["image", "video"]),
-  nasa_id: z.string(),
+  nasa_id: z.string().min(1),
   title: z.string(),
 });
 

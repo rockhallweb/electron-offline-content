@@ -29,13 +29,13 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Examples
 
-Install and run from each example directory (standalone `pnpm-lock.yaml` per app):
+Run these commands from the repository root (each example still has its own standalone `pnpm-lock.yaml`):
 
 | Command                                              | Description                                                                           |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `pnpm install --dir examples/local`                  | Install `examples/local` (add `--frozen-lockfile` in CI-style runs).                  |
-| `pnpm install --dir examples/nasa`                   | Install `examples/nasa` (add `--frozen-lockfile` in CI-style runs).                   |
-| `cd examples/local && pnpm dev` (or `examples/nasa`) | `predev` builds the root package when `dist/` is missing, then starts Electron Forge. |
+| `pnpm install --dir examples/local`                  | Install `examples/local` (add `--frozen-lockfile` in CI-style runs).                    |
+| `pnpm install --dir examples/nasa`                   | Install `examples/nasa` (add `--frozen-lockfile` in CI-style runs).                     |
+| `pnpm --dir examples/local dev` (or `examples/nasa`) | `predev` builds the root package when `dist/` is missing, then starts Electron Forge.   |
 
 From the **repo root**, example checks without changing directory:
 
@@ -61,7 +61,7 @@ Before tagging or publishing, run the full local matrix and the same Turbo pipel
 
 ## CI
 
-GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs the full main-process Vitest suite under `xvfb-run` plus `pnpm test:react` on the same runner family as validate. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
+GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs the full main-process Vitest suite under `xvfb-run`; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
 
 ## Day-to-day workflow
 
@@ -90,7 +90,7 @@ This setup is intentionally package-first:
 
 - The helper installs only the root package dependencies.
 - Example app dependencies are not installed automatically.
-- Use `pnpm install --dir examples/...` and `pnpm dev` inside an example when you want to exercise `examples/local` or `examples/nasa`.
+- Use `pnpm install --dir examples/...` and `pnpm --dir examples/local dev` (or `pnpm --dir examples/nasa dev`) when you want to exercise an example app from the repo root.
 
 Typical flow:
 

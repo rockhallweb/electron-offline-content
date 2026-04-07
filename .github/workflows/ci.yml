@@ -33,6 +33,7 @@ jobs:
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_NODE_VERSION: ${{ matrix.node-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +84,7 @@ jobs:
         run: pnpm examples:verify
 
   test-integration:
-    name: test integration (Vitest node + react, node ${{ matrix.node-version }})
+    name: test integration (Vitest node, node ${{ matrix.node-version }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     if: >-
@@ -115,8 +116,3 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: xvfb-run -a pnpm exec vitest run --config vitest.node.config.ts
-
-      - name: Run React hook Vitest suite
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm test:react
