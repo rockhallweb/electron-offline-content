@@ -742,7 +742,7 @@ Hooks such as `useFileStemMatch`, `useMediaCacheReady`, and `useMediaCacheStatus
 
 Two example apps demonstrate end-to-end wiring. Each is a standalone Electron Forge + React + Vite project.
 
-- [examples/local/](examples/local/) -- uses a loopback HTTP server with small local fixtures. Also used by `pack:verify` in CI.
+- [examples/local/](examples/local/) -- uses a loopback HTTP server with small local fixtures. Also used by `pack:verify` on CI pushes to `main`.
 - [examples/nasa/](examples/nasa/) -- uses public NASA SVS URLs for heavier manual demos (not run in CI).
 
 Both examples exercise sync status, namespace listing, namespace tree listing, item lookup, file-stem search, and rendering images and video from `media://` URLs (offline mode) or direct remote URLs (dev passthrough).

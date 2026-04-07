@@ -278,14 +278,20 @@ function ArchiveView() {
     posterUrl: item.assetsByRole.poster?.url ?? null,
     leadKind: item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
   }));
-  const selectedExists = queue.some(
+  const filteredQueue =
+    filter === "all"
+      ? queue
+      : queue.filter((item) => mediaKindFromNamespace(item.namespace) === filter);
+  const selectedExists = filteredQueue.some(
     (item) => item.namespace === selectedIntent.namespace && item.itemId === selectedIntent.itemId,
   );
   const selected = selectedExists
     ? selectedIntent
-    : queue[0]
-      ? { namespace: queue[0].namespace, itemId: queue[0].itemId }
-      : selectedIntent;
+    : filteredQueue[0]
+      ? { namespace: filteredQueue[0].namespace, itemId: filteredQueue[0].itemId }
+      : queue[0]
+        ? { namespace: queue[0].namespace, itemId: queue[0].itemId }
+        : selectedIntent;
   const currentItem = useMedia({
     kind: "item",
     namespace: selected.namespace,
@@ -297,11 +303,9 @@ function ArchiveView() {
     "Metadata will appear here after the cache exposes the current item.";
   const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0] ?? null;
   const posterAssetUrl = currentItem.data?.assetsByRole.poster?.url ?? null;
+  const imageAssetUrl =
+    leadAsset?.kind === "image" && leadAsset.url ? leadAsset.url : posterAssetUrl;
   const subtitleAssetUrl = currentItem.data?.assetsByRole.subtitle?.url ?? null;
-  const filteredQueue =
-    filter === "all"
-      ? queue
-      : queue.filter((item) => mediaKindFromNamespace(item.namespace) === filter);
 
   return (
     <section className="min-h-screen border-x border-border bg-surface">
@@ -422,10 +426,10 @@ function ArchiveView() {
                   <track kind="subtitles" src={subtitleAssetUrl} default label="Captions" />
                 ) : null}
               </video>
-            ) : posterAssetUrl ? (
+            ) : imageAssetUrl ? (
               <img
                 className="block h-full w-full bg-black object-contain transition-opacity duration-300"
-                src={posterAssetUrl}
+                src={imageAssetUrl}
                 alt={title}
               />
             ) : (

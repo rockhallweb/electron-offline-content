@@ -4,14 +4,14 @@ This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.ym
 
 ```bash
 pnpm validate
-pnpm install --frozen-lockfile --dir examples/local
-pnpm install --frozen-lockfile --dir examples/nasa
+pnpm install --frozen-lockfile --ignore-scripts --dir examples/local
+pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa
 pnpm examples:verify
 ```
 
-`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (Vitest excluding `media-cache.integration.test.ts`), build, then `pack:verify`. Run `pnpm test` locally (or on `main` / `workflow_dispatch` in CI) for the full suite including integration tests. `pack:verify` still packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
+`pnpm validate` runs the root package graph from [`turbo.json`](../turbo.json): lint, format check, type-check, `test:smoke` (Vitest excluding `media-cache.integration.test.ts`), and build. On pushes to `main`, CI also runs `pnpm pack:verify` after validate. Run `pnpm test` locally (or on `main` / `workflow_dispatch` in CI) for the full suite including integration tests. `pack:verify` packs the library, installs that tarball into a temporary copy of `examples/local`, and runs `tsc --noEmit -p tsconfig.pack-verify.json` there (main/preload/example manifest wiring only).
 
-`pnpm examples:verify` runs each example’s `validate` script (lint, format check, knip) in `examples/local` and `examples/nasa` in parallel via [`scripts/run-examples.mjs`](../scripts/run-examples.mjs). Example installs are explicit setup steps beforehand. This repository is still not a monorepo workspace.
+`pnpm examples:verify` runs each example’s `validate` script (lint, format check, knip) in `examples/local` and `examples/nasa` in parallel via [`scripts/run-examples.mjs`](../scripts/run-examples.mjs). CI installs example dependencies with `--ignore-scripts` (skips Electron postinstall) because verification does not need the binary. This repository is still not a monorepo workspace.
 
 The workflow is intentionally member-oriented:
 

@@ -4,8 +4,8 @@ const ci = Boolean(process.env.CI);
 
 export default defineConfig({
   test: {
-    // On CI, default parallelism can exhaust the default ~2GB worker heap (node + jsdom projects).
-    ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
+    // On CI, cap workers to stay within ubuntu-latest RAM while overlapping node + jsdom projects.
+    ...(ci ? { maxWorkers: 2 } : {}),
     projects: [
       {
         test: {

@@ -85,7 +85,10 @@ export interface MediaCacheManifest {
   expiresAt?: string;
   /**
    * Content namespaces keyed by stable namespace id (same string as used in `getItem` / list APIs).
-   * Iteration order follows ECMAScript `[[OwnPropertyKeys]]` (insertion order for string keys).
+   * Enumeration follows ECMAScript `[[OwnPropertyKeys]]`: non–array-index string keys keep insertion
+   * order; keys that are canonical array indices (e.g. `"0"`, `"10"`) are sorted ascending
+   * numerically. That order flows into normalization and DB-backed iteration, so avoid
+   * numeric-looking ids when you need authoring order to match runtime order (e.g. first asset per role).
    */
   namespaces: Record<string, MediaNamespaceValue>;
 }
@@ -98,7 +101,10 @@ export interface MediaNamespaceValue {
   label?: string;
   /** App-specific JSON metadata attached to the namespace. */
   metadata?: Record<string, JsonValue>;
-  /** Catalog items keyed by stable item id within this namespace. */
+  /**
+   * Catalog items keyed by stable item id within this namespace.
+   * Same `[[OwnPropertyKeys]]` ordering caveats as {@link MediaCacheManifest.namespaces} apply.
+   */
   items: Record<string, MediaItemValue>;
 }
 
@@ -136,6 +142,7 @@ export interface MediaItemValue {
   /**
    * Files to fetch and persist for this item, keyed by stable asset id within the item.
    * At least one asset is typical (e.g. primary media).
+   * Same `[[OwnPropertyKeys]]` ordering caveats as {@link MediaCacheManifest.namespaces} apply.
    */
   assets: Record<string, MediaAssetValue>;
 }

@@ -61,11 +61,15 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: xvfb-run -a pnpm validate
 
-      - name: Install local example dependencies
-        run: pnpm install --frozen-lockfile --dir examples/local
+      - name: Pack verify (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm pack:verify
 
-      - name: Install NASA example dependencies
-        run: pnpm install --frozen-lockfile --dir examples/nasa
+      - name: Install example dependencies
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts --dir examples/local &
+          pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa &
+          wait
 
       - name: Verify example apps
         run: pnpm examples:verify

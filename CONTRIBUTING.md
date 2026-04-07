@@ -24,7 +24,7 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 | `pnpm test`         | Run the full package test suite (smoke plus integration tests, including long-running media-cache cases). |
 | `pnpm test:smoke`   | Run a faster subset used by `pnpm validate` / CI (excludes `media-cache.integration.test.ts`).            |
 | `pnpm build`        | Build package outputs in `dist/`.                                                                         |
-| `pnpm validate`     | Run the Turbo validation graph for lint, format, type-check, smoke tests, build, and pack verification.   |
+| `pnpm validate`     | Run the Turbo validation graph for lint, format, type-check, smoke tests, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks.   |
 
 ### Examples
 
@@ -53,7 +53,7 @@ From the **repo root**, example checks without changing directory:
 
 ## CI
 
-GitHub Actions uses `pnpm validate` for the root package graph (smoke tests only via `test:smoke`), then runs `pnpm install --frozen-lockfile --dir examples/local` and the same for `examples/nasa`, then `pnpm examples:verify`. Pushes to `main` and manual `workflow_dispatch` also run `pnpm test` so the full integration suite still runs on the default branch. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
+GitHub Actions uses `pnpm validate` for the root package graph (smoke tests only via `test:smoke`), then runs `pnpm pack:verify` on pushes to `main` only, then parallel `pnpm install --frozen-lockfile --ignore-scripts` in each example directory, then `pnpm examples:verify`. Pushes to `main` and manual `workflow_dispatch` also run `pnpm test` so the full integration suite still runs on the default branch. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for the repository-side policy and required GitHub settings.
 
 ## Day-to-day workflow
 
