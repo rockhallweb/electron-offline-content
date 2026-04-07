@@ -1270,16 +1270,17 @@ describe("media cache sync and queries (smoke)", () => {
     expect(logs.every((entry) => entry.component === "media-cache")).toBe(true);
   });
 
-  it("requires storagePath configuration", async () => {
-    const cache = new MediaCache({
-      resolveManifest: () =>
-        recordManifest({
-          snapshotId: "missing-storage-path",
-          namespaces: [],
+  it("requires storagePath configuration", () => {
+    expect(
+      () =>
+        new MediaCache({
+          resolveManifest: () =>
+            recordManifest({
+              snapshotId: "missing-storage-path",
+              namespaces: [],
+            }),
         }),
-    });
-
-    await expect(cache.start()).rejects.toThrow(DataValidationError);
+    ).toThrow(DataValidationError);
   });
 
   it("ignores invalid stored status snapshots and logs a warning", async () => {
@@ -1656,10 +1657,12 @@ describe("media cache sync and queries (smoke)", () => {
 
       try {
         new RawMediaCache({
+          storageRoot: createStorageRoot(),
           devPassthrough: false,
           resolveManifest: async () => recordManifest({ namespaces: [] }),
         });
         new RawMediaCache({
+          storageRoot: createStorageRoot(),
           devPassthrough: false,
           resolveManifest: async () => recordManifest({ namespaces: [] }),
         });

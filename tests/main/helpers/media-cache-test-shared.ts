@@ -10,6 +10,7 @@ import {
   resetMediaCacheProtocolRegistrationStateForTests,
   type MediaCacheMain,
 } from "../../../src/main/media-cache.js";
+import { DataValidationError } from "../../../src/shared/errors.js";
 import type {
   JsonValue,
   MediaAssetValue,
@@ -17,6 +18,10 @@ import type {
   MediaItemValue,
   SyncManifestAsset,
 } from "../../../src/shared/types.js";
+import {
+  mediaCacheStoragePathSchema,
+  parseWithSchema,
+} from "../../../src/internal/validation.js";
 
 /** Build a record-shaped manifest from legacy `{ key, items: [{ id, assets: [{ id, ... }] }] }[]` test fixtures. */
 type LegacyManifestAsset = { id: string } & MediaAssetValue;
@@ -87,21 +92,31 @@ async function testResolveAppPath(appPath: string): Promise<string> {
   return tmpdir();
 }
 
-function normalizeTestOptions(
-  options: TestMediaCacheOptions,
-): ConstructorParameters<typeof RawMediaCacheBase>[0] {
-  if (options.storageRoot === undefined) {
-    return options as ConstructorParameters<typeof RawMediaCacheBase>[0];
+type MediaCacheCtorOptions = ConstructorParameters<typeof RawMediaCacheBase>[0];
+
+function normalizeTestOptions(options: TestMediaCacheOptions): MediaCacheCtorOptions {
+  const { storageRoot, storagePath, ...rest } = options;
+
+  if (storagePath !== undefined) {
+    return {
+      ...rest,
+      storagePath: parseWithSchema(mediaCacheStoragePathSchema, storagePath, "storage path"),
+    };
   }
 
-  const { storageRoot, ...rest } = options;
-  return {
-    ...rest,
-    storagePath: {
-      appPath: "temp",
-      segments: [basename(storageRoot)],
-    },
-  };
+  if (storageRoot !== undefined) {
+    return {
+      ...rest,
+      storagePath: {
+        appPath: "temp",
+        segments: [basename(storageRoot)],
+      },
+    };
+  }
+
+  throw new DataValidationError(
+    "Test cache options must include `storageRoot` or `storagePath` for offline mode.",
+  );
 }
 
 function mergeTestDeps(deps?: TestMediaCacheDeps): TestMediaCacheDeps {
