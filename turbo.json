@@ -13,6 +13,8 @@
         "pnpm-lock.yaml",
         "tsconfig.json",
         "vitest.config.ts",
+        "vitest.node.config.ts",
+        "vitest.react.config.ts",
         "tsup.config.ts"
       ]
     },
@@ -25,7 +27,9 @@
         "package.json",
         "pnpm-lock.yaml",
         "tsconfig.json",
-        "vitest.config.ts"
+        "vitest.config.ts",
+        "vitest.node.config.ts",
+        "vitest.react.config.ts"
       ]
     },
     "test:smoke": {
@@ -35,7 +39,9 @@
         "package.json",
         "pnpm-lock.yaml",
         "tsconfig.json",
-        "vitest.config.ts"
+        "vitest.config.ts",
+        "vitest.node.config.ts",
+        "vitest.react.config.ts"
       ]
     },
     "pack:verify": {

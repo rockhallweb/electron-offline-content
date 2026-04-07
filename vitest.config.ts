@@ -2,9 +2,12 @@ import { defineConfig } from "vitest/config";
 
 const ci = Boolean(process.env.CI);
 
+/**
+ * Default config for `vitest` / `vitest watch` (multi-project).
+ * CI and `pnpm test` / `pnpm test:smoke` use `vitest.node.config.ts` + `vitest.react.config.ts` sequentially instead.
+ */
 export default defineConfig({
   test: {
-    // On CI, a single worker avoids stalls seen with maxWorkers>1 (tinypool + node/jsdom projects).
     ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
     projects: [
       {
@@ -16,9 +19,9 @@ export default defineConfig({
       },
       {
         test: {
-          name: "jsdom",
+          name: "react",
           include: ["tests/react/**/*.test.tsx"],
-          environment: "jsdom",
+          environment: "happy-dom",
         },
       },
     ],
