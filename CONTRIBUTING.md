@@ -15,16 +15,16 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 
 ### Library
 
-| Command             | Description                                                                                               |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `pnpm lint`         | Run Oxlint across the repository.                                                                         |
-| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                           |
-| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                              |
-| `pnpm check`        | Type-check the package.                                                                                   |
-| `pnpm test`         | Run the full package test suite (smoke plus integration tests, including long-running media-cache cases). |
-| `pnpm test:smoke`   | Run a faster subset used by `pnpm validate` / CI (excludes `media-cache.integration.test.ts`).            |
-| `pnpm build`        | Build package outputs in `dist/`.                                                                         |
-| `pnpm validate`     | Run the Turbo validation graph for lint, format, type-check, smoke tests, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks.   |
+| Command             | Description                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                       |
+| `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                         |
+| `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                            |
+| `pnpm check`        | Type-check the package.                                                                                                                                                 |
+| `pnpm test`         | Run the full package test suite (smoke plus integration tests, including long-running media-cache cases).                                                               |
+| `pnpm test:smoke`   | Run a faster subset used by `pnpm validate` / CI (excludes `media-cache.integration.test.ts`).                                                                          |
+| `pnpm build`        | Build package outputs in `dist/`.                                                                                                                                       |
+| `pnpm validate`     | Run the Turbo validation graph for lint, format, type-check, smoke tests, and build. Run `pnpm pack:verify` locally or rely on CI on `main` for tarball install checks. |
 
 ### Examples
 
