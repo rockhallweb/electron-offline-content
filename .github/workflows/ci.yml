@@ -59,7 +59,8 @@ jobs:
         env:
           # Vitest workers default to ~2GB heaps; jsdom + large main tests can OOM on ubuntu-latest.
           NODE_OPTIONS: --max-old-space-size=6144
-        run: xvfb-run -a pnpm validate
+        # Smoke tests are headless; xvfb-run here caused long stalls on ubuntu-latest (Vitest + jsdom).
+        run: pnpm validate
 
       - name: Pack verify (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
