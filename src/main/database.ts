@@ -359,7 +359,7 @@ export class MediaCacheDatabase {
 
         for (const [indexName, indexValue] of Object.entries(asset.indexes)) {
           if (Array.isArray(indexValue)) {
-            for (const v of indexValue) {
+            for (const v of new Set(indexValue)) {
               indexStmt.run(generationId, asset.key, indexName, v);
             }
           } else {
@@ -749,6 +749,9 @@ export class MediaCacheDatabase {
         PRIMARY KEY (generation_id, asset_key)
       );
 
+      CREATE INDEX IF NOT EXISTS idx_assets_file_stem
+        ON assets (generation_id, file_stem, order_index);
+
       CREATE TABLE IF NOT EXISTS asset_indexes (
         generation_id INTEGER NOT NULL,
         asset_key TEXT NOT NULL,
@@ -756,6 +759,9 @@ export class MediaCacheDatabase {
         index_value TEXT NOT NULL,
         PRIMARY KEY (generation_id, asset_key, index_name, index_value)
       );
+
+      CREATE INDEX IF NOT EXISTS idx_asset_indexes_lookup
+        ON asset_indexes (generation_id, index_name, index_value, asset_key);
 
       CREATE TABLE IF NOT EXISTS index_definitions (
         generation_id INTEGER NOT NULL,

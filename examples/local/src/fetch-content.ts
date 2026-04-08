@@ -4,7 +4,7 @@
  */
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMediaStore, type MediaStore } from "@rockhallweb/electron-offline-content/main";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
@@ -105,7 +105,15 @@ function buildStore(baseUrl: string): MediaStore {
 async function startFixtureServer() {
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-    const filePath = join(fixturesDir, pathname === "/" ? "forest-loop.mp4" : pathname.slice(1));
+    const relativePath = pathname === "/" ? "forest-loop.mp4" : pathname.slice(1);
+    const filePath = resolve(fixturesDir, relativePath);
+    const fixturesRoot = resolve(fixturesDir) + sep;
+
+    if (!filePath.startsWith(fixturesRoot)) {
+      response.writeHead(403);
+      response.end("forbidden");
+      return;
+    }
 
     try {
       const payload = await readFile(filePath);

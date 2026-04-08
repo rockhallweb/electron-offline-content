@@ -46,13 +46,8 @@ export function App() {
   }, [selectedKey, videos]);
 
   const currentAsset = useMediaAsset(selectedKey);
-  const keyPrefix = selectedKey.replace(/\/[^/]+$/, "/");
-  const posterAsset = allAssets.find(
-    (a) => a.indexes.role === "poster" && a.key.startsWith(keyPrefix),
-  );
-  const subtitleAsset = allAssets.find(
-    (a) => a.indexes.role === "subtitle" && a.key.startsWith(keyPrefix),
-  );
+  const posterAsset = relatedAsset(allAssets, selectedKey, "poster");
+  const subtitleAsset = relatedAsset(allAssets, selectedKey, "subtitle");
 
   const errors = useMediaCacheErrors();
 

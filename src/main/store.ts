@@ -151,6 +151,11 @@ export class MediaStore {
     if (!input.source?.url) {
       throw new StoreValidationError(`Asset "${key}": source.url is required.`);
     }
+    if (input.source.method !== undefined && input.source.method !== "GET") {
+      throw new StoreValidationError(
+        `Asset "${key}": source.method must be GET (got "${input.source.method}").`,
+      );
+    }
     try {
       const parsed = new URL(input.source.url);
       if (!/^https?:$/i.test(parsed.protocol)) {

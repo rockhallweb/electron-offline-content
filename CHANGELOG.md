@@ -190,10 +190,6 @@ const mediaCache = createMediaCache({
 });
 ```
 
-### Changed
-
-- `reserveFreeBytes` default remains **1 GiB** (`1024³` bytes).
-
 ## 0.3.0
 
 ### Breaking changes
