@@ -114,10 +114,10 @@ maxCacheBytes: 10 * 1024 * 1024 * 1024; // 10 GB
 
 ## reserveFreeBytes
 
-|              |                            |
-| ------------ | -------------------------- |
-| **Type**     | `number`                   |
-| **Required** | No                         |
+|              |                                     |
+| ------------ | ----------------------------------- |
+| **Type**     | `number`                            |
+| **Required** | No                                  |
 | **Default**  | `1073741824` (1 GiB, `1024³` bytes) |
 
 Minimum free disk space to preserve in bytes on the volume that holds the cache. Sync refuses work when projected free space would drop below this value. **`0`** disables the reservation (legacy behavior when the option was omitted).
