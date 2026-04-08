@@ -1,4 +1,4 @@
-import { defineConfig } from "tsdown";
+import { defineConfig, type UserConfig } from "tsdown";
 
 const nodeEntries = {
   "main/index": "src/main/index.ts",
@@ -24,37 +24,35 @@ function outExtensionJs(format: string) {
   return { js: isEsm ? ".js" : ".cjs" };
 }
 
+const sharedBuildOptions: Pick<
+  UserConfig,
+  "dts" | "format" | "sourcemap" | "target" | "unbundle" | "treeshake" | "hash" | "outExtensions"
+> = {
+  dts: true,
+  format: ["esm", "cjs"],
+  sourcemap: true,
+  target: "es2022",
+  unbundle: true,
+  treeshake: true,
+  hash: false,
+  outExtensions({ format }: { format: string }) {
+    return outExtensionJs(format);
+  },
+};
+
 export default defineConfig([
   {
     entry: nodeEntries,
     clean: true,
-    dts: true,
-    format: ["esm", "cjs"],
-    sourcemap: true,
-    target: "es2022",
-    unbundle: true,
-    treeshake: true,
     platform: "node",
-    hash: false,
-    outExtensions({ format }) {
-      return outExtensionJs(format);
-    },
+    ...sharedBuildOptions,
   },
   {
     entry: {
       "react/index": "src/react/index.tsx",
     },
     clean: false,
-    dts: true,
-    format: ["esm", "cjs"],
-    sourcemap: true,
-    target: "es2022",
-    unbundle: true,
-    treeshake: true,
     platform: "browser",
-    hash: false,
-    outExtensions({ format }) {
-      return outExtensionJs(format);
-    },
+    ...sharedBuildOptions,
   },
 ]);
