@@ -67,6 +67,19 @@ const requireElectron = createRequire(import.meta.url);
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
+/** When `reserveFreeBytes` is omitted, preserve this much free space on the cache volume (1 GiB). */
+export const DEFAULT_RESERVE_FREE_BYTES = 1024 * 1024 * 1024;
+
+type StatFsResult = Awaited<ReturnType<typeof statfs>>;
+
+/**
+ * Effective minimum free bytes: explicit option, or {@link DEFAULT_RESERVE_FREE_BYTES} when omitted.
+ * `0` means no reserved headroom.
+ * @internal
+ */
+export function effectiveReserveFreeBytes(explicit: number | undefined): number {
+  return explicit === undefined ? DEFAULT_RESERVE_FREE_BYTES : explicit;
+}
 const LOG_LEVEL_WEIGHT: Record<MediaCacheLogLevel, number> = {
   debug: 10,
   info: 20,
@@ -178,6 +191,7 @@ interface RuntimeDependencies {
   now: () => number;
   sleep: (delayMs: number) => Promise<void>;
   resolveAppPath: (name: MediaCacheAppPath) => Promise<string>;
+  statfs: (path: string) => Promise<StatFsResult>;
 }
 
 /** Options for {@link MediaCacheMain.registerProtocol}. */
@@ -272,6 +286,7 @@ export class MediaCache implements MediaCacheMain {
       now: deps?.now ?? Date.now,
       sleep: deps?.sleep ?? sleep,
       resolveAppPath: deps?.resolveAppPath ?? resolveElectronAppPath,
+      statfs: deps?.statfs ?? statfs,
     };
     const logging = normalizeLoggingOptions(options.logging);
     this.logHandler = logging.onLog;
@@ -996,9 +1011,9 @@ export class MediaCache implements MediaCacheMain {
       }
     }
 
-    const stats = await statfs(this.storageRoot!);
+    const stats = await this.deps.statfs(this.storageRoot!);
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
-    const reserve = this.options.reserveFreeBytes ?? 0;
+    const reserve = effectiveReserveFreeBytes(this.options.reserveFreeBytes);
     if (availableBytes - estimatedRemainingDownloadBytes < reserve) {
       this.emitLog("warn", "storage_reserve_violation", {
         available_bytes: availableBytes,
@@ -1212,9 +1227,9 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async ensureFileSpaceCommit(): Promise<void> {
-    const stats = await statfs(this.storageRoot!);
+    const stats = await this.deps.statfs(this.storageRoot!);
     const availableBytes = Number(stats.bavail) * Number(stats.bsize);
-    const reserve = this.options.reserveFreeBytes ?? 0;
+    const reserve = effectiveReserveFreeBytes(this.options.reserveFreeBytes);
     if (availableBytes < reserve) {
       throw new StorageLimitError(`Committing download would violate reserveFreeBytes ${reserve}.`);
     }

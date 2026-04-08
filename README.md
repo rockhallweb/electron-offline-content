@@ -565,13 +565,15 @@ const mediaCache = createMediaCache({
 });
 ```
 
-| Option               | Default     | Description                                                                 |
-| -------------------- | ----------- | --------------------------------------------------------------------------- |
-| `maxCacheBytes`      | `undefined` | Soft cap on total bytes of cached asset files.                              |
-| `reserveFreeBytes`   | `undefined` | Minimum free disk space to preserve on the volume.                          |
-| `staleDeleteAfterMs` | 7 days      | Grace period before assets removed from the manifest are deleted from disk. |
+| Option               | Default               | Description                                                                      |
+| -------------------- | --------------------- | -------------------------------------------------------------------------------- |
+| `maxCacheBytes`      | `undefined`           | Soft cap on total bytes of cached asset files.                                   |
+| `reserveFreeBytes`   | 1 GiB (`1024³` bytes) | Minimum free disk space to preserve on the cache volume. Set **`0`** to disable. |
+| `staleDeleteAfterMs` | 7 days                | Grace period before assets removed from the manifest are deleted from disk.      |
 
 When limits are exceeded, the sync raises `StorageLimitError`. The configured `onSyncFailure` mode then applies.
+
+Omitting `reserveFreeBytes` still enforces a **1 GiB** cushion for the OS and other apps on the same volume. Manifests that barely fit on a full disk may need a larger disk, a lower explicit `reserveFreeBytes`, or **`reserveFreeBytes: 0`** to restore the old “no reservation” behavior.
 
 Assets removed from the manifest are not deleted immediately. They are marked for grace-period deletion and pruned after `staleDeleteAfterMs` expires.
 
@@ -594,7 +596,7 @@ Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mo
 | `onSyncFailure`       | `SyncFailureMode`          | no       | Behavior when a sync fails after a prior snapshot exists (`serve-last-snapshot` or `throw`).    |
 | `resolveAssetRequest` | callback                   | no       | Optional per-asset hook: given context, return `DownloadRequest` or a `Promise` of it.          |
 | `maxCacheBytes`       | `number`                   | no       | Soft cap on total cached bytes.                                                                 |
-| `reserveFreeBytes`    | `number`                   | no       | Minimum free disk bytes to preserve.                                                            |
+| `reserveFreeBytes`    | `number`                   | no       | Minimum free disk bytes to preserve. Default **1 GiB**; **`0`** disables.                       |
 | `staleDeleteAfterMs`  | `number`                   | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
 | `syncHistoryLimit`    | `number`                   | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
 | `logging`             | `MediaCacheLoggingOptions` | no       | Nested logging config for either a custom sink or built-in console formatting.                  |

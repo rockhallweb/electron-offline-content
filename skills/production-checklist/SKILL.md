@@ -97,23 +97,23 @@ const mediaCache = createMediaCache({
 
 ## Storage Checks
 
-### Check: Storage limits are set for device hardware
+### Check: Storage limits match device hardware
 
-**Expected:**
+**Expected:** `maxCacheBytes` set from SSD capacity. Tune `reserveFreeBytes` for OS, logs, and other apps (the library defaults to **1 GiB** when omitted, but kiosks often need a larger explicit cushion).
 
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
   maxCacheBytes: 10 * 1024 * 1024 * 1024,
-  reserveFreeBytes: 1 * 1024 * 1024 * 1024,
+  reserveFreeBytes: 5 * 1024 * 1024 * 1024,
   resolveManifest: async () => manifest,
 });
 ```
 
 **Fail condition:** Cache consumes all disk on kiosk SSD. OS becomes unresponsive, other apps crash, kiosk requires physical intervention.
 
-**Fix:** Set `maxCacheBytes` based on device SSD capacity. Set `reserveFreeBytes` to preserve space for OS, logs, and other apps. Example: 128 GB SSD kiosk → `maxCacheBytes: 80 * 1024 * 1024 * 1024`, `reserveFreeBytes: 5 * 1024 * 1024 * 1024`.
+**Fix:** Set `maxCacheBytes` based on device SSD capacity. Set `reserveFreeBytes` explicitly when the default 1 GiB is too small for your platform. Example: 128 GB SSD kiosk → `maxCacheBytes: 80 * 1024 * 1024 * 1024`, `reserveFreeBytes: 5 * 1024 * 1024 * 1024`. Use **`reserveFreeBytes: 0`** only if you intentionally need the old no-reservation behavior.
 
 ### Check: storagePath targets a valid writable location
 
@@ -247,9 +247,9 @@ const mediaCache = createMediaCache({
 
 Source: Maintainer interview
 
-### HIGH: No storage limits on limited disk
+### HIGH: No soft cap on cache size (`maxCacheBytes`)
 
-Without `maxCacheBytes` or `reserveFreeBytes`, the cache downloads everything in the manifest with no cap. On kiosk SSDs (often 64–256 GB), a growing catalog can consume all disk space.
+Without `maxCacheBytes`, the cache can grow to the full manifest size subject only to disk space and the default **1 GiB** `reserveFreeBytes` headroom. On kiosk SSDs (often 64–256 GB), a growing catalog can still consume almost all disk space. Set `maxCacheBytes` explicitly for a hard ceiling.
 
 Wrong:
 
@@ -383,7 +383,7 @@ See also: cache-configuration/SKILL.md § Common Mistakes
 - [ ] `devPassthrough: false` set explicitly
 - [ ] `onSyncFailure` mode chosen deliberately
 - [ ] `app.requestSingleInstanceLock()` in place
-- [ ] `maxCacheBytes` and/or `reserveFreeBytes` set for device
+- [ ] `maxCacheBytes` set for device; `reserveFreeBytes` tuned for hardware or default accepted
 - [ ] `storagePath` writable on target platform
 - [ ] `logging.onLog` wired to production log sink
 - [ ] Package used only for read-only presentation assets
