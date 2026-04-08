@@ -18,37 +18,38 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
-import { normalizeManifest, type NormalizedManifest } from "../shared/normalize.js";
+import { validateFlatManifest } from "../shared/normalize.js";
 import { normalizeStem } from "../shared/stem.js";
 import {
   DataValidationError,
-  ManifestExpiredError,
-  ManifestValidationError,
+  StoreExpiredError,
+  StoreValidationError,
   StorageLimitError,
   SyncFailureError,
   isNoSpaceError,
   toSerializedError,
 } from "../shared/errors.js";
 import type {
-  DownloadRequest,
+  FlatManifest,
+  FileStemMatch,
   JsonValue,
   MediaCacheAppPath,
-  MediaCacheBridge,
   MediaCacheLogEvent,
   MediaCacheLogFormat,
   MediaCacheLogHandler,
   MediaCacheLogLevel,
   MediaCacheOptions,
   MediaCacheStatus,
+  MediaRemoteSource,
   PaginationInput,
-  ResolvedMediaContentItem,
+  PaginationResult,
+  ResolvedMediaAsset,
   SyncProgress,
   SyncRunStats,
 } from "../shared/types.js";
 import { formatMediaCacheConsoleLine } from "../internal/log-format.js";
 import {
   mediaCacheStoragePathSchema,
-  optionalFindByFileStemOptionsSchema,
   optionalPaginationInputSchema,
   parseWithSchema,
   stringInputSchema,
@@ -174,16 +175,11 @@ export const disableMediaCacheStorageRootLockForTests = disableStorageRootLockFo
 export const enableMediaCacheStorageRootLockForTests = enableStorageRootLockForTests;
 
 interface QueuedDownloadTarget {
-  namespace: string;
-  itemId: string;
-  assetId: string;
+  assetKey: string;
+  version: string;
   fileName: string;
-  resolvedVersion: string;
   byteLength?: number;
-}
-
-interface DownloadTarget extends QueuedDownloadTarget {
-  request: DownloadRequest;
+  source: MediaRemoteSource;
 }
 
 interface RuntimeDependencies {
@@ -209,7 +205,7 @@ interface AttachIpcOptions {
 }
 
 /**
- * Main-process controller: syncs the manifest, stores blobs, serves `media:` URLs, and can expose
+ * Main-process controller: syncs the store, stores blobs, serves `media:` URLs, and can expose
  * the same operations to renderers via IPC. In offline mode (default), construct the cache before
  * `app.whenReady()` so the privileged `media:` scheme can be registered, then after ready call
  * {@link MediaCacheMain.start} for the one-call happy path.
@@ -228,23 +224,19 @@ export interface MediaCacheMain {
   syncNow(): Promise<void>;
   /** Latest status snapshot (phase, progress, last run, error). */
   getStatus(): Promise<MediaCacheStatus>;
-  /** Single item in a namespace, or null if missing. */
-  getItem(namespace: string, id: string): Promise<ResolvedMediaContentItem | null>;
-  /** Flat list of items in exactly one namespace, paginated. */
-  listNamespace(
-    namespace: string,
+  /** Single asset by key, or null if missing. */
+  getAsset(key: string): Promise<ResolvedMediaAsset | null>;
+  /** Assets matching a secondary index value, paginated. */
+  listByIndex(
+    indexName: string,
+    value: string,
     pagination?: PaginationInput,
-  ): Promise<{ items: ResolvedMediaContentItem[]; nextCursor: string | null }>;
-  /** Items in the `prefix` namespace and all dot-delimited descendant namespaces (hierarchical browse). */
-  listNamespaceTree(
-    prefix: string,
-    pagination?: PaginationInput,
-  ): Promise<{ items: ResolvedMediaContentItem[]; nextCursor: string | null }>;
-  /** Search by normalized file name stem; optional `namespace` scopes the search. */
+  ): Promise<PaginationResult<ResolvedMediaAsset>>;
+  /** Search by normalized file name stem. */
   findByFileStem(
     stem: string,
-    options?: PaginationInput & { namespace?: string },
-  ): Promise<Awaited<ReturnType<MediaCacheBridge["findByFileStem"]>>>;
+    pagination?: PaginationInput,
+  ): Promise<PaginationResult<FileStemMatch>>;
   /** Register the `media:` protocol handler for the given session (default: `defaultSession`). */
   registerProtocol(options?: RegisterProtocolOptions): Promise<void>;
   /** Wire `ipcMain` handlers and broadcast status to all browser windows. */
@@ -319,7 +311,6 @@ export class MediaCache implements MediaCacheMain {
       this.options.onSyncFailure &&
       this.options.onSyncFailure !== "throw"
     ) {
-      // Emitted when a log sink is active (consumer `logging.onLog` or default dev console).
       this.emitLog("warn", "dev_passthrough_ignores_sync_failure_mode", {
         configured_mode: this.options.onSyncFailure,
       });
@@ -366,48 +357,40 @@ export class MediaCache implements MediaCacheMain {
     return this.status;
   }
 
-  async getItem(namespace: string, id: string): Promise<ResolvedMediaContentItem | null> {
-    const validatedNamespace = parseWithSchema(stringInputSchema, namespace, "item namespace");
-    const validatedId = parseWithSchema(stringInputSchema, id, "item id");
+  async getAsset(key: string): Promise<ResolvedMediaAsset | null> {
+    const validatedKey = parseWithSchema(stringInputSchema, key, "asset key");
     await this.ensureInitialized();
-    return this.db!.getItem(validatedNamespace, validatedId);
+    return this.db!.getAsset(validatedKey);
   }
 
-  async listNamespace(namespace: string, pagination?: PaginationInput) {
-    const validatedNamespace = parseWithSchema(stringInputSchema, namespace, "namespace");
+  async listByIndex(
+    indexName: string,
+    value: string,
+    pagination?: PaginationInput,
+  ): Promise<PaginationResult<ResolvedMediaAsset>> {
+    const validatedIndexName = parseWithSchema(stringInputSchema, indexName, "index name");
+    const validatedValue = parseWithSchema(stringInputSchema, value, "index value");
     const validatedPagination = parseWithSchema(
       optionalPaginationInputSchema,
       pagination,
-      "namespace pagination input",
+      "index pagination input",
     );
     await this.ensureInitialized();
-    return this.db!.listNamespace(validatedNamespace, validatedPagination);
+    return this.db!.listByIndex(validatedIndexName, validatedValue, validatedPagination);
   }
 
-  async listNamespaceTree(prefix: string, pagination?: PaginationInput) {
-    const validatedPrefix = parseWithSchema(stringInputSchema, prefix, "namespace tree prefix");
-    const validatedPagination = parseWithSchema(
-      optionalPaginationInputSchema,
-      pagination,
-      "namespace tree pagination input",
-    );
-    await this.ensureInitialized();
-    return this.db!.listNamespaceTree(validatedPrefix, validatedPagination);
-  }
-
-  async findByFileStem(stem: string, options?: PaginationInput & { namespace?: string }) {
+  async findByFileStem(
+    stem: string,
+    pagination?: PaginationInput,
+  ): Promise<PaginationResult<FileStemMatch>> {
     const validatedStem = parseWithSchema(stringInputSchema, stem, "file stem");
-    const validatedOptions = parseWithSchema(
-      optionalFindByFileStemOptionsSchema,
-      options,
-      "file stem search options",
+    const validatedPagination = parseWithSchema(
+      optionalPaginationInputSchema,
+      pagination,
+      "file stem pagination input",
     );
     await this.ensureInitialized();
-    return this.db!.findByFileStem(
-      normalizeStem(validatedStem),
-      validatedOptions?.namespace,
-      validatedOptions,
-    );
+    return this.db!.findByFileStem(normalizeStem(validatedStem), validatedPagination);
   }
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
@@ -439,30 +422,22 @@ export class MediaCache implements MediaCacheMain {
       const parsed = new URL(request.url);
       const parts = parsed.pathname.split("/").filter(Boolean);
 
-      if (parsed.hostname !== "asset" || parts.length !== 3) {
+      if (parsed.hostname !== "asset" || parts.length !== 1) {
         return new Response("Not found", { status: 404 });
       }
 
-      let namespace: string;
-      let itemId: string;
-      let assetId: string;
+      let assetKey: string;
       try {
-        [namespace, itemId, assetId] = parts.map((part) => decodeURIComponent(part)) as [
-          string,
-          string,
-          string,
-        ];
+        assetKey = decodeURIComponent(parts[0]);
       } catch {
         return new Response("Not found", { status: 404 });
       }
 
-      const target = this.db!.getProtocolAssetTarget(namespace, itemId, assetId);
+      const target = this.db!.getProtocolAssetTarget(assetKey);
 
       if (!target) {
         this.emitLog("debug", "protocol_request_not_found", {
-          namespace,
-          item_id: itemId,
-          asset_id: assetId,
+          asset_key: assetKey,
           method: request.method,
         });
         return new Response("Not found", { status: 404 });
@@ -470,18 +445,14 @@ export class MediaCache implements MediaCacheMain {
 
       if (!target.absolutePath || !existsSync(target.absolutePath)) {
         this.emitLog("debug", "protocol_request_file_missing", {
-          namespace,
-          item_id: itemId,
-          asset_id: assetId,
+          asset_key: assetKey,
           method: request.method,
         });
         return new Response("Not found", { status: 404 });
       }
 
       this.emitLog("debug", "protocol_request_local_resolved", {
-        namespace,
-        item_id: itemId,
-        asset_id: assetId,
+        asset_key: assetKey,
         method: request.method,
         range: request.headers.get("range"),
       });
@@ -510,23 +481,16 @@ export class MediaCache implements MediaCacheMain {
 
     ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
     ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
-    ipcMain.handle(MEDIA_CACHE_IPC.getItem, async (_event, namespace: string, id: string) =>
-      this.getItem(namespace, id),
-    );
+    ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: string) => this.getAsset(key));
     ipcMain.handle(
-      MEDIA_CACHE_IPC.listNamespace,
-      async (_event, namespace: string, pagination?: PaginationInput) =>
-        this.listNamespace(namespace, pagination),
-    );
-    ipcMain.handle(
-      MEDIA_CACHE_IPC.listNamespaceTree,
-      async (_event, prefix: string, pagination?: PaginationInput) =>
-        this.listNamespaceTree(prefix, pagination),
+      MEDIA_CACHE_IPC.listByIndex,
+      async (_event, indexName: string, value: string, pagination?: PaginationInput) =>
+        this.listByIndex(indexName, value, pagination),
     );
     ipcMain.handle(
       MEDIA_CACHE_IPC.findByFileStem,
-      async (_event, stem: string, options?: PaginationInput & { namespace?: string }) =>
-        this.findByFileStem(stem, options),
+      async (_event, stem: string, pagination?: PaginationInput) =>
+        this.findByFileStem(stem, pagination),
     );
 
     if (electron) {
@@ -638,7 +602,7 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private prepareDevRuntimeState(): void {
-    // Wipe happens before resolveManifest; if manifest resolution later throws, blobs are
+    // Wipe happens before resolveStore; if store resolution later throws, blobs are
     // already gone. Deferring the wipe until after staging would require a broader restructure.
     this.emitLog("warn", "dev_passthrough_clearing_state", {
       storage_root: this.storageRoot,
@@ -675,7 +639,7 @@ export class MediaCache implements MediaCacheMain {
       error: null,
       progress: {
         runId,
-        phase: "resolving-manifest",
+        phase: "resolving-store",
         totalAssets: 0,
         completedAssets: 0,
         downloadedAssets: 0,
@@ -691,23 +655,15 @@ export class MediaCache implements MediaCacheMain {
     let stagedGenerationId: number | null = null;
 
     try {
-      const manifest = normalizeManifest(await this.options.resolveManifest());
-      this.assertManifestNotExpired(manifest, runId);
+      const store = await this.options.resolveStore();
+      const manifest = validateFlatManifest(store._serialize());
+      this.assertStoreNotExpired(manifest, runId);
       stagedGenerationId = this.db!.createStagedGeneration(manifest, now);
-      this.emitLog("info", "manifest_resolved", {
+      this.emitLog("info", "store_resolved", {
         run_id: runId,
         staged_generation_id: stagedGenerationId,
-        namespace_count: manifest.namespaces.length,
-        item_count: manifest.namespaces.reduce(
-          (count, namespace) => count + namespace.items.length,
-          0,
-        ),
-        asset_count: manifest.namespaces.reduce(
-          (count, namespace) =>
-            count +
-            namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
-          0,
-        ),
+        index_count: manifest.indexDefinitions.length,
+        asset_count: manifest.assets.length,
       });
 
       const currentGenerationId = this.db!.getActiveGenerationId();
@@ -723,18 +679,21 @@ export class MediaCache implements MediaCacheMain {
         totalAssets: stagedAssets.length,
       }));
 
-      const currentMap = new Map(
-        currentAssets.map((row) => [logicalKey(row.namespace, row.itemId, row.assetId), row]),
-      );
+      const manifestAssetMap = new Map(manifest.assets.map((asset) => [asset.key, asset]));
+      const currentMap = new Map(currentAssets.map((row) => [row.assetKey, row]));
       const downloads: QueuedDownloadTarget[] = [];
 
       for (const row of stagedAssets) {
-        const manifestAsset = findManifestAsset(manifest, row.namespace, row.itemId, row.assetId);
-        const activeRow = currentMap.get(logicalKey(row.namespace, row.itemId, row.assetId));
+        const manifestAsset = manifestAssetMap.get(row.assetKey);
+        if (!manifestAsset) {
+          throw new StoreValidationError(`Asset "${row.assetKey}" not found in serialized store.`);
+        }
+
+        const activeRow = currentMap.get(row.assetKey);
         const activeRelativePath = activeRow?.relativePath ?? null;
         const normalizedActiveRelativePath =
           activeRelativePath === null ? null : normalizeStoredRelativePath(activeRelativePath);
-        const nextVersion = manifestAsset.asset.resolvedVersion;
+        const nextVersion = manifestAsset.version;
         const canReuseActiveBlob =
           normalizedActiveRelativePath !== null &&
           existsSync(join(this.storageRoot!, normalizedActiveRelativePath));
@@ -749,9 +708,7 @@ export class MediaCache implements MediaCacheMain {
           if (currentVersion === nextVersion) {
             this.db!.setAssetDownloadState(
               stagedGenerationId,
-              row.namespace,
-              row.itemId,
-              row.assetId,
+              row.assetKey,
               normalizedActiveRelativePath,
               activeRow?.mimeType ?? null,
             );
@@ -761,12 +718,11 @@ export class MediaCache implements MediaCacheMain {
         }
 
         downloads.push({
-          namespace: row.namespace,
-          itemId: row.itemId,
-          assetId: row.assetId,
-          fileName: manifestAsset.asset.normalizedFileName,
-          resolvedVersion: manifestAsset.asset.resolvedVersion,
-          byteLength: manifestAsset.asset.byteLength,
+          assetKey: row.assetKey,
+          version: manifestAsset.version,
+          fileName: manifestAsset.fileName,
+          byteLength: manifestAsset.byteLength,
+          source: manifestAsset.source,
         });
       }
 
@@ -791,25 +747,13 @@ export class MediaCache implements MediaCacheMain {
           skippedAssets: stats.skippedAssets,
         }));
 
-        for (const queuedDownload of downloads) {
-          this.assertManifestNotExpired(manifest, runId, queuedDownload);
-          const request = await this.resolveDownloadRequest(
-            manifest,
-            queuedDownload.namespace,
-            queuedDownload.itemId,
-            queuedDownload.assetId,
-          );
-          const download: DownloadTarget = {
-            ...queuedDownload,
-            request,
-          };
+        for (const download of downloads) {
+          this.assertStoreNotExpired(manifest, runId, download);
           this.emitLog("debug", "asset_download_started", {
             run_id: runId,
-            namespace: download.namespace,
-            item_id: download.itemId,
-            asset_id: download.assetId,
-            resolved_version: download.resolvedVersion,
-            url: download.request.url,
+            asset_key: download.assetKey,
+            version: download.version,
+            url: download.source.url,
           });
           const { relativePath, fallbackMimeType } = await this.downloadAsset(
             download,
@@ -823,18 +767,14 @@ export class MediaCache implements MediaCacheMain {
           );
           this.db!.setAssetDownloadState(
             stagedGenerationId,
-            download.namespace,
-            download.itemId,
-            download.assetId,
+            download.assetKey,
             relativePath,
             fallbackMimeType,
           );
           stats.downloadedAssets += 1;
           this.emitLog("debug", "asset_download_completed", {
             run_id: runId,
-            namespace: download.namespace,
-            item_id: download.itemId,
-            asset_id: download.assetId,
+            asset_key: download.assetKey,
             relative_path: relativePath,
           });
           this.updateProgress((progress) => ({
@@ -937,10 +877,10 @@ export class MediaCache implements MediaCacheMain {
     }
   }
 
-  private assertManifestNotExpired(
-    manifest: NormalizedManifest,
+  private assertStoreNotExpired(
+    manifest: FlatManifest,
     runId: number,
-    download?: Pick<QueuedDownloadTarget, "namespace" | "itemId" | "assetId">,
+    download?: Pick<QueuedDownloadTarget, "assetKey">,
   ): void {
     if (!manifest.expiresAt) {
       return;
@@ -952,39 +892,17 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    this.emitLog("warn", "manifest_expired", {
+    this.emitLog("warn", "store_expired", {
       run_id: runId,
       expires_at: manifest.expiresAt,
       now_ms: now,
-      namespace: download?.namespace,
-      item_id: download?.itemId,
-      asset_id: download?.assetId,
+      asset_key: download?.assetKey,
     });
 
-    const assetLabel = download
-      ? ` before downloading ${download.namespace}/${download.itemId}/${download.assetId}`
-      : "";
-    throw new ManifestExpiredError(
-      `Manifest URLs expired at ${manifest.expiresAt}${assetLabel}. Refresh the manifest and retry sync.`,
+    const assetLabel = download ? ` before downloading ${download.assetKey}` : "";
+    throw new StoreExpiredError(
+      `Store URLs expired at ${manifest.expiresAt}${assetLabel}. Refresh the store and retry sync.`,
     );
-  }
-
-  private async resolveDownloadRequest(
-    manifest: NormalizedManifest,
-    namespaceKey: string,
-    itemId: string,
-    assetId: string,
-  ): Promise<DownloadRequest> {
-    const context = findManifestAsset(manifest, namespaceKey, itemId, assetId);
-    if (!this.options.resolveAssetRequest) {
-      return context.asset.source;
-    }
-
-    return this.options.resolveAssetRequest({
-      namespace: context.namespace,
-      item: context.item,
-      asset: context.asset,
-    });
   }
 
   private async enforceStorageLimits(downloads: QueuedDownloadTarget[]): Promise<void> {
@@ -1027,15 +945,13 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async downloadAsset(
-    download: DownloadTarget,
+    download: QueuedDownloadTarget,
     onChunk: (chunkBytes: number) => void,
   ): Promise<{ relativePath: string; fallbackMimeType: string | null }> {
     const destinationRelativePath = join(
       "blobs",
-      sanitizeSegment(download.namespace),
-      sanitizeSegment(download.itemId),
-      sanitizeSegment(download.assetId),
-      sanitizeSegment(download.resolvedVersion),
+      sanitizeSegment(download.assetKey),
+      sanitizeSegment(download.version),
       sanitizeSegment(download.fileName),
     );
     const destinationPath = join(this.storageRoot!, destinationRelativePath);
@@ -1061,15 +977,12 @@ export class MediaCache implements MediaCacheMain {
         if (isNoSpaceError(error)) {
           await unlink(tempPath).catch(() => undefined);
           this.emitLog("error", "asset_download_storage_failed", {
-            namespace: download.namespace,
-            item_id: download.itemId,
-            asset_id: download.assetId,
-            url: download.request.url,
+            asset_key: download.assetKey,
+            url: download.source.url,
           });
-          throw new StorageLimitError(
-            `Disk is full while downloading ${download.namespace}/${download.itemId}/${download.assetId}.`,
-            { cause: error },
-          );
+          throw new StorageLimitError(`Disk is full while downloading ${download.assetKey}.`, {
+            cause: error,
+          });
         }
 
         const retryable = isRetryableDownloadError(error);
@@ -1080,9 +993,7 @@ export class MediaCache implements MediaCacheMain {
 
         if (attempt === TOTAL_DOWNLOAD_ATTEMPTS - 1) {
           this.emitLog("warn", "asset_download_retry_exhausted", {
-            namespace: download.namespace,
-            item_id: download.itemId,
-            asset_id: download.assetId,
+            asset_key: download.assetKey,
             attempt: attempt + 1,
             partial_path: tempPath,
           });
@@ -1091,9 +1002,7 @@ export class MediaCache implements MediaCacheMain {
 
         const delayMs = calculateRetryDelay(attempt);
         this.emitLog("warn", "asset_download_retry_scheduled", {
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
+          asset_key: download.assetKey,
           attempt: attempt + 1,
           retry_delay_ms: delayMs,
         });
@@ -1116,7 +1025,7 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async downloadAssetAttempt(
-    download: DownloadTarget,
+    download: QueuedDownloadTarget,
     destinationPath: string,
     destinationRelativePath: string,
     tempPath: string,
@@ -1126,20 +1035,20 @@ export class MediaCache implements MediaCacheMain {
 
     for (;;) {
       const resumeSize = existsSync(tempPath) ? statSync(tempPath).size : 0;
-      const headers = new Headers(download.request.headers);
+      const headers = new Headers(download.source.headers);
       if (resumeSize > 0) {
         headers.set("range", `bytes=${resumeSize}-`);
       }
 
-      const response = await this.deps.fetchImpl(download.request.url, {
-        method: download.request.method ?? "GET",
+      const response = await this.deps.fetchImpl(download.source.url, {
+        method: download.source.method ?? "GET",
         headers,
       });
 
       if (resumeSize > 0 && response.status === 416) {
         if (restartedWithoutRange) {
           throw createDownloadError(
-            `Server rejected range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            `Server rejected range request for ${download.assetKey}.`,
             false,
             response.status,
           );
@@ -1148,9 +1057,7 @@ export class MediaCache implements MediaCacheMain {
         restartedWithoutRange = true;
         await unlink(tempPath).catch(() => undefined);
         this.emitLog("debug", "asset_download_range_restart", {
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
+          asset_key: download.assetKey,
           resumed_bytes: resumeSize,
           response_status: response.status,
           content_range: response.headers.get("content-range"),
@@ -1160,15 +1067,13 @@ export class MediaCache implements MediaCacheMain {
 
       if (!response.ok || !response.body) {
         this.emitLog("warn", "asset_download_rejected", {
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
+          asset_key: download.assetKey,
           status: response.status,
           status_text: response.statusText,
-          url: download.request.url,
+          url: download.source.url,
         });
         throw createDownloadError(
-          `Download failed for ${download.namespace}/${download.itemId}/${download.assetId}: ${response.status} ${response.statusText}`,
+          `Download failed for ${download.assetKey}: ${response.status} ${response.statusText}`,
           isRetryableStatus(response.status),
           response.status,
         );
@@ -1181,7 +1086,7 @@ export class MediaCache implements MediaCacheMain {
       ) {
         if (restartedWithoutRange) {
           throw createDownloadError(
-            `Server did not honor range request for ${download.namespace}/${download.itemId}/${download.assetId}.`,
+            `Server did not honor range request for ${download.assetKey}.`,
             false,
             response.status,
           );
@@ -1190,9 +1095,7 @@ export class MediaCache implements MediaCacheMain {
         restartedWithoutRange = true;
         await unlink(tempPath).catch(() => undefined);
         this.emitLog("debug", "asset_download_range_restart", {
-          namespace: download.namespace,
-          item_id: download.itemId,
-          asset_id: download.assetId,
+          asset_key: download.assetKey,
           resumed_bytes: resumeSize,
           response_status: response.status,
           content_range: response.headers.get("content-range"),
@@ -1239,10 +1142,8 @@ export class MediaCache implements MediaCacheMain {
     return join(
       this.storageRoot!,
       "temp",
-      sanitizeSegment(download.namespace),
-      sanitizeSegment(download.itemId),
-      sanitizeSegment(download.assetId),
-      sanitizeSegment(download.resolvedVersion),
+      sanitizeSegment(download.assetKey),
+      sanitizeSegment(download.version),
       `${sanitizeSegment(download.fileName)}.part`,
     );
   }
@@ -1299,7 +1200,7 @@ export class MediaCache implements MediaCacheMain {
     const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
     const nextAssets = new Map(
       this.db!.getGenerationAssets(stagedGenerationId).map((row) => [
-        logicalKey(row.namespace, row.itemId, row.assetId),
+        row.assetKey,
         row.relativePath,
       ]),
     );
@@ -1308,16 +1209,13 @@ export class MediaCache implements MediaCacheMain {
 
     let markedCount = 0;
     for (const row of previousAssets) {
-      const key = logicalKey(row.namespace, row.itemId, row.assetId);
-      const nextRelativePath = nextAssets.get(key);
+      const nextRelativePath = nextAssets.get(row.assetKey);
       if (row.relativePath && nextRelativePath !== row.relativePath) {
         this.db!.markPendingDeletion(
-          key,
-          row.namespace,
-          row.itemId,
-          row.assetId,
+          row.assetKey,
           row.relativePath,
           previousGenerationId,
+          createPendingDeletionKey(row.assetKey, row.relativePath),
           deleteAfterMs,
         );
         markedCount += 1;
@@ -1471,12 +1369,12 @@ function writeDefaultDevelopmentConsoleLog(
   }
 }
 
-function logicalKey(namespace: string, itemId: string, assetId: string): string {
-  return JSON.stringify([namespace, itemId, assetId]);
-}
-
 function sanitizeSegment(segment: string): string {
   return encodeURIComponent(segment);
+}
+
+function createPendingDeletionKey(assetKey: string, relativePath: string): string {
+  return JSON.stringify([assetKey, relativePath]);
 }
 
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
@@ -1528,35 +1426,9 @@ function listFilesRecursively(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => listFilesRecursively(join(directory, entry)));
 }
 
-function findManifestAsset(
-  manifest: NormalizedManifest,
-  namespaceKey: string,
-  itemId: string,
-  assetId: string,
-) {
-  const namespace = manifest.namespaces.find((candidate) => candidate.key === namespaceKey);
-  if (!namespace) {
-    throw new ManifestValidationError(`Namespace "${namespaceKey}" not found in manifest.`);
-  }
-
-  const item = namespace.items.find((candidate) => candidate.id === itemId);
-  if (!item) {
-    throw new ManifestValidationError(`Item "${namespaceKey}/${itemId}" not found in manifest.`);
-  }
-
-  const asset = item.assets.find((candidate) => candidate.id === assetId);
-  if (!asset) {
-    throw new ManifestValidationError(
-      `Asset "${namespaceKey}/${itemId}/${assetId}" not found in manifest.`,
-    );
-  }
-
-  return { namespace, item, asset };
-}
-
 function getResolvedVersionFromPath(relativePath: string): string | null {
   const parts = relativePath.split(/[\\/]/);
-  return parts.length >= 5 ? decodeURIComponent(parts.at(-2)!) : null;
+  return parts.length >= 4 ? decodeURIComponent(parts.at(-2)!) : null;
 }
 
 function normalizeStoredRelativePath(relativePath: string): string {

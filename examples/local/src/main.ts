@@ -31,7 +31,7 @@ async function bootstrap() {
       appPath: "temp",
       segments: ["rockhallweb-electron-offline-content-example", "local"],
     },
-    resolveManifest: example.resolveManifest,
+    resolveStore: example.resolveStore,
   });
 
   const createWindow = (): BrowserWindow => {

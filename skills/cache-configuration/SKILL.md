@@ -9,7 +9,7 @@ description: >
   console formats, and MediaCacheLogEvent structure.
 type: core
 library: electron-offline-content
-library_version: "0.2.0"
+library_version: "0.4.0"
 requires:
   - getting-started
 sources:
@@ -27,7 +27,7 @@ This skill builds on getting-started. Read it first for full main → preload �
 
 ```typescript
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
 import pino from "pino";
 
 const logger = pino({ name: "media-cache" });
@@ -47,9 +47,21 @@ const mediaCache = createMediaCache({
       logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
     },
   },
-  resolveManifest: async () => {
+  resolveStore: async () => {
     const res = await fetch("https://cms.example.com/api/content");
-    return res.json();
+    const data = await res.json();
+    const store = createMediaStore();
+    for (const item of data.items) {
+      store.add({
+        key: item.id,
+        version: item.updatedAt,
+        kind: item.kind,
+        mimeType: item.mimeType,
+        source: { url: item.url },
+        metadata: item.metadata,
+      });
+    }
+    return store;
   },
 });
 ```
@@ -66,7 +78,7 @@ const mediaCache = createMediaCache({
     appPath: "userData",
     segments: ["my-app", "offline-media"],
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -80,13 +92,13 @@ This resolves to `<userData>/my-app/offline-media/` on disk. Each segment become
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
 When `devPassthrough` is `true`:
 
-- `resolveAssetRequest` is never called — assets load from their original remote URLs.
+- Downloads are skipped — assets load from their original remote URLs.
 - `onSyncFailure` is overridden to `"throw"` — there is no snapshot to serve.
 - Hook URLs return remote `https://` URLs instead of `media://` URLs.
 - `assetBaseUrl` becomes available for origin overrides.
@@ -101,13 +113,13 @@ const mediaCache = createMediaCache({
   maxCacheBytes: 10 * 1024 * 1024 * 1024,
   reserveFreeBytes: 1 * 1024 * 1024 * 1024,
   staleDeleteAfterMs: 7 * 24 * 60 * 60 * 1000,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
 - `maxCacheBytes` — soft cap on total cache size in bytes. The sync pipeline skips new downloads when the cache exceeds this limit.
 - `reserveFreeBytes` — minimum free disk space to preserve on the cache volume (default **1 GiB** when omitted; **`0`** disables). Still recommended to set an explicit value on kiosk hardware to match SSD capacity and OS needs.
-- `staleDeleteAfterMs` — how long removed assets (no longer in the manifest) stay on disk before deletion. Defaults to 7 days (604,800,000 ms) when unset.
+- `staleDeleteAfterMs` — how long removed assets (no longer in the store) stay on disk before deletion. Defaults to 7 days (604,800,000 ms) when unset.
 
 ### Structured logging
 
@@ -128,7 +140,7 @@ const mediaCache = createMediaCache({
       logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
     },
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -147,7 +159,7 @@ const mediaCache = createMediaCache({
       logger[entry.level](entry.event, entry);
     },
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -162,7 +174,7 @@ const mediaCache = createMediaCache({
     level: "debug",
     format: "json",
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -184,7 +196,7 @@ Wrong:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   assetBaseUrl: "http://localhost:3000",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -195,7 +207,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
   assetBaseUrl: "http://localhost:3000",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -210,7 +222,7 @@ Wrong:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: "/tmp/my-cache" as any,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -219,7 +231,7 @@ Correct:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "temp", segments: ["my-app", "cache"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -232,11 +244,11 @@ Wrong:
 ```typescript
 const cacheA = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifestA,
+  resolveStore: async () => storeA,
 });
 const cacheB = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifestB,
+  resolveStore: async () => storeB,
 });
 ```
 
@@ -245,11 +257,11 @@ Correct:
 ```typescript
 const cacheA = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifestA,
+  resolveStore: async () => storeA,
 });
 const cacheB = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media-b"] },
-  resolveManifest: async () => manifestB,
+  resolveStore: async () => storeB,
 });
 ```
 
@@ -268,7 +280,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
   assetBaseUrl: "http://localhost:3000/api/assets?v=2",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -279,7 +291,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
   assetBaseUrl: "http://localhost:3000",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -294,7 +306,7 @@ Wrong:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["my-app/offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -303,7 +315,7 @@ Correct:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["my-app", "offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -317,49 +329,16 @@ In production Electron builds, `NODE_ENV` may be unset — which defaults `devPa
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
 Source: media-cache.ts; types.ts
 See also: production-checklist/SKILL.md § Common Mistakes
 
-### HIGH: Expecting resolveAssetRequest to work in devPassthrough (cross-skill: authenticated-downloads)
-
-Wrong:
-
-```typescript
-createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  devPassthrough: true,
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(ctx.asset.source.url),
-  }),
-  resolveManifest: async () => manifest,
-});
-```
-
-Correct:
-
-```typescript
-createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  devPassthrough: false,
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(ctx.asset.source.url),
-  }),
-  resolveManifest: async () => manifest,
-});
-```
-
-In dev passthrough mode, `resolveAssetRequest` is never called. Assets requiring auth will fail to load because the renderer fetches original remote URLs directly.
-
-Source: README
-See also: authenticated-downloads/SKILL.md § Common Mistakes
-
 ### HIGH Tension: Dev passthrough simplicity vs production correctness
 
-`devPassthrough` makes development fast but changes behavior: `resolveAssetRequest` is ignored, `onSyncFailure` is overridden to `"throw"`, URLs are remote instead of `media://`. Code working in dev passthrough may break in production offline mode.
+`devPassthrough` makes development fast but changes behavior: downloads are skipped, `onSyncFailure` is overridden to `"throw"`, URLs are remote instead of `media://`. Code working in dev passthrough may break in production offline mode.
 
 See also: production-checklist/SKILL.md § Common Mistakes
 
@@ -373,7 +352,7 @@ See also: production-checklist/SKILL.md § Common Mistakes
 
 See also: getting-started/SKILL.md — Initial createMediaCache setup
 See also: production-checklist/SKILL.md — Go-live configuration audit
-See also: authenticated-downloads/SKILL.md — resolveAssetRequest is ignored in devPassthrough
+See also: authenticated-downloads/SKILL.md — Auth embedded in resolveStore
 
 ## References
 

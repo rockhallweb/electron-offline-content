@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MediaCacheProvider } from "../../src/react/index.js";
 import type { MediaCacheStatus } from "../../src/shared/types.js";
 import {
-  buildItemWithVersion,
+  buildAssetWithVersion,
   buildStatus,
   createBridge,
   deferred,
@@ -21,13 +21,13 @@ afterEach(() => {
 });
 
 describe("react hooks (queries / errors)", () => {
-  it("refetches item queries on ready-generation updates by default", async () => {
+  it("refetches asset queries on ready-generation updates by default", async () => {
     let statusListener: ((status: MediaCacheStatus) => void) | null = null;
     let calls = 0;
     const bridge = createBridge({
-      getItem: async () => {
+      getAsset: async () => {
         calls += 1;
-        return buildItemWithVersion("forest", calls === 1 ? "v1" : "v2");
+        return buildAssetWithVersion("forest", calls === 1 ? "v1" : "v2");
       },
       subscribeStatus: (listener) => {
         statusListener = listener;
@@ -51,13 +51,13 @@ describe("react hooks (queries / errors)", () => {
     expect(calls).toBeGreaterThanOrEqual(2);
   });
 
-  it("allows disabling sync-complete refetch for item queries", async () => {
+  it("allows disabling sync-complete refetch for asset queries", async () => {
     let statusListener: ((status: MediaCacheStatus) => void) | null = null;
     let calls = 0;
     const bridge = createBridge({
-      getItem: async () => {
+      getAsset: async () => {
         calls += 1;
-        return buildItemWithVersion("forest", calls === 1 ? "v1" : "v2");
+        return buildAssetWithVersion("forest", calls === 1 ? "v1" : "v2");
       },
       subscribeStatus: (listener) => {
         statusListener = listener;
@@ -83,7 +83,7 @@ describe("react hooks (queries / errors)", () => {
     expect(calls).toBe(1);
   });
 
-  it("exposes shared status and aggregated errors from useMedia", async () => {
+  it("exposes shared status and aggregated errors from useMediaAsset", async () => {
     const bridge = createBridge({
       getStatus: async () => ({
         ...buildStatus("error"),
@@ -93,7 +93,7 @@ describe("react hooks (queries / errors)", () => {
           message: "sync failed",
         },
       }),
-      getItem: async () => {
+      getAsset: async () => {
         throw new Error("query failed");
       },
     });
@@ -116,8 +116,8 @@ describe("react hooks (queries / errors)", () => {
 
   it("lets useMediaCacheErrors aggregate provider-wide query errors without arguments", async () => {
     const bridge = createBridge({
-      getItem: async () => {
-        throw new Error("item failed");
+      getAsset: async () => {
+        throw new Error("asset failed");
       },
       findByFileStem: async () => {
         throw new Error("stem failed");
@@ -132,7 +132,7 @@ describe("react hooks (queries / errors)", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("global-query-error-count").textContent).toBe("2");
-      expect(screen.getByTestId("global-primary-error-message").textContent).toBe("item failed");
+      expect(screen.getByTestId("global-primary-error-message").textContent).toBe("asset failed");
     });
   });
 
@@ -161,7 +161,7 @@ describe("react hooks (queries / errors)", () => {
     });
   });
 
-  it("exposes matching top-level phase from useMediaBridge and useMedia", async () => {
+  it("exposes matching top-level phase from useMediaBridge", async () => {
     const bridge = createBridge({
       getStatus: async () => buildStatus("syncing"),
     });

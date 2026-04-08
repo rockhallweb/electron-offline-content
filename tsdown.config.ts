@@ -2,7 +2,7 @@ import { defineConfig, type UserConfig } from "tsdown";
 
 const nodeEntries = {
   "main/index": "src/main/index.ts",
-  "main/producer": "src/main/producer.ts",
+  "main/store": "src/main/store.ts",
   "main/database": "src/main/database.ts",
   "main/media-cache": "src/main/media-cache.ts",
   "main/storage-root-lock": "src/main/storage-root-lock.ts",
@@ -15,6 +15,7 @@ const nodeEntries = {
   "shared/types": "src/shared/types.ts",
   "internal/asset-file-name": "src/internal/asset-file-name.ts",
   "internal/log-format": "src/internal/log-format.ts",
+  "internal/media-kind": "src/internal/media-kind.ts",
   "internal/url-warn": "src/internal/url-warn.ts",
   "internal/validation": "src/internal/validation.ts",
 } as const;

@@ -68,7 +68,7 @@ Union of Electron `app.getPath` names:
 
 Skips all downloads and serves remote URLs directly. Intended for development only.
 
-**Constraints:** When `true`, `resolveAssetRequest` is never called, `onSyncFailure` is overridden to `"throw"`, and hook URLs return remote `https://` URLs instead of `media://`.
+**Constraints:** When `true`, downloads are skipped, `onSyncFailure` is overridden to `"throw"`, and hook URLs return remote `https://` URLs instead of `media://`.
 
 ```typescript
 devPassthrough: true;
@@ -138,7 +138,7 @@ reserveFreeBytes: 1 * 1024 * 1024 * 1024; // 1 GB
 | **Required** | No                   |
 | **Default**  | `604800000` (7 days) |
 
-Milliseconds to retain assets that are no longer present in the manifest before deleting them from disk.
+Milliseconds to retain assets that are no longer present in the store before deleting them from disk.
 
 **Constraints:** Must be a non-negative integer when provided.
 
@@ -158,7 +158,7 @@ staleDeleteAfterMs: 7 * 24 * 60 * 60 * 1000; // 7 days
 
 Behavior when a sync fails.
 
-- `"serve-last-snapshot"` — continue serving the most recently committed manifest generation. Safe for kiosks (prevents blank screens) but may serve stale content.
+- `"serve-last-snapshot"` — continue serving the most recently committed store generation. Safe for kiosks (prevents blank screens) but may serve stale content.
 - `"throw"` — propagate the sync error. Honest, but can leave the UI empty if no prior generation exists.
 
 **Constraints:** Overridden to `"throw"` when `devPassthrough` is `true`.
@@ -298,7 +298,7 @@ interface MediaCacheLogEvent {
 }
 ```
 
-Additional context-specific keys vary by event (e.g. `assetId`, `namespace`, `bytesDownloaded`, `durationMs`). All values are JSON-serializable.
+Additional context-specific keys vary by event (e.g. `assetKey`, `bytesDownloaded`, `durationMs`). All values are JSON-serializable.
 
 ### Migration
 
@@ -309,7 +309,7 @@ Flat logging options were removed in `0.2.0`.
 createMediaCache({
   logLevel: "info",
   onLog: (entry) => logger.info(entry, entry.event),
-  resolveManifest,
+  resolveStore,
 });
 
 // After
@@ -318,48 +318,39 @@ createMediaCache({
     level: "info",
     onLog: (entry) => logger.info(entry, entry.event),
   },
-  resolveManifest,
+  resolveStore,
 });
 ```
 
 ---
 
-## resolveManifest
+## resolveStore
 
-|              |                                                           |
-| ------------ | --------------------------------------------------------- |
-| **Type**     | `() => Promise<MediaCacheManifest> \| MediaCacheManifest` |
-| **Required** | Yes                                                       |
-| **Default**  | —                                                         |
+|              |                                           |
+| ------------ | ----------------------------------------- |
+| **Type**     | `() => Promise<MediaStore> \| MediaStore` |
+| **Required** | Yes                                       |
+| **Default**  | —                                         |
 
-Function called at the start of each sync cycle to produce the current manifest. May be async. The return value is normalized and validated before the download pipeline begins.
+Function called at the start of each sync cycle to produce the current asset store. May be async. The return value is normalized and validated before the download pipeline begins.
 
-**Constraints:** Must return a valid `MediaCacheManifest`. See manifest-authoring/SKILL.md for structure and validation rules.
+**Constraints:** Must return a valid `MediaStore` built with `createMediaStore()`. See store-authoring/SKILL.md for structure and validation rules.
 
 ```typescript
-resolveManifest: async () => {
+resolveStore: async () => {
   const res = await fetch("https://cms.example.com/api/content");
-  return res.json();
+  const data = await res.json();
+  const store = createMediaStore();
+  for (const item of data.items) {
+    store.add({
+      key: item.id,
+      version: item.updatedAt,
+      kind: item.kind,
+      mimeType: item.mimeType,
+      source: { url: item.url },
+      metadata: item.metadata,
+    });
+  }
+  return store;
 };
-```
-
----
-
-## resolveAssetRequest
-
-|              |                                                                                    |
-| ------------ | ---------------------------------------------------------------------------------- |
-| **Type**     | `(ctx: ResolveAssetRequestContext) => Promise<DownloadRequest> \| DownloadRequest` |
-| **Required** | No                                                                                 |
-| **Default**  | Direct download from asset source URL                                              |
-
-Per-asset callback invoked before each download. Use to add authentication headers, generate signed URLs, or transform the download request.
-
-**Constraints:** Never called when `devPassthrough` is `true`. See authenticated-downloads/SKILL.md for usage patterns.
-
-```typescript
-resolveAssetRequest: async (ctx) => ({
-  url: await getSignedUrl(ctx.asset.source.url),
-  headers: { Authorization: `Bearer ${await getToken()}` },
-});
 ```

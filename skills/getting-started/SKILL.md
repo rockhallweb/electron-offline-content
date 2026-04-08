@@ -2,18 +2,20 @@
 name: getting-started
 description: >
   Full greenfield integration of @rockhallweb/electron-offline-content:
-  install, write resolveManifest, configure createMediaCache in main,
-  wire preload bridge with exposeMediaCacheBridge, add MediaCacheProvider
-  and hooks in React, render first content offline. Covers
-  app.requestSingleInstanceLock, createMediaCache timing relative to
-  app.whenReady, and mediaCache.start() fire-and-forget pattern.
+  install, write resolveStore with createMediaStore, configure
+  createMediaCache in main, wire preload bridge with
+  exposeMediaCacheBridge, add MediaCacheProvider and hooks in React,
+  render first content offline. Covers app.requestSingleInstanceLock,
+  createMediaCache timing relative to app.whenReady, and
+  mediaCache.start() fire-and-forget pattern.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.3.0"
+library_version: "0.4.0"
 sources:
   - "rockhallweb/electron-offline-content:README.md"
   - "rockhallweb/electron-offline-content:src/main/index.ts"
   - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
+  - "rockhallweb/electron-offline-content:src/main/store.ts"
   - "rockhallweb/electron-offline-content:src/preload/index.ts"
   - "rockhallweb/electron-offline-content:src/react/index.tsx"
   - "rockhallweb/electron-offline-content:examples/local/src/main.ts"
@@ -40,10 +42,8 @@ import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import {
   createMediaCache,
-  defineAsset,
-  defineItem,
-  defineManifest,
-  itemsFromEntries,
+  createMediaStore,
+  mediaKindFromMime,
 } from "@rockhallweb/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
@@ -52,33 +52,25 @@ if (!app.requestSingleInstanceLock()) {
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => {
+  resolveStore: async () => {
     const res = await fetch("https://cms.example.com/api/content");
     const data = await res.json();
-    return defineManifest({
-      namespaces: {
-        videos: {
-          items: itemsFromEntries(
-            data.videos,
-            (v: { slug: string; updatedAt: string; title: string; videoUrl: string }) => [
-              v.slug,
-              defineItem({
-                version: v.updatedAt,
-                kind: "video",
-                title: v.title,
-                assets: {
-                  main: defineAsset({
-                    role: "primary",
-                    kind: "video",
-                    source: { url: v.videoUrl },
-                  }),
-                },
-              }),
-            ],
-          ),
-        },
-      },
-    });
+
+    const store = createMediaStore();
+    store.defineIndex("category", (asset) => asset.metadata.category as string);
+
+    for (const v of data.videos) {
+      store.add({
+        key: `video/${v.slug}`,
+        version: v.updatedAt,
+        kind: "video",
+        mimeType: "video/mp4",
+        source: { url: v.videoUrl },
+        metadata: { title: v.title, category: "videos" },
+      });
+    }
+
+    return store;
   },
 });
 
@@ -116,26 +108,21 @@ This calls `contextBridge.exposeInMainWorld` to put the IPC bridge on `window.me
 ```tsx
 import {
   MediaCacheProvider,
-  useMedia,
+  useMediaByIndex,
   useMediaCacheReady,
 } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
   const ready = useMediaCacheReady();
-  const videos = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+  const videos = useMediaByIndex("category", "videos", { limit: 20 });
 
   if (!ready.data?.ready) return <p>Preparing offline content...</p>;
   if (videos.loading) return <p>Loading...</p>;
 
   return (
     <div>
-      {videos.data?.items.map((item) => (
-        <video
-          key={item.id}
-          src={item.assetsByRole.primary?.url}
-          poster={item.assetsByRole.poster?.url}
-          controls
-        />
+      {videos.data?.items.map((asset) => (
+        <video key={asset.key} src={asset.url} controls />
       ))}
     </div>
   );
@@ -150,7 +137,7 @@ export function App() {
 }
 ```
 
-`MediaCacheProvider` must wrap any component that uses hooks. Hook URLs (`item.assetsByRole.primary?.url`) resolve to `media://` in offline mode or remote URLs in dev passthrough — pass them directly to `src` attributes.
+`MediaCacheProvider` must wrap any component that uses hooks. Hook URLs (`asset.url`) resolve to `media://` in offline mode or remote URLs in dev passthrough — pass them directly to `src` attributes.
 
 ## Core Patterns
 
@@ -181,42 +168,38 @@ ipcMain.handle("begin-sync", () => {
 });
 ```
 
-### Using define helpers for readable manifests
+### Building a media store with createMediaStore
 
-The `defineAsset`, `defineItem`, and `defineManifest` helpers validate each piece individually and surface errors at the point of definition. Build assets and items as standalone variables to keep nesting shallow:
+`createMediaStore()` creates a flat asset store. Add assets with `store.add()` and define secondary indexes with `store.defineIndex()` for querying. Each asset has its own `key`, `version`, and `kind`:
 
 ```typescript
-import {
-  defineAsset,
-  defineItem,
-  defineManifest,
-} from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
 
-const mainVideo = defineAsset({
-  role: "primary",
-  kind: "video",
-  source: { url: "https://cdn.example.com/welcome.v2.mp4" },
-});
+const store = createMediaStore();
 
-const posterImage = defineAsset({
-  role: "poster",
-  kind: "poster",
-  source: { url: "https://cdn.example.com/welcome-poster.jpg" },
-});
+store.defineIndex("category", (asset) => asset.metadata.category as string);
+store.defineIndex("year", (asset) => String(asset.metadata.year));
 
-const welcomeItem = defineItem({
+store.add({
+  key: "video/welcome",
   version: "v2",
   kind: "video",
-  title: "Welcome Video",
-  assets: { main: mainVideo, poster: posterImage },
+  mimeType: "video/mp4",
+  source: { url: "https://cdn.example.com/welcome.v2.mp4" },
+  metadata: { title: "Welcome Video", category: "lobby", year: 2026 },
 });
 
-const manifest = defineManifest({
-  namespaces: { lobby: { items: { welcome: welcomeItem } } },
+store.add({
+  key: "image/welcome-poster",
+  version: "v2",
+  kind: "image",
+  mimeType: "image/jpeg",
+  source: { url: "https://cdn.example.com/welcome-poster.jpg" },
+  metadata: { title: "Welcome Poster", category: "lobby", year: 2026 },
 });
 ```
 
-Compared to inline nesting, this produces clearer validation errors (the asset or item that failed is obvious) and keeps each definition under ~8 lines.
+Compared to deep nesting, this produces clearer validation errors (the asset that failed is obvious) and keeps each definition under ~8 lines.
 
 ## Common Mistakes
 
@@ -233,7 +216,7 @@ import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
 await app.whenReady();
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 await mediaCache.start();
 ```
@@ -246,7 +229,7 @@ import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 
 await app.whenReady();
@@ -282,14 +265,14 @@ All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaBr
 Wrong:
 
 ```tsx
-import { useMedia } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
 
 function App() {
-  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+  const videos = useMediaByIndex("category", "videos", { limit: 20 });
   return (
     <div>
-      {items.data?.items.map((item) => (
-        <p key={item.id}>{item.title}</p>
+      {videos.data?.items.map((asset) => (
+        <p key={asset.key}>{asset.metadata.title}</p>
       ))}
     </div>
   );
@@ -299,14 +282,14 @@ function App() {
 Correct:
 
 ```tsx
-import { MediaCacheProvider, useMedia } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider, useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
 
 function Content() {
-  const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+  const videos = useMediaByIndex("category", "videos", { limit: 20 });
   return (
     <div>
-      {items.data?.items.map((item) => (
-        <p key={item.id}>{item.title}</p>
+      {videos.data?.items.map((asset) => (
+        <p key={asset.key}>{asset.metadata.title}</p>
       ))}
     </div>
   );
@@ -332,7 +315,7 @@ Wrong:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 
 async function bootstrap() {
@@ -352,7 +335,7 @@ if (!app.requestSingleInstanceLock()) {
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 
 async function bootstrap() {
@@ -418,14 +401,14 @@ async function bootstrap() {
 
 Source: Maintainer interview
 
-### HIGH Tension: Manifest validation vs sync-time failures
+### HIGH Tension: Store validation vs sync-time failures
 
-`resolveManifest` must return a **`MediaCacheManifest`** (record-shaped namespaces, items, and assets). Validation is strict on required fields like `version` and on HTTP(S) asset URLs. Use **`defineManifest`** / **`defineItem`** / **`itemsFromEntries`** so errors surface when you build the manifest, not only during sync.
+`resolveStore` must return a valid **`MediaStore`**. Validation is strict on required fields like `key`, `version`, and HTTP(S) asset URLs. Use **`createMediaStore`** and **`store.add()`** so errors surface when you build the store, not only during sync.
 
-See also: manifest-authoring/SKILL.md § Common Mistakes
+See also: store-authoring/SKILL.md § Common Mistakes
 
 ---
 
-See also: manifest-authoring/SKILL.md — Writing resolveManifest functions and using define helpers
+See also: store-authoring/SKILL.md — Writing resolveStore functions and using createMediaStore
 See also: cache-configuration/SKILL.md — All createMediaCache options
 See also: react-rendering/SKILL.md — Complete React hooks API

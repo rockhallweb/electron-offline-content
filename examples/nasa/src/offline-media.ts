@@ -1,9 +1,10 @@
 /**
- * Example manifest for `createMediaCache({ resolveManifest })`. Replace with your own
- * fetch or file read; shape must match `MediaCacheManifest` from the package.
+ * Offline media cache wired to the flat asset store API. The store is built
+ * from mock NASA Images API responses; replace `fetchNasaContent` with a real
+ * fetch when deploying against the live API.
  */
-import { createMediaCache, defineManifest } from "@rockhallweb/electron-offline-content/main";
-import { NasaContentSchema, getManifestItems } from "./transformations.js";
+import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { NasaContentSchema, populateStore } from "./transformations.js";
 
 // Create the media cache for offline content
 export const mediaCache = createMediaCache({
@@ -12,42 +13,22 @@ export const mediaCache = createMediaCache({
     appPath: "temp",
     segments: ["rockhallweb-electron-offline-content-example", "nasa"],
   },
-  resolveManifest: async () => {
-    // Fetch NASA content (we're using a mock here)
+  resolveStore: async () => {
     const nasaContent = await fetchNasaContent();
 
-    // Validate and transform the NASA content
     const { data: nasaContentResult, success, error } = NasaContentSchema.safeParse(nasaContent);
     if (!success) {
       throw new Error(`Invalid NASA content: ${JSON.stringify(error)}`);
     }
 
-    // Build the manifest
-    return defineManifest({
-      retrievedAt: new Date().toISOString(), // Optional: Set the retrieved at timestamp (mocked for demo purposes)
-      namespaces: {
-        "space.images": {
-          label: "NASA Images API - Images",
-          metadata: {
-            requestUrl: nasaContentResult.searches.image.collection.href,
-          },
-          items: getManifestItems(
-            nasaContentResult.assetCollections,
-            nasaContentResult.searches.image.collection.items,
-          ),
-        },
-        "space.videos": {
-          label: "NASA Images API - Videos",
-          metadata: {
-            requestUrl: nasaContentResult.searches.video.collection.href,
-          },
-          items: getManifestItems(
-            nasaContentResult.assetCollections,
-            nasaContentResult.searches.video.collection.items,
-          ),
-        },
-      },
-    });
+    const store = createMediaStore({ retrievedAt: new Date().toISOString() });
+    const collection = store.defineIndex("collection");
+    const mediaType = store.defineIndex("mediaType");
+    const role = store.defineIndex("role");
+
+    populateStore(store, { collection, mediaType, role }, nasaContentResult);
+
+    return store;
   },
 });
 

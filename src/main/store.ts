@@ -1,0 +1,289 @@
+import { StoreValidationError } from "../shared/errors.js";
+import { deriveAssetFileName } from "../internal/asset-file-name.js";
+import { mediaKindFromMime } from "../internal/media-kind.js";
+import type {
+  FlatManifest,
+  FlatManifestAsset,
+  IndexDefinition,
+  JsonValue,
+  MediaAssetInput,
+  MediaRemoteSource,
+} from "../shared/types.js";
+
+const MIME_PATTERN = /^\S+\/\S+$/;
+
+const BUILTIN_INDEX_NAMES = new Set(["mimeType", "mediaKind"]);
+
+function fileStem(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+}
+
+/**
+ * Handle returned by {@link MediaStore.defineIndex}. Use as a computed property key when
+ * setting index values on assets:
+ *
+ * ```ts
+ * const gallery = store.defineIndex("gallery");
+ * store.add("photo-1", { ..., indexes: { [gallery]: "nature" } });
+ * ```
+ */
+export class MediaIndex {
+  readonly name: string;
+  readonly cardinality: "single" | "multi";
+  readonly required: boolean;
+
+  constructor(name: string, cardinality: "single" | "multi", required: boolean) {
+    this.name = name;
+    this.cardinality = cardinality;
+    this.required = required;
+  }
+
+  toString(): string {
+    return this.name;
+  }
+
+  [Symbol.toPrimitive](): string {
+    return this.name;
+  }
+}
+
+/** Options for {@link createMediaStore}. */
+export interface MediaStoreOptions {
+  /** Optional opaque id for correlation, debugging, or multi-source merges. */
+  snapshotId?: string;
+  /** ISO 8601 timestamp describing when the store payload was built. */
+  retrievedAt?: string;
+  /**
+   * ISO 8601 timestamp after which source URLs must be treated as expired.
+   * Sync will fail assets whose download starts after this time.
+   */
+  expiresAt?: string;
+}
+
+interface StoredAsset {
+  key: string;
+  version: string;
+  mimeType: string;
+  fileName: string;
+  byteLength?: number;
+  source: MediaRemoteSource;
+  metadata: Record<string, JsonValue>;
+  indexes: Record<string, string | string[]>;
+}
+
+/**
+ * A flat key-value asset store with user-defined secondary indexes.
+ *
+ * Build a store imperatively inside your `resolveStore` callback:
+ *
+ * ```ts
+ * const store = createMediaStore();
+ * const gallery = store.defineIndex("gallery");
+ * store.add("forest/video", {
+ *   version: "v1",
+ *   mimeType: "video/mp4",
+ *   source: { url: "https://cdn.example.com/forest.mp4" },
+ *   indexes: { [gallery]: "nature" },
+ * });
+ * ```
+ */
+export class MediaStore {
+  private readonly options: MediaStoreOptions;
+  private readonly indexes = new Map<string, IndexDefinition>();
+  private readonly assets = new Map<string, StoredAsset>();
+
+  constructor(options?: MediaStoreOptions) {
+    this.options = options ?? {};
+  }
+
+  /**
+   * Register a secondary index that assets can be tagged with and queried by.
+   * Must be called before any {@link add} call that references this index.
+   *
+   * @param name - Unique index name. Must not collide with built-in indexes (`mimeType`, `mediaKind`).
+   * @param options - Cardinality (`"single"` or `"multi"`) and whether the index is required on every asset.
+   * @returns A {@link MediaIndex} handle usable as a computed property key.
+   */
+  defineIndex(
+    name: string,
+    options?: { cardinality?: "single" | "multi"; required?: boolean },
+  ): MediaIndex {
+    if (!name) {
+      throw new StoreValidationError("Index name must be a non-empty string.");
+    }
+    if (BUILTIN_INDEX_NAMES.has(name)) {
+      throw new StoreValidationError(`Index name "${name}" is reserved as a built-in index.`);
+    }
+    if (this.indexes.has(name)) {
+      throw new StoreValidationError(`Duplicate index name "${name}".`);
+    }
+
+    const cardinality = options?.cardinality ?? "single";
+    const required = options?.required ?? false;
+
+    this.indexes.set(name, { name, cardinality, required, builtin: false });
+    return new MediaIndex(name, cardinality, required);
+  }
+
+  /**
+   * Add an asset to the store.
+   *
+   * @param key - Unique asset key. May contain `/` for organizational naming (e.g. `"hubble/video"`).
+   * @param input - Asset data: version, mimeType, source, and optional indexes/metadata.
+   */
+  add(key: string, input: MediaAssetInput): void {
+    if (!key) {
+      throw new StoreValidationError("Asset key must be a non-empty string.");
+    }
+    if (this.assets.has(key)) {
+      throw new StoreValidationError(`Duplicate asset key "${key}".`);
+    }
+
+    if (!input.version) {
+      throw new StoreValidationError(`Asset "${key}": version is required.`);
+    }
+    if (!input.mimeType || !MIME_PATTERN.test(input.mimeType)) {
+      throw new StoreValidationError(
+        `Asset "${key}": mimeType must be a valid type/subtype string (got "${input.mimeType ?? ""}").`,
+      );
+    }
+    if (!input.source?.url) {
+      throw new StoreValidationError(`Asset "${key}": source.url is required.`);
+    }
+    try {
+      const parsed = new URL(input.source.url);
+      if (!/^https?:$/i.test(parsed.protocol)) {
+        throw new StoreValidationError(
+          `Asset "${key}": source URL must use http or https (got "${parsed.protocol}").`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof StoreValidationError) throw err;
+      throw new StoreValidationError(
+        `Asset "${key}": source URL is not valid: "${input.source.url}".`,
+      );
+    }
+
+    const fileName = input.fileName ?? deriveAssetFileName(input.source);
+
+    const assetIndexes: Record<string, string | string[]> = {};
+    if (input.indexes) {
+      for (const [indexName, value] of Object.entries(input.indexes)) {
+        const def = this.indexes.get(indexName);
+        if (!def) {
+          throw new StoreValidationError(
+            `Asset "${key}": index "${indexName}" has not been defined. Call store.defineIndex("${indexName}") first.`,
+          );
+        }
+
+        if (def.cardinality === "single") {
+          if (Array.isArray(value)) {
+            throw new StoreValidationError(
+              `Asset "${key}": index "${indexName}" has single cardinality but received an array. ` +
+                `Use { cardinality: "multi" } when defining the index to allow arrays.`,
+            );
+          }
+          if (typeof value !== "string" || !value) {
+            throw new StoreValidationError(
+              `Asset "${key}": index "${indexName}" value must be a non-empty string.`,
+            );
+          }
+          assetIndexes[indexName] = value;
+        } else {
+          const values = Array.isArray(value) ? value : [value];
+          if (values.length === 0) {
+            throw new StoreValidationError(
+              `Asset "${key}": index "${indexName}" value array must not be empty.`,
+            );
+          }
+          for (const v of values) {
+            if (typeof v !== "string" || !v) {
+              throw new StoreValidationError(
+                `Asset "${key}": index "${indexName}" values must be non-empty strings.`,
+              );
+            }
+          }
+          assetIndexes[indexName] = values;
+        }
+      }
+    }
+
+    this.assets.set(key, {
+      key,
+      version: input.version,
+      mimeType: input.mimeType,
+      fileName,
+      byteLength: input.byteLength,
+      source: {
+        url: input.source.url,
+        ...(input.source.method ? { method: input.source.method } : {}),
+        ...(input.source.headers ? { headers: input.source.headers } : {}),
+      },
+      metadata: input.metadata ?? {},
+      indexes: assetIndexes,
+    });
+  }
+
+  /**
+   * Serialize the store for the sync engine. Validates required indexes and produces
+   * the flat manifest consumed internally. Not part of the public consumer API.
+   * @internal
+   */
+  _serialize(): FlatManifest {
+    for (const [, def] of this.indexes) {
+      if (!def.required) continue;
+      for (const [assetKey, asset] of this.assets) {
+        if (!(def.name in asset.indexes)) {
+          throw new StoreValidationError(
+            `Asset "${assetKey}": required index "${def.name}" is missing.`,
+          );
+        }
+      }
+    }
+
+    const indexDefinitions: IndexDefinition[] = [
+      ...Array.from(this.indexes.values()),
+      { name: "mimeType", cardinality: "single", required: false, builtin: true },
+      { name: "mediaKind", cardinality: "single", required: false, builtin: true },
+    ];
+
+    const assets: FlatManifestAsset[] = [];
+    for (const [, stored] of this.assets) {
+      const mediaKind = mediaKindFromMime(stored.mimeType);
+      const stem = fileStem(stored.fileName);
+
+      const allIndexes: Record<string, string | string[]> = {
+        ...stored.indexes,
+        mimeType: stored.mimeType,
+        mediaKind,
+      };
+
+      assets.push({
+        key: stored.key,
+        version: stored.version,
+        mimeType: stored.mimeType,
+        mediaKind,
+        fileName: stored.fileName,
+        fileStem: stem,
+        byteLength: stored.byteLength,
+        source: stored.source,
+        metadata: stored.metadata,
+        indexes: allIndexes,
+      });
+    }
+
+    return {
+      snapshotId: this.options.snapshotId,
+      retrievedAt: this.options.retrievedAt,
+      expiresAt: this.options.expiresAt,
+      indexDefinitions,
+      assets,
+    };
+  }
+}
+
+/** Creates a new {@link MediaStore} for populating in a `resolveStore` callback. */
+export function createMediaStore(options?: MediaStoreOptions): MediaStore {
+  return new MediaStore(options);
+}

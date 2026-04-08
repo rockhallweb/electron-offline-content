@@ -1,20 +1,12 @@
 import { z } from "zod";
 import { DataValidationError } from "../shared/errors.js";
-import type { ActiveAssetRow, PendingDeletion } from "../main/database.js";
+import type { ActiveAssetRow, GenerationAssetRow, PendingDeletion } from "../main/database.js";
 import type {
-  DownloadRequest,
   JsonValue,
-  MediaAssetDefinition,
-  MediaAssetValue,
   MediaCacheAppPath,
-  MediaCacheManifest,
   MediaCacheStatus,
   MediaCacheStoragePath,
-  MediaContentDefinition,
-  MediaItemValue,
   MediaKind,
-  MediaNamespaceDefinition,
-  MediaNamespaceValue,
   MediaRemoteSource,
   SerializedMediaCacheError,
   SyncProgress,
@@ -26,8 +18,8 @@ const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const nonNegativeNumberSchema = z.number().nonnegative();
 
 /**
- * Schema for IPC/API string identifiers: namespace, item ID, namespace tree prefix, file stem.
- * Enforces min 1 and max 2000 characters. Used by getItem, listNamespace, listNamespaceTree, findByFileStem.
+ * Schema for IPC/API string identifiers: asset key, index name, index value, file stem.
+ * Enforces min 1 and max 2000 characters.
  */
 export const stringInputSchema = z.string().min(1).max(2000);
 
@@ -65,7 +57,7 @@ export const syncRunStatsSchema: z.ZodType<SyncRunStats> = z.object({
 export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
   runId: nonNegativeIntegerSchema,
   phase: z.enum([
-    "resolving-manifest",
+    "resolving-store",
     "staging-generation",
     "diffing",
     "downloading",
@@ -99,12 +91,6 @@ export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
   updatedAt: nonNegativeIntegerSchema,
 });
 
-export const downloadRequestSchema: z.ZodType<DownloadRequest> = z.object({
-  url: z.string(),
-  method: z.literal("GET").optional(),
-  headers: z.record(z.string(), z.string()).optional(),
-});
-
 const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
   "video",
   "image",
@@ -124,88 +110,6 @@ export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
     }),
   method: z.literal("GET").optional(),
   headers: stringRecordSchema.optional(),
-});
-
-/** Expanded asset row (includes `id`) — sync / SQLite paths. */
-export const mediaAssetDefinitionSchema: z.ZodType<MediaAssetDefinition> = z.object({
-  id: z.string().min(1),
-  role: z.string().min(1),
-  kind: z.union([
-    mediaKindSchema,
-    z.literal("subtitle"),
-    z.literal("caption"),
-    z.literal("poster"),
-    z.literal("thumbnail"),
-  ]),
-  version: z.string().min(1).optional(),
-  mimeType: z.string().optional(),
-  fileName: z.string().min(1).optional(),
-  byteLength: z.number().nonnegative().optional(),
-  source: mediaRemoteSourceSchema,
-  metadata: jsonObjectSchema.optional(),
-});
-
-/** Manifest authoring: asset value without `id` (id is the record key). */
-export const mediaAssetValueSchema: z.ZodType<MediaAssetValue> = z.object({
-  role: z.string().min(1),
-  kind: z.union([
-    mediaKindSchema,
-    z.literal("subtitle"),
-    z.literal("caption"),
-    z.literal("poster"),
-    z.literal("thumbnail"),
-  ]),
-  version: z.string().min(1).optional(),
-  mimeType: z.string().optional(),
-  fileName: z.string().min(1).optional(),
-  byteLength: z.number().nonnegative().optional(),
-  source: mediaRemoteSourceSchema,
-  metadata: jsonObjectSchema.optional(),
-});
-
-export const mediaContentDefinitionSchema: z.ZodType<MediaContentDefinition> = z.object({
-  id: z.string().min(1),
-  version: z.string().min(1),
-  kind: mediaKindSchema,
-  title: z.string().optional(),
-  description: z.string().optional(),
-  summary: z.string().optional(),
-  blobs: stringRecordSchema.optional(),
-  metadata: jsonObjectSchema.optional(),
-  assets: z.array(mediaAssetDefinitionSchema),
-});
-
-/** Manifest authoring: item value without `id` (id is the record key). */
-export const mediaItemValueSchema: z.ZodType<MediaItemValue> = z.object({
-  version: z.string().min(1),
-  kind: mediaKindSchema,
-  title: z.string().optional(),
-  description: z.string().optional(),
-  summary: z.string().optional(),
-  blobs: stringRecordSchema.optional(),
-  metadata: jsonObjectSchema.optional(),
-  assets: z.record(z.string().min(1), mediaAssetValueSchema),
-});
-
-export const mediaNamespaceDefinitionSchema: z.ZodType<MediaNamespaceDefinition> = z.object({
-  key: z.string().min(1),
-  label: z.string().optional(),
-  metadata: jsonObjectSchema.optional(),
-  items: z.array(mediaContentDefinitionSchema),
-});
-
-/** Manifest authoring: namespace value without `key` (key is the record key). */
-export const mediaNamespaceValueSchema: z.ZodType<MediaNamespaceValue> = z.object({
-  label: z.string().optional(),
-  metadata: jsonObjectSchema.optional(),
-  items: z.record(z.string().min(1), mediaItemValueSchema),
-});
-
-export const mediaCacheManifestSchema: z.ZodType<MediaCacheManifest> = z.object({
-  snapshotId: z.string().optional(),
-  retrievedAt: z.string().datetime({ offset: true }).optional(),
-  expiresAt: z.string().datetime({ offset: true }).optional(),
-  namespaces: z.record(z.string().min(1), mediaNamespaceValueSchema),
 });
 
 const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
@@ -268,34 +172,29 @@ export const activeGenerationRowSchema = z.object({
   generation_id: nonNegativeIntegerSchema,
 });
 
-export const generationAssetKeyRowSchema = z.object({
-  namespaceKey: z.string(),
-  itemId: z.string(),
-  assetId: z.string(),
+/** Row shape from getGenerationAssets used during sync diffing. */
+export const generationAssetRowSchema: z.ZodType<GenerationAssetRow> = z.object({
+  assetKey: z.string(),
+  version: z.string(),
+  relativePath: z.string().nullable(),
+  mimeType: z.string(),
+  sourceJson: z.string(),
 });
 
+/** Row shape for a fully joined active asset used for queries. */
 export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   generationId: nonNegativeIntegerSchema,
-  namespace: z.string(),
-  namespaceOrder: nonNegativeIntegerSchema,
-  itemId: z.string(),
-  itemVersion: z.string(),
-  itemKind: mediaKindSchema,
-  itemTitle: z.string().nullable(),
-  itemDescription: z.string().nullable(),
-  itemSummary: z.string().nullable(),
-  itemBlobsJson: z.string(),
-  itemMetadataJson: z.string(),
-  itemOrder: nonNegativeIntegerSchema,
-  assetId: z.string(),
-  assetRole: z.string(),
-  assetKind: z.string(),
-  mimeType: z.string().nullable(),
+  assetKey: z.string(),
+  version: z.string(),
+  mimeType: z.string(),
+  mediaKind: mediaKindSchema,
   byteLength: nonNegativeNumberSchema.nullable(),
-  assetMetadataJson: z.string(),
+  metadata: z.string(),
+  indexesJson: z.string(),
   relativePath: z.string().nullable(),
   sourceJson: z.string(),
   fileStem: z.string(),
+  orderIndex: nonNegativeIntegerSchema,
 });
 
 export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
@@ -304,18 +203,12 @@ export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
   relativePath: z.string(),
 });
 
-export const assetPathRowSchema = z.object({
-  relative_path: z.string().nullable(),
-});
-
 export const protocolAssetTargetRowSchema = z.object({
   relative_path: z.string().nullable(),
 });
 
 export const fileStemRowSchema = z.object({
-  namespace: z.string(),
-  itemId: z.string(),
-  assetId: z.string(),
+  assetKey: z.string(),
 });
 
 const optionalNonNegativeIntegerSchema = z
@@ -335,15 +228,7 @@ export const paginationInputSchema = z.object({
   cursor: optionalStringSchema,
 });
 
-export const findByFileStemOptionsSchema = paginationInputSchema.extend({
-  namespace: optionalStringSchema,
-});
-
 export const optionalPaginationInputSchema = paginationInputSchema
-  .nullish()
-  .transform((value) => value ?? undefined);
-
-export const optionalFindByFileStemOptionsSchema = findByFileStemOptionsSchema
   .nullish()
   .transform((value) => value ?? undefined);
 
@@ -392,8 +277,6 @@ export function stringifyWithSchema<T>(
     throw new DataValidationError(`Invalid ${context}: value is not JSON serializable.`);
   }
 
-  // Validate the serialized JSON round-trip, but preserve the original JSON.stringify output so
-  // optional-field semantics stay intact (for example, undefined object properties are omitted).
   parseJsonWithSchema(rawJson, schema, context);
   return rawJson;
 }

@@ -13,7 +13,6 @@ describe("MediaCacheDatabase", () => {
         assetBaseUrlOrigin: null,
       });
 
-      // Verify sync_runs table works
       const id = db.createSyncRun(1000);
       db.completeSyncRun(id, "success", 1001, {
         totalAssets: 0,
@@ -23,23 +22,33 @@ describe("MediaCacheDatabase", () => {
       });
       expect(db.getSyncRun(id)).not.toBeNull();
 
-      // Verify key tables and columns exist via PRAGMA
       const dbInternal = (
         db as unknown as {
           db: { prepare: (sql: string) => { all: () => Array<{ name: string }> } };
         }
       ).db;
-      const expectedTables = ["generations", "assets", "sync_runs", "pending_deletions"];
+      const expectedTables = [
+        "generations",
+        "assets",
+        "asset_indexes",
+        "index_definitions",
+        "sync_runs",
+        "pending_deletions",
+      ];
       for (const table of expectedTables) {
         const columns = dbInternal.prepare(`PRAGMA table_info(${table})`).all();
         expect(columns.length).toBeGreaterThan(0);
       }
       const assetColumns = dbInternal.prepare("PRAGMA table_info(assets)").all();
+      expect(assetColumns.map((c) => c.name)).toContain("asset_key");
       expect(assetColumns.map((c) => c.name)).toContain("source_json");
-      expect(assetColumns.map((c) => c.name)).toContain("resolved_request_json");
+      expect(assetColumns.map((c) => c.name)).toContain("indexes_json");
+      expect(assetColumns.map((c) => c.name)).toContain("media_kind");
+      expect(assetColumns.map((c) => c.name)).toContain("file_stem");
 
       const pendingColumns = dbInternal.prepare("PRAGMA table_info(pending_deletions)").all();
       expect(pendingColumns.map((c) => c.name)).toContain("deletion_key");
+      expect(pendingColumns.map((c) => c.name)).toContain("asset_key");
 
       db.close();
     } finally {
@@ -73,7 +82,6 @@ describe("pruneSyncHistory", () => {
 
       db.pruneSyncHistory(2);
 
-      // Runs 4 and 5 (most recent) should remain; runs 1, 2, 3 should be deleted
       expect(db.getSyncRun(runIds[0])).toBeNull();
       expect(db.getSyncRun(runIds[1])).toBeNull();
       expect(db.getSyncRun(runIds[2])).toBeNull();

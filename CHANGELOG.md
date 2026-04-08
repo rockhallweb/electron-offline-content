@@ -1,5 +1,199 @@
 # Changelog
 
+## 0.4.0
+
+### Breaking changes
+
+**Store API (replaces Manifest API)**
+
+- `defineManifest()`, `defineItem()`, `defineAsset()` removed. Replaced by `createMediaStore()`, `store.defineIndex()`, `store.add()`.
+- `namespacesFromEntries()`, `itemsFromEntries()`, `assetsFromEntries()` removed.
+- `resolveManifest` option replaced by `resolveStore` (returns a `MediaStore` or `Promise<MediaStore>`).
+- `resolveAssetRequest` option removed entirely; embed signed URLs or auth headers in `source` during `resolveStore()`.
+- Hierarchical `namespace/item/asset` model replaced by flat `assetKey` model with user-defined secondary indexes.
+- Per-asset versioning: each asset has its own `version` string (no longer inherited from parent item).
+
+**Error renames:**
+
+- `ManifestValidationError` → `StoreValidationError` (code: `STORE_VALIDATION_ERROR`)
+- `ManifestExpiredError` → `StoreExpiredError` (code: `STORE_EXPIRED`)
+
+**Main process API:**
+
+- `getItem(namespace, id)` → `getAsset(key)`
+- `listNamespace(namespace, pagination?)` → `listByIndex(indexName, value, pagination?)`
+- `listNamespaceTree(prefix, pagination?)` → removed (use indexes instead)
+
+**React hooks:**
+
+- `useMedia({ kind: "item", ... })` and `useMedia({ kind: "list", ... })` → removed
+- New hooks: `useMediaAsset(key)`, `useMediaByIndex(indexName, value, options?)`
+- `useFileStemMatch` no longer accepts a `namespace` option
+
+**Types:**
+
+- Removed: `MediaCacheManifest`, `MediaNamespaceValue`, `MediaItemValue`, `MediaAssetValue`, `ResolvedMediaContentItem`
+- New: `MediaAssetInput`, `FlatManifest`, `FlatManifestAsset`, `IndexDefinition`
+- `ResolvedMediaAsset` now has: `key`, `version`, `kind: MediaKind`, `mimeType`, `indexes: Record<string, string>`, `metadata: Record<string, unknown>`
+- `FileStemMatch` now has `asset: ResolvedMediaAsset` instead of `item: ResolvedMediaContentItem`
+- `SyncProgress.phase` includes `"resolving-store"` instead of `"resolving-manifest"`
+
+**New exports:**
+
+- `createMediaStore`, `MediaStore`, `MediaIndex`, `mediaKindFromMime`
+
+**Protocol URL:**
+
+- Old: `media://{namespace}/{itemId}/{assetId}`
+- New: `media://asset/{encodedAssetKey}`
+
+**IPC channels:**
+
+- `getItem`, `listNamespace`, `listNamespaceTree` → `getAsset`, `listByIndex`
+
+### Migration
+
+**Store creation**
+
+```ts
+// Before — hierarchical manifest with defineManifest / defineItem / defineAsset
+import {
+  defineAsset,
+  defineItem,
+  defineManifest,
+  itemsFromEntries,
+} from "@rockhallweb/electron-offline-content/main";
+
+const manifest = defineManifest({
+  namespaces: {
+    videos: {
+      items: itemsFromEntries(data.videos, (v) => [
+        v.slug,
+        defineItem({
+          version: v.updatedAt,
+          kind: "video",
+          assets: {
+            main: defineAsset({
+              role: "primary",
+              kind: "video",
+              source: { url: v.videoUrl },
+            }),
+          },
+        }),
+      ]),
+    },
+  },
+});
+
+// After — flat store with createMediaStore / defineIndex / store.add
+import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
+
+const store = createMediaStore();
+store.defineIndex("category", (asset) => asset.metadata.category as string);
+
+for (const v of data.videos) {
+  store.add({
+    key: `video/${v.slug}`,
+    version: v.updatedAt,
+    kind: "video",
+    mimeType: "video/mp4",
+    source: { url: v.videoUrl },
+    metadata: { title: v.title, category: "videos" },
+  });
+}
+```
+
+**Main process wiring**
+
+```ts
+// Before
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveManifest: async () => {
+    const res = await fetch("https://cms.example.com/api/content");
+    return res.json();
+  },
+});
+
+// After
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveStore: async () => {
+    const res = await fetch("https://cms.example.com/api/content");
+    const data = await res.json();
+    const store = createMediaStore();
+    store.defineIndex("category", (asset) => asset.metadata.category as string);
+    for (const item of data.items) {
+      store.add({
+        key: item.id,
+        version: item.updatedAt,
+        kind: mediaKindFromMime(item.mimeType),
+        mimeType: item.mimeType,
+        source: { url: item.url },
+        metadata: item.metadata,
+      });
+    }
+    return store;
+  },
+});
+```
+
+**React hooks**
+
+```tsx
+// Before — useMedia with kind discriminator
+const item = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
+const list = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+// item.data.assetsByRole.primary?.url
+// list.data.items.map(...)
+
+// After — useMediaAsset / useMediaByIndex
+const asset = useMediaAsset("video/welcome");
+const videos = useMediaByIndex("category", "videos", { limit: 20 });
+// asset.data?.url
+// videos.data?.items.map(...)
+```
+
+**Auth (resolveAssetRequest → inline in resolveStore)**
+
+```ts
+// Before — resolveAssetRequest callback signed each download
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveAssetRequest: async (ctx) => ({
+    url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: ctx.asset.source.url }), {
+      expiresIn: 3600,
+    }),
+  }),
+  resolveManifest: async () => fetchManifest(),
+});
+
+// After — embed signed URLs in source during resolveStore()
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveStore: async () => {
+    const store = createMediaStore();
+    for (const item of await fetchCatalog()) {
+      const signedUrl = await getSignedUrl(
+        s3,
+        new GetObjectCommand({ Bucket: "b", Key: item.key }),
+        { expiresIn: 3600 },
+      );
+      store.add(item.key, {
+        version: item.revision,
+        mimeType: "video/mp4",
+        source: { url: signedUrl },
+      });
+    }
+    return store;
+  },
+});
+```
+
+### Changed
+
+- `reserveFreeBytes` default remains **1 GiB** (`1024³` bytes).
+
 ## 0.3.0
 
 ### Breaking changes

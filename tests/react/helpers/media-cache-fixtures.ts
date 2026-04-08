@@ -1,38 +1,37 @@
 import type {
   MediaCacheBridge,
   MediaCacheStatus,
-  ResolvedMediaContentItem,
+  ResolvedMediaAsset,
 } from "../../../src/shared/types.js";
 
 export function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCacheBridge {
   return {
     getStatus: async () => buildStatus("idle"),
     syncNow: async () => undefined,
-    getItem: async () => null,
-    listNamespace: async () => ({ items: [], nextCursor: null }),
-    listNamespaceTree: async () => ({ items: [], nextCursor: null }),
+    getAsset: async () => null,
+    listByIndex: async () => ({ items: [], nextCursor: null }),
     findByFileStem: async () => ({ items: [], nextCursor: null }),
     subscribeStatus: () => () => undefined,
     ...overrides,
   };
 }
 
-export function buildItem(id: string): ResolvedMediaContentItem {
+export function buildAsset(key: string): ResolvedMediaAsset {
   return {
-    namespace: "nature",
-    id,
+    key,
     version: "v1",
+    mimeType: "video/mp4",
     kind: "video",
-    blobs: {},
+    byteLength: undefined,
     metadata: {},
-    assets: [],
-    assetsByRole: {},
+    indexes: { mimeType: "video/mp4", mediaKind: "video" },
+    url: `media://asset/${encodeURIComponent(key)}`,
   };
 }
 
-export function buildItemWithVersion(id: string, version: string): ResolvedMediaContentItem {
+export function buildAssetWithVersion(key: string, version: string): ResolvedMediaAsset {
   return {
-    ...buildItem(id),
+    ...buildAsset(key),
     version,
   };
 }

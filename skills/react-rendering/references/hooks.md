@@ -75,7 +75,6 @@ import { useMediaBridge } from "@rockhallweb/electron-offline-content/react";
 
 function DebugPanel() {
   const { syncNow, status, errors } = useMediaBridge();
-  // Direct bridge methods with status + errors bundled together
 }
 ```
 
@@ -146,6 +145,7 @@ interface MediaCacheStatus {
 }
 
 interface SyncProgress {
+  phase: "resolving-store" | "downloading" | "committing";
   totalAssets: number;
   completedAssets: number;
   bytesDownloaded: number;
@@ -177,59 +177,76 @@ function SyncProgress() {
 
 ---
 
-### useMedia
+### useMediaAsset
 
-Primary query hook for item and namespace lookups.
+Looks up a single asset by its unique key.
 
 ```typescript
-function useMedia(
-  options:
-    | { kind: "item"; namespace: string; id: string; refetchOnSyncComplete?: boolean }
-    | {
-        kind: "list";
-        namespace: string;
-        recursive?: boolean;
-        limit?: number;
-        cursor?: string;
-        refetchOnSyncComplete?: boolean;
-      },
-): UseMediaItemResult | UseMediaListResult;
+function useMediaAsset(
+  key: string,
+  options?: { refetchOnSyncComplete?: boolean },
+): AsyncState<ResolvedMediaAsset>;
 ```
 
-**Item example:**
+| Parameter | Type     | Description                                                  |
+| --------- | -------- | ------------------------------------------------------------ |
+| `key`     | `string` | The asset key (as passed to `store.add()` in `resolveStore`) |
+| `options` | `object` | Optional. `refetchOnSyncComplete` re-fetches after sync.     |
+
+**Returns:** `AsyncState<ResolvedMediaAsset>`
 
 ```tsx
-import { useMedia } from "@rockhallweb/electron-offline-content/react";
+import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
 
 function WelcomeVideo() {
-  const { data: item, loading } = useMedia({
-    kind: "item",
-    namespace: "videos",
-    id: "welcome",
-    refetchOnSyncComplete: true,
-  });
+  const { data: asset, loading } = useMediaAsset("video/welcome");
 
-  if (loading || !item) return null;
+  if (loading || !asset) return null;
 
-  return (
-    <video src={item.assetsByRole.primary?.url} poster={item.assetsByRole.poster?.url} controls />
-  );
+  return <video src={asset.url} controls />;
 }
 ```
 
 ---
 
-**List example:**
+### useMediaByIndex
+
+Queries assets by a secondary index defined in `resolveStore`.
+
+```typescript
+function useMediaByIndex(
+  indexName: string,
+  value: string,
+  options?: {
+    limit?: number;
+    cursor?: string;
+    refetchOnSyncComplete?: boolean;
+  },
+): AsyncState<PaginationResult<ResolvedMediaAsset>>;
+```
+
+| Parameter   | Type     | Description                                        |
+| ----------- | -------- | -------------------------------------------------- |
+| `indexName` | `string` | Name of the index (as defined by `defineIndex()`). |
+| `value`     | `string` | The index value to match.                          |
+| `options`   | `object` | Optional pagination and refetch options.           |
+
+**Options:**
+
+| Option                  | Type      | Default | Description                    |
+| ----------------------- | --------- | ------- | ------------------------------ |
+| `limit`                 | `number`  | —       | Maximum results per page.      |
+| `cursor`                | `string`  | —       | Opaque cursor for next page.   |
+| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch after sync completes. |
+
+**Returns:** `AsyncState<PaginationResult<ResolvedMediaAsset>>`
 
 ```tsx
-import { useMedia } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
 
 function ExhibitList() {
-  const { data, loading } = useMedia({
-    kind: "list",
-    namespace: "exhibits",
+  const { data, loading } = useMediaByIndex("category", "exhibits", {
     limit: 30,
-    recursive: true,
     refetchOnSyncComplete: true,
   });
 
@@ -237,9 +254,9 @@ function ExhibitList() {
 
   return (
     <>
-      {data.items.map((item) => (
-        <div key={`${item.namespace}/${item.id}`}>
-          <img src={item.assetsByRole.thumbnail?.url} alt={item.title} />
+      {data.items.map((asset) => (
+        <div key={asset.key}>
+          <img src={asset.url} alt={asset.metadata.title as string} />
         </div>
       ))}
     </>
@@ -251,7 +268,7 @@ function ExhibitList() {
 
 ### useFileStemMatch
 
-Searches cached content by filename stem, optionally filtered to a namespace.
+Searches cached content by filename stem across all assets.
 
 ```typescript
 function useFileStemMatch(
@@ -267,12 +284,11 @@ function useFileStemMatch(
 
 **FileStemMatchQueryOptions:**
 
-| Option                  | Type      | Default | Description                              |
-| ----------------------- | --------- | ------- | ---------------------------------------- |
-| `limit`                 | `number`  | —       | Maximum matches per page.                |
-| `cursor`                | `string`  | —       | Opaque cursor for next page.             |
-| `namespace`             | `string`  | —       | Restrict search to a specific namespace. |
-| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch after sync completes.           |
+| Option                  | Type      | Default | Description                    |
+| ----------------------- | --------- | ------- | ------------------------------ |
+| `limit`                 | `number`  | —       | Maximum matches per page.      |
+| `cursor`                | `string`  | —       | Opaque cursor for next page.   |
+| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch after sync completes. |
 
 **Returns:** `AsyncState<PaginationResult<FileStemMatch>>`
 
@@ -280,19 +296,14 @@ function useFileStemMatch(
 import { useFileStemMatch } from "@rockhallweb/electron-offline-content/react";
 
 function Search({ query }: { query: string }) {
-  const { data, loading } = useFileStemMatch(query, {
-    limit: 20,
-    namespace: "exhibits",
-  });
+  const { data, loading } = useFileStemMatch(query, { limit: 20 });
 
   if (loading || !data) return <p>Searching…</p>;
 
   return (
     <ul>
       {data.items.map((match) => (
-        <li key={`${match.item.namespace}/${match.item.id}`}>
-          {match.item.namespace}/{match.item.id}
-        </li>
+        <li key={match.asset.key}>{match.asset.key}</li>
       ))}
     </ul>
   );
@@ -330,11 +341,11 @@ interface MediaCacheErrors {
 | `primaryError` | First available error in priority order: `statusError` → first `queryError` → `syncError`. |
 
 ```tsx
-import { useMedia, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
 
 function Page() {
-  const videos = useMedia({ kind: "list", namespace: "videos" });
-  const images = useMedia({ kind: "list", namespace: "images" });
+  const videos = useMediaByIndex("category", "videos");
+  const images = useMediaByIndex("category", "images");
   const errors = useMediaCacheErrors();
 
   if (errors.hasError) {
@@ -349,65 +360,47 @@ function Page() {
 
 ## Return Types
 
-### ResolvedMediaContentItem
-
-Fully resolved content item with local/remote URLs for all assets.
-
-```typescript
-interface ResolvedMediaContentItem {
-  namespace: string;
-  id: string;
-  version: string;
-  kind: MediaKind;
-  title?: string;
-  description?: string;
-  summary?: string;
-  blobs: Record<string, string>;
-  metadata: Record<string, JsonValue>;
-  assets: ResolvedMediaAsset[];
-  assetsByRole: Record<string, ResolvedMediaAsset | undefined>;
-}
-```
-
-| Field          | Description                                                                         |
-| -------------- | ----------------------------------------------------------------------------------- |
-| `namespace`    | Namespace the item belongs to.                                                      |
-| `id`           | Unique identifier within the namespace.                                             |
-| `version`      | Content version string from the manifest.                                           |
-| `kind`         | Media kind enum value.                                                              |
-| `title`        | Optional display title.                                                             |
-| `description`  | Optional long description.                                                          |
-| `summary`      | Optional short summary.                                                             |
-| `blobs`        | Key-value map of inline blob data.                                                  |
-| `metadata`     | Arbitrary JSON metadata from the manifest.                                          |
-| `assets`       | Ordered array of all resolved assets.                                               |
-| `assetsByRole` | Convenience lookup: asset `role` → `ResolvedMediaAsset`. First asset per role wins. |
-
 ### ResolvedMediaAsset
 
 A single resolved asset with a ready-to-render URL.
 
 ```typescript
 interface ResolvedMediaAsset {
-  id: string;
-  role: string;
-  kind: string;
-  mimeType?: string;
-  byteLength?: number;
+  key: string;
+  version: string;
+  kind: MediaKind;
+  mimeType: string;
   url: string;
-  metadata: Record<string, JsonValue>;
+  indexes: Record<string, string>;
+  metadata: Record<string, unknown>;
 }
 ```
 
-| Field        | Description                                                                    |
-| ------------ | ------------------------------------------------------------------------------ |
-| `id`         | Unique asset identifier.                                                       |
-| `role`       | Semantic role (e.g. `"primary"`, `"poster"`, `"thumbnail"`, `"captions"`).     |
-| `kind`       | Asset kind (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).               |
-| `mimeType`   | MIME type when known (e.g. `"video/mp4"`).                                     |
-| `byteLength` | File size in bytes when known.                                                 |
-| `url`        | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode. |
-| `metadata`   | Arbitrary JSON metadata for this asset.                                        |
+| Field      | Description                                                                    |
+| ---------- | ------------------------------------------------------------------------------ |
+| `key`      | Unique asset key (as defined in `store.add()`).                                |
+| `version`  | Content version string from the store.                                         |
+| `kind`     | Media kind enum value (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).    |
+| `mimeType` | MIME type (e.g. `"video/mp4"`).                                                |
+| `url`      | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode. |
+| `indexes`  | Key-value map of index names to their computed values for this asset.          |
+| `metadata` | Arbitrary metadata from `store.add()`.                                         |
+
+### FileStemMatch
+
+A filename stem search result.
+
+```typescript
+interface FileStemMatch {
+  asset: ResolvedMediaAsset;
+  score: number;
+}
+```
+
+| Field   | Description                                              |
+| ------- | -------------------------------------------------------- |
+| `asset` | The matched `ResolvedMediaAsset`.                        |
+| `score` | Relevance score for the match (higher is more relevant). |
 
 ### MediaCacheReadyState
 

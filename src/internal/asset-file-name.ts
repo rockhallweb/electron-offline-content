@@ -1,4 +1,4 @@
-import { ManifestValidationError } from "../shared/errors.js";
+import { StoreValidationError } from "../shared/errors.js";
 import type { MediaRemoteSource } from "../shared/types.js";
 
 /** Derives a file name from the manifest source URL path. */
@@ -8,7 +8,7 @@ export function deriveAssetFileName(source: MediaRemoteSource): string {
   const segments = path.split("/").filter(Boolean);
   const candidate = segments.at(-1);
   if (!candidate) {
-    throw new ManifestValidationError(
+    throw new StoreValidationError(
       `Asset source URL "${source.url}" must include a filename in the path, or set an explicit "fileName" on the asset.`,
     );
   }

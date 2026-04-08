@@ -2,16 +2,17 @@
 name: react-rendering
 description: >
   React bindings for @rockhallweb/electron-offline-content:
-  MediaCacheProvider context, useMedia as the primary query API for
-  item and namespace lookups, useMediaBridge and useMediaCacheStatus for sync phase and
-  progress, useFileStemMatch for filename search, useMediaCacheReady
-  for download gates, and useMediaCacheErrors for aggregated error display.
-  AsyncState shape, refetchOnSyncComplete, assetsByRole convenience
-  lookup, rendering media:// URLs in video/img/audio/track elements.
+  MediaCacheProvider context, useMediaAsset for single asset lookups,
+  useMediaByIndex for index-based queries, useMediaBridge and
+  useMediaCacheStatus for sync phase and progress, useFileStemMatch
+  for filename search, useMediaCacheReady for download gates, and
+  useMediaCacheErrors for aggregated error display. AsyncState shape,
+  refetchOnSyncComplete, rendering media:// URLs in video/img/audio/track
+  elements.
 type: framework
 library: electron-offline-content
 framework: react
-library_version: "0.1.1"
+library_version: "0.4.0"
 requires:
   - getting-started
 sources:
@@ -37,14 +38,14 @@ function App() {
 }
 ```
 
-Gate content rendering on first sync completion, then render items:
+Gate content rendering on first sync completion, then render assets:
 
 ```tsx
-import { useMedia, useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
 
 function KioskShell() {
   const ready = useMediaCacheReady();
-  const videos = useMedia({ kind: "list", namespace: "videos", limit: 50 });
+  const videos = useMediaByIndex("category", "videos", { limit: 50 });
 
   if (ready.loading || !ready.data?.ready) {
     return <div>Preparing content…</div>;
@@ -54,10 +55,10 @@ function KioskShell() {
 
   return (
     <ul>
-      {videos.data?.items.map((item) => (
-        <li key={item.id}>
-          <video src={item.assetsByRole.primary?.url} controls />
-          <span>{item.title}</span>
+      {videos.data?.items.map((asset) => (
+        <li key={asset.key}>
+          <video src={asset.url} controls />
+          <span>{asset.metadata.title as string}</span>
         </li>
       ))}
     </ul>
@@ -92,19 +93,33 @@ function LoadingGate({ children }: { children: React.ReactNode }) {
 }
 ```
 
-### Querying items with useMedia
+### Single asset lookup with useMediaAsset
 
-Returns `UseMediaItemResult` or `UseMediaListResult` depending on whether you pass `{ kind: "item" }` or `{ kind: "list" }`.
-
-Flat namespace query:
+Returns `AsyncState<ResolvedMediaAsset>` for a single asset by key.
 
 ```tsx
-import { useMedia } from "@rockhallweb/electron-offline-content/react";
+import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
+
+function WelcomeVideo() {
+  const { data: asset, loading } = useMediaAsset("video/welcome");
+
+  if (loading || !asset) return <p>Loading…</p>;
+
+  return <video src={asset.url} controls />;
+}
+```
+
+Use `useMediaAsset` when you know the exact asset key. Asset keys come from the `key` field passed to `store.add()` during `resolveStore`.
+
+### Index-based queries with useMediaByIndex
+
+Returns `AsyncState<PaginationResult<ResolvedMediaAsset>>` for assets matching an index value.
+
+```tsx
+import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
 
 function VideoList() {
-  const { data, loading, error, refresh } = useMedia({
-    kind: "list",
-    namespace: "videos",
+  const { data, loading, error, refresh } = useMediaByIndex("category", "videos", {
     limit: 20,
     refetchOnSyncComplete: true,
   });
@@ -114,70 +129,34 @@ function VideoList() {
 
   return (
     <ul>
-      {data?.items.map((item) => (
-        <li key={item.id}>{item.title}</li>
+      {data?.items.map((asset) => (
+        <li key={asset.key}>{asset.metadata.title as string}</li>
       ))}
     </ul>
   );
 }
 ```
 
-Recursive tree query across nested namespaces:
+Query by any index defined in `resolveStore`:
 
 ```tsx
-function AllMedia() {
-  const { data, loading } = useMedia({
-    kind: "list",
-    namespace: "exhibits.floor-2",
-    recursive: true,
+function FloorExhibits({ floor }: { floor: string }) {
+  const { data, loading } = useMediaByIndex("floor", floor, {
     limit: 100,
+    refetchOnSyncComplete: true,
   });
 
   if (loading || !data) return null;
 
   return (
     <div>
-      {data.items.map((item) => (
-        <figure key={`${item.namespace}/${item.id}`}>
-          <img src={item.assetsByRole.thumbnail?.url} alt={item.title} />
-          <figcaption>
-            {item.namespace} — {item.title}
-          </figcaption>
+      {data.items.map((asset) => (
+        <figure key={asset.key}>
+          <img src={asset.url} alt={asset.metadata.title as string} />
+          <figcaption>{asset.metadata.title as string}</figcaption>
         </figure>
       ))}
     </div>
-  );
-}
-```
-
-### Single item lookup with useMedia
-
-Use `{ kind: "item", namespace, id }` for an exact item lookup.
-
-```tsx
-import { useMedia } from "@rockhallweb/electron-offline-content/react";
-
-function InducteeProfile({ inducteeId }: { inducteeId: string }) {
-  const { data: item, loading } = useMedia({
-    kind: "item",
-    namespace: "inductees",
-    id: inducteeId,
-    refetchOnSyncComplete: true,
-  });
-
-  if (loading || !item) return <p>Loading profile…</p>;
-
-  return (
-    <article>
-      <h2>{item.title}</h2>
-      <p>{item.description}</p>
-      <video src={item.assetsByRole.primary?.url} poster={item.assetsByRole.poster?.url} controls />
-      {item.assets
-        .filter((a) => a.role === "gallery")
-        .map((asset) => (
-          <img key={asset.id} src={asset.url} alt="" />
-        ))}
-    </article>
   );
 }
 ```
@@ -239,11 +218,11 @@ function DownloadButton() {
 Returns `MediaCacheErrors` with `{ hasError, primaryError, syncError, statusError, queryErrors }`.
 
 ```tsx
-import { useMedia, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
 
 function ExhibitPage() {
-  const videos = useMedia({ kind: "list", namespace: "videos", limit: 50 });
-  const images = useMedia({ kind: "list", namespace: "images", limit: 100 });
+  const videos = useMediaByIndex("category", "videos", { limit: 50 });
+  const images = useMediaByIndex("category", "images", { limit: 100 });
   const errors = useMediaCacheErrors();
 
   if (errors.hasError) {
@@ -261,7 +240,7 @@ function ExhibitPage() {
 
 ### File stem matching with useFileStemMatch
 
-Returns `AsyncState<PaginationResult<FileStemMatch>>`. Searches cached content by filename stem across namespaces.
+Returns `AsyncState<PaginationResult<FileStemMatch>>`. Searches cached content by filename stem across all assets.
 
 ```tsx
 import { useFileStemMatch } from "@rockhallweb/electron-offline-content/react";
@@ -269,7 +248,6 @@ import { useFileStemMatch } from "@rockhallweb/electron-offline-content/react";
 function AssetSearch({ query }: { query: string }) {
   const { data, loading } = useFileStemMatch(query, {
     limit: 25,
-    namespace: "exhibits",
     refetchOnSyncComplete: true,
   });
 
@@ -278,9 +256,7 @@ function AssetSearch({ query }: { query: string }) {
   return (
     <ul>
       {data.items.map((match) => (
-        <li key={`${match.item.namespace}/${match.item.id}`}>
-          {match.item.namespace}/{match.item.id}
-        </li>
+        <li key={match.asset.key}>{match.asset.key}</li>
       ))}
     </ul>
   );
@@ -292,26 +268,34 @@ function AssetSearch({ query }: { query: string }) {
 URLs from hook results work directly in `src` attributes. In offline mode they resolve through the `media://` protocol handler registered in main. In `devPassthrough` mode they are remote HTTPS URLs. Never construct these URLs manually.
 
 ```tsx
-function MediaPlayer({ item }: { item: ResolvedMediaContentItem }) {
-  const video = item.assetsByRole.primary;
-  const caption = item.assetsByRole.captions;
-  const poster = item.assetsByRole.poster;
-
-  return (
-    <video src={video?.url} poster={poster?.url} controls autoPlay muted>
-      {caption && <track src={caption.url} kind="subtitles" srcLang="en" default />}
-    </video>
-  );
+function MediaPlayer({ asset }: { asset: ResolvedMediaAsset }) {
+  return <video src={asset.url} controls autoPlay muted />;
 }
 ```
 
 Audio assets work the same way:
 
 ```tsx
-function AudioPlayer({ item }: { item: ResolvedMediaContentItem }) {
-  const audio = item.assetsByRole.primary;
+function AudioPlayer({ asset }: { asset: ResolvedMediaAsset }) {
+  return <audio src={asset.url} controls />;
+}
+```
 
-  return <audio src={audio?.url} controls />;
+For related assets (e.g. a video with a poster and subtitles), look up each asset by key:
+
+```tsx
+function VideoWithExtras({ videoKey }: { videoKey: string }) {
+  const video = useMediaAsset(videoKey);
+  const poster = useMediaAsset(`${videoKey}/poster`);
+  const subs = useMediaAsset(`${videoKey}/subs-en`);
+
+  if (video.loading || !video.data) return <p>Loading…</p>;
+
+  return (
+    <video src={video.data.url} poster={poster.data?.url} controls>
+      {subs.data && <track src={subs.data.url} kind="subtitles" srcLang="en" default />}
+    </video>
+  );
 }
 ```
 
@@ -324,11 +308,11 @@ All hooks return `AsyncState<T>` where `data` is `null` until the first successf
 ```tsx
 // WRONG — TypeError when data is null
 function Broken() {
-  const items = useMedia({ kind: "list", namespace: "videos" });
+  const videos = useMediaByIndex("category", "videos");
   return (
     <ul>
-      {items.data.items.map((i) => (
-        <li key={i.id}>{i.title}</li>
+      {videos.data.items.map((asset) => (
+        <li key={asset.key}>{asset.metadata.title as string}</li>
       ))}
     </ul>
   );
@@ -336,12 +320,12 @@ function Broken() {
 
 // CORRECT — guard on loading and null
 function Fixed() {
-  const items = useMedia({ kind: "list", namespace: "videos" });
-  if (items.loading || !items.data) return <p>Loading…</p>;
+  const videos = useMediaByIndex("category", "videos");
+  if (videos.loading || !videos.data) return <p>Loading…</p>;
   return (
     <ul>
-      {items.data.items.map((i) => (
-        <li key={i.id}>{i.title}</li>
+      {videos.data.items.map((asset) => (
+        <li key={asset.key}>{asset.metadata.title as string}</li>
       ))}
     </ul>
   );
@@ -356,39 +340,39 @@ Hook URLs are ready to render. Do not `fetch()` them in the renderer — it bypa
 
 ```tsx
 // WRONG — redundant fetch, breaks offline
-function Broken({ item }: { item: ResolvedMediaContentItem }) {
+function Broken({ asset }: { asset: ResolvedMediaAsset }) {
   const [src, setSrc] = useState("");
   useEffect(() => {
-    fetch(item.assetsByRole.primary!.url)
+    fetch(asset.url)
       .then((r) => r.blob())
       .then((b) => setSrc(URL.createObjectURL(b)));
-  }, [item]);
+  }, [asset]);
   return <video src={src} />;
 }
 
 // CORRECT — pass URL directly to src
-function Fixed({ item }: { item: ResolvedMediaContentItem }) {
-  return <video src={item.assetsByRole.primary?.url} controls />;
+function Fixed({ asset }: { asset: ResolvedMediaAsset }) {
+  return <video src={asset.url} controls />;
 }
 ```
 
 Source: Maintainer interview
 
-### MEDIUM: Using removed `useMediaNamespace` / `useMediaNamespaceTree`
+### HIGH: Using removed useMedia hooks
 
-These hooks were removed in 0.2.0. Older snippets or hallucinated names may still reference them.
+`useMedia({ kind: "item", ... })` and `useMedia({ kind: "list", ... })` were removed in 0.4.0. Use `useMediaAsset` and `useMediaByIndex` instead.
 
 ```tsx
-// WRONG — removed API (migrate away)
-const items = useMediaNamespace("videos", { limit: 20 });
-const tree = useMediaNamespaceTree("exhibits", { limit: 50 });
+// WRONG — removed API
+const item = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
+const list = useMedia({ kind: "list", namespace: "videos", limit: 20 });
 
 // CORRECT
-const items = useMedia({ kind: "list", namespace: "videos", limit: 20 });
-const tree = useMedia({ kind: "list", namespace: "exhibits", recursive: true, limit: 50 });
+const asset = useMediaAsset("video/welcome");
+const videos = useMediaByIndex("category", "videos", { limit: 20 });
 ```
 
-Source: `CHANGELOG.md` 0.2.0; `react/index.tsx` — `useMedia`
+Source: `CHANGELOG.md` 0.4.0; `react/index.tsx`
 
 ### MEDIUM: Splitting imperative bridge state across multiple hooks
 
@@ -421,11 +405,11 @@ URLs differ between offline mode (`media://`) and `devPassthrough` mode (remote 
 
 ```tsx
 // WRONG — hardcoded protocol URL
-<video src="media://asset/videos/welcome/main" />;
+<video src="media://asset/video%2Fwelcome" />;
 
 // CORRECT — URL from hook result
-const { data: item } = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
-<video src={item?.assetsByRole.primary?.url} />;
+const { data: asset } = useMediaAsset("video/welcome");
+<video src={asset?.url} />;
 ```
 
 Source: README — devPassthrough documentation
@@ -433,7 +417,7 @@ Source: README — devPassthrough documentation
 ---
 
 See also: getting-started/SKILL.md — Full main → preload → renderer wiring
-See also: manifest-authoring/SKILL.md — Namespace organization determines how hooks query content
+See also: store-authoring/SKILL.md — Index definitions determine how hooks query content
 
 ## References
 

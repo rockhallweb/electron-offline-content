@@ -11,64 +11,68 @@ import {
   type MediaCacheMain,
 } from "../../../src/main/media-cache.js";
 import { DataValidationError } from "../../../src/shared/errors.js";
-import type {
-  JsonValue,
-  MediaAssetValue,
-  MediaCacheManifest,
-  MediaItemValue,
-  SyncManifestAsset,
-} from "../../../src/shared/types.js";
+import type { JsonValue } from "../../../src/shared/types.js";
 import { mediaCacheStoragePathSchema, parseWithSchema } from "../../../src/internal/validation.js";
+import { createMediaStore, type MediaStore } from "../../../src/main/store.js";
 
-/** Build a record-shaped manifest from legacy `{ key, items: [{ id, assets: [{ id, ... }] }] }[]` test fixtures. */
-type LegacyManifestAsset = { id: string } & MediaAssetValue;
-type LegacyManifestItem = { id: string; assets: LegacyManifestAsset[] } & Omit<
-  MediaItemValue,
-  "assets"
->;
-type LegacyManifestNamespace = {
+/**
+ * Build a MediaStore from a flat list of asset definitions.
+ * This replaces the old `recordManifest()` helper.
+ */
+export interface TestAsset {
   key: string;
-  label?: string;
+  version: string;
+  mimeType: string;
+  fileName?: string;
+  byteLength?: number;
+  source: { url: string; method?: "GET"; headers?: Record<string, string> };
   metadata?: Record<string, JsonValue>;
-  items: LegacyManifestItem[];
-};
+  indexes?: Record<string, string | string[]>;
+}
 
-export function recordManifest(input: {
+export function buildTestStore(input: {
   snapshotId?: string;
   retrievedAt?: string;
   expiresAt?: string;
-  namespaces: LegacyManifestNamespace[];
-}): MediaCacheManifest {
-  const namespaces: MediaCacheManifest["namespaces"] = {};
-  for (const ns of input.namespaces) {
-    const { key, items, ...nsRest } = ns;
-    namespaces[key] = {
-      ...nsRest,
-      items: Object.fromEntries(
-        items.map((item) => {
-          const { id, assets, ...itemRest } = item;
-          return [
-            id,
-            {
-              ...itemRest,
-              assets: Object.fromEntries(
-                assets.map((a) => {
-                  const { id: assetId, ...assetRest } = a;
-                  return [assetId, assetRest];
-                }),
-              ),
-            },
-          ];
-        }),
-      ),
-    };
-  }
-  return {
+  indexes?: Array<{
+    name: string;
+    cardinality?: "single" | "multi";
+    required?: boolean;
+  }>;
+  assets: TestAsset[];
+}): MediaStore {
+  const store = createMediaStore({
     snapshotId: input.snapshotId,
     retrievedAt: input.retrievedAt,
     expiresAt: input.expiresAt,
-    namespaces,
-  };
+  });
+
+  const indexHandles = new Map<string, ReturnType<typeof store.defineIndex>>();
+  if (input.indexes) {
+    for (const idx of input.indexes) {
+      indexHandles.set(
+        idx.name,
+        store.defineIndex(idx.name, {
+          cardinality: idx.cardinality,
+          required: idx.required,
+        }),
+      );
+    }
+  }
+
+  for (const asset of input.assets) {
+    store.add(asset.key, {
+      version: asset.version,
+      mimeType: asset.mimeType,
+      fileName: asset.fileName,
+      byteLength: asset.byteLength,
+      source: asset.source,
+      metadata: asset.metadata,
+      indexes: asset.indexes,
+    });
+  }
+
+  return store;
 }
 
 export type TestMediaCacheOptions = Omit<
@@ -228,7 +232,7 @@ export type MediaCacheTestFixture = {
   server: Server;
   counters: MediaCacheTestCounters;
   resetCounters: () => void;
-  createDefaultManifests: () => MediaCacheManifest;
+  createDefaultStore: () => MediaStore;
   close: () => Promise<void>;
 };
 
@@ -444,74 +448,41 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
-  function createDefaultManifests(): MediaCacheManifest {
-    return recordManifest({
+  function createDefaultStore(): MediaStore {
+    return buildTestStore({
       snapshotId: "initial",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              title: "Forest",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  byteLength: 9,
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-                {
-                  id: "poster",
-                  role: "poster",
-                  kind: "poster",
-                  fileName: "poster.jpg",
-                  byteLength: 6,
-                  source: {
-                    url: `${baseUrl}/poster.jpg`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: 9,
+          source: { url: `${baseUrl}/main.mp4` },
         },
         {
-          key: "nature.flowerVideos",
-          items: [
-            {
-              id: "rose",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "flower.mp4",
-                  byteLength: 12,
-                  source: {
-                    url: `${baseUrl}/flower.mp4`,
-                  },
-                },
-                {
-                  id: "captions",
-                  role: "subtitle",
-                  kind: "subtitle",
-                  fileName: "sub.vtt",
-                  byteLength: 6,
-                  source: {
-                    url: `${baseUrl}/sub.vtt`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          source: { url: `${baseUrl}/poster.jpg` },
+        },
+        {
+          key: "nature.flowerVideos/rose/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "flower.mp4",
+          byteLength: 12,
+          source: { url: `${baseUrl}/flower.mp4` },
+        },
+        {
+          key: "nature.flowerVideos/rose/captions",
+          version: "v1",
+          mimeType: "text/vtt",
+          fileName: "sub.vtt",
+          byteLength: 6,
+          source: { url: `${baseUrl}/sub.vtt` },
         },
       ],
     });
@@ -522,7 +493,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
     server,
     counters,
     resetCounters,
-    createDefaultManifests,
+    createDefaultStore,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -540,36 +511,20 @@ export function collectFiles(root: string): string[] {
   return walk(root).sort();
 }
 
-export function blobPathFor(
-  namespace: string,
-  itemId: string,
-  assetId: string,
-  resolvedVersion: string,
-  fileName: string,
-): string {
+export function blobPathFor(assetKey: string, version: string, fileName: string): string {
   return join(
     "blobs",
-    encodeURIComponent(namespace),
-    encodeURIComponent(itemId),
-    encodeURIComponent(assetId),
-    encodeURIComponent(resolvedVersion),
+    encodeURIComponent(assetKey),
+    encodeURIComponent(version),
     encodeURIComponent(fileName),
   );
 }
 
-export function partialPathFor(
-  namespace: string,
-  itemId: string,
-  assetId: string,
-  resolvedVersion: string,
-  fileName: string,
-): string {
+export function partialPathFor(assetKey: string, version: string, fileName: string): string {
   return join(
     "temp",
-    encodeURIComponent(namespace),
-    encodeURIComponent(itemId),
-    encodeURIComponent(assetId),
-    encodeURIComponent(resolvedVersion),
+    encodeURIComponent(assetKey),
+    encodeURIComponent(version),
     `${encodeURIComponent(fileName)}.part`,
   );
 }
@@ -643,67 +598,119 @@ export async function createIpcHandlers(
   return handlers;
 }
 
-export function mimeManifest(baseUrl: string): MediaCacheManifest {
-  const assetDefinitions = [
-    ["main", "sample.mp4", `${baseUrl}/main.mp4`],
-    ["webm", "sample.webm", `${baseUrl}/main.mp4`],
-    ["mov", "sample.mov", `${baseUrl}/main.mp4`],
-    ["jpg", "sample.jpg", `${baseUrl}/poster.jpg`],
-    ["jpeg", "sample.jpeg", `${baseUrl}/poster.jpg`],
-    ["png", "sample.png", `${baseUrl}/poster.jpg`],
-    ["gif", "sample.gif", `${baseUrl}/poster.jpg`],
-    ["webp", "sample.webp", `${baseUrl}/poster.jpg`],
-    ["vtt", "sample.vtt", `${baseUrl}/sub.vtt`],
-    ["srt", "sample.srt", `${baseUrl}/sub.vtt`],
-    ["mp3", "sample.mp3", `${baseUrl}/main.mp4`],
-    ["wav", "sample.wav", `${baseUrl}/main.mp4`],
-    ["html", "sample.html", `${baseUrl}/sub.vtt`],
-    ["txt", "sample.txt", `${baseUrl}/sub.vtt`],
-    ["json", "sample.json", `${baseUrl}/sub.vtt`],
-    ["pdf", "sample.pdf", `${baseUrl}/main.mp4`],
-  ] as const;
-  type MimeAssetId = (typeof assetDefinitions)[number][0];
-  const kindByAssetId: Record<MimeAssetId, SyncManifestAsset["kind"]> = {
-    main: "video",
-    webm: "video",
-    mov: "video",
-    jpg: "image",
-    jpeg: "image",
-    png: "image",
-    gif: "image",
-    webp: "image",
-    vtt: "subtitle",
-    srt: "subtitle",
-    mp3: "audio",
-    wav: "audio",
-    html: "html",
-    txt: "text",
-    json: "document",
-    pdf: "document",
-  };
+export function mimeManifestStore(baseUrl: string): MediaStore {
+  const mimeAssets: Array<{
+    key: string;
+    fileName: string;
+    mimeType: string;
+    source: { url: string };
+  }> = [
+    {
+      key: "mime/types/main",
+      fileName: "sample.mp4",
+      mimeType: "video/mp4",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+    {
+      key: "mime/types/webm",
+      fileName: "sample.webm",
+      mimeType: "video/webm",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+    {
+      key: "mime/types/mov",
+      fileName: "sample.mov",
+      mimeType: "video/quicktime",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+    {
+      key: "mime/types/jpg",
+      fileName: "sample.jpg",
+      mimeType: "image/jpeg",
+      source: { url: `${baseUrl}/poster.jpg` },
+    },
+    {
+      key: "mime/types/jpeg",
+      fileName: "sample.jpeg",
+      mimeType: "image/jpeg",
+      source: { url: `${baseUrl}/poster.jpg` },
+    },
+    {
+      key: "mime/types/png",
+      fileName: "sample.png",
+      mimeType: "image/png",
+      source: { url: `${baseUrl}/poster.jpg` },
+    },
+    {
+      key: "mime/types/gif",
+      fileName: "sample.gif",
+      mimeType: "image/gif",
+      source: { url: `${baseUrl}/poster.jpg` },
+    },
+    {
+      key: "mime/types/webp",
+      fileName: "sample.webp",
+      mimeType: "image/webp",
+      source: { url: `${baseUrl}/poster.jpg` },
+    },
+    {
+      key: "mime/types/vtt",
+      fileName: "sample.vtt",
+      mimeType: "text/vtt",
+      source: { url: `${baseUrl}/sub.vtt` },
+    },
+    {
+      key: "mime/types/srt",
+      fileName: "sample.srt",
+      mimeType: "application/x-subrip",
+      source: { url: `${baseUrl}/sub.vtt` },
+    },
+    {
+      key: "mime/types/mp3",
+      fileName: "sample.mp3",
+      mimeType: "audio/mpeg",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+    {
+      key: "mime/types/wav",
+      fileName: "sample.wav",
+      mimeType: "audio/wav",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+    {
+      key: "mime/types/html",
+      fileName: "sample.html",
+      mimeType: "text/html",
+      source: { url: `${baseUrl}/sub.vtt` },
+    },
+    {
+      key: "mime/types/txt",
+      fileName: "sample.txt",
+      mimeType: "text/plain",
+      source: { url: `${baseUrl}/sub.vtt` },
+    },
+    {
+      key: "mime/types/json",
+      fileName: "sample.json",
+      mimeType: "application/json",
+      source: { url: `${baseUrl}/sub.vtt` },
+    },
+    {
+      key: "mime/types/pdf",
+      fileName: "sample.pdf",
+      mimeType: "application/pdf",
+      source: { url: `${baseUrl}/main.mp4` },
+    },
+  ];
 
-  return recordManifest({
+  return buildTestStore({
     snapshotId: "mime-types",
-    namespaces: [
-      {
-        key: "mime",
-        items: [
-          {
-            id: "types",
-            version: "v1",
-            kind: "document",
-            assets: assetDefinitions.map(([id, fileName, url], index) => ({
-              id,
-              role: index === 0 ? "primary" : id,
-              kind: kindByAssetId[id],
-              fileName,
-              source: {
-                url,
-              },
-            })),
-          },
-        ],
-      },
-    ],
+    assets: mimeAssets.map((a) => ({
+      key: a.key,
+      version: "v1",
+      mimeType: a.mimeType,
+      fileName: a.fileName,
+      source: a.source,
+    })),
   });
 }

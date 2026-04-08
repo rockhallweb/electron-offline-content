@@ -17,19 +17,19 @@ export class MediaCacheError extends Error {
   }
 }
 
-/** Manifest from `resolveManifest` is missing or inconsistent (namespaces, items, or assets). */
-export class ManifestValidationError extends MediaCacheError {
+/** Store from `resolveStore` is missing or inconsistent (indexes, assets, or structure). */
+export class StoreValidationError extends MediaCacheError {
   constructor(message: string) {
-    super(message, "MANIFEST_VALIDATION_ERROR");
-    this.name = "ManifestValidationError";
+    super(message, "STORE_VALIDATION_ERROR");
+    this.name = "StoreValidationError";
   }
 }
 
-/** Manifest-derived URLs have passed their declared expiration time and must not be downloaded. */
-export class ManifestExpiredError extends MediaCacheError {
+/** Store-derived URLs have passed their declared expiration time and must not be downloaded. */
+export class StoreExpiredError extends MediaCacheError {
   constructor(message: string, options?: ErrorOptions) {
-    super(message, "MANIFEST_EXPIRED", options);
-    this.name = "ManifestExpiredError";
+    super(message, "STORE_EXPIRED", options);
+    this.name = "StoreExpiredError";
   }
 }
 
