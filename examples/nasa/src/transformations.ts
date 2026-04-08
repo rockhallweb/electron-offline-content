@@ -56,7 +56,7 @@ export const NasaContentSchema = z.object({
 });
 export type NasaContentSchema = z.infer<typeof NasaContentSchema>;
 
-export interface StoreIndexes {
+interface StoreIndexes {
   collection: MediaIndex;
   mediaType: MediaIndex;
   role: MediaIndex;
