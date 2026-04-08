@@ -15,7 +15,7 @@ export function MediaAssetProbe({ assetKey }: { assetKey: string }) {
 
 export function MediaVersionProbe({ refetchOnSyncComplete }: { refetchOnSyncComplete?: boolean }) {
   const asset = useMediaAsset("forest", { refetchOnSyncComplete });
-  return <div data-testid="item-version">{asset.data?.version ?? "loading"}</div>;
+  return <div data-testid="asset-version">{asset.data?.version ?? "loading"}</div>;
 }
 
 export function MediaByIndexProbe({ indexName, value }: { indexName: string; value: string }) {

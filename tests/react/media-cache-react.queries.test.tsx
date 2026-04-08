@@ -78,7 +78,7 @@ describe("react hooks (queries / errors)", () => {
       statusListener?.(buildStatus("ready", 1));
     });
     await waitFor(() => {
-      expect(screen.getByTestId("item-version").textContent).toBe("v1");
+      expect(screen.getByTestId("asset-version").textContent).toBe("v1");
     });
     expect(calls).toBe(1);
   });
