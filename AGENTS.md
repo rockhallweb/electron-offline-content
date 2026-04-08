@@ -16,17 +16,32 @@ This is an npm library (`@rockhallweb/electron-offline-content`) for Electron ap
 
 All commands are documented in `CONTRIBUTING.md`. Quick reference:
 
-| Task | Command |
-|---|---|
-| Install deps | `pnpm install` |
-| Lint | `pnpm lint` |
-| Format check | `pnpm format:check` |
-| Type check | `pnpm check` |
-| Test | `pnpm test` |
-| Build | `pnpm build` |
-| Full validation | `pnpm validate` |
-| Install local example | `pnpm install:example:local` |
-| Run local example | `xvfb-run -a pnpm example:local:dev` |
+| Task                  | Command                              |
+| --------------------- | ------------------------------------ |
+| Install deps          | `pnpm install`                       |
+| Lint                  | `pnpm lint`                          |
+| Format check          | `pnpm format:check`                  |
+| Type check            | `pnpm check`                         |
+| Test                  | `pnpm test`                          |
+| Build                 | `pnpm build`                         |
+| Full validation       | `pnpm validate`                      |
+| Install local example | `pnpm install:example:local`         |
+| Run local example     | `xvfb-run -a pnpm example:local:dev` |
+
+### Before pushing
+
+Always run `pnpm format` before committing — `oxfmt` enforces markdown table alignment and other formatting rules that are easy to miss when hand-editing. CI runs `pnpm validate` which includes `pnpm lint`, `pnpm format:check`, `pnpm check` (TypeScript), `pnpm test`, and `pnpm build`. A minimal pre-push sanity check:
+
+```bash
+pnpm format
+pnpm lint
+pnpm format:check
+pnpm check
+pnpm test
+pnpm build
+```
+
+Or run everything in one shot: `pnpm validate`.
 
 ### Non-obvious caveats
 
