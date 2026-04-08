@@ -18,13 +18,7 @@ export function MediaVersionProbe({ refetchOnSyncComplete }: { refetchOnSyncComp
   return <div data-testid="item-version">{asset.data?.version ?? "loading"}</div>;
 }
 
-export function MediaByIndexProbe({
-  indexName,
-  value,
-}: {
-  indexName: string;
-  value: string;
-}) {
+export function MediaByIndexProbe({ indexName, value }: { indexName: string; value: string }) {
   const assets = useMediaByIndex(indexName, value);
   return <div>{assets.data?.items[0]?.key ?? "loading"}</div>;
 }
