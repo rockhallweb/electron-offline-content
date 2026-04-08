@@ -90,7 +90,7 @@ async function resolveStore() {
 Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets. Each index extracts a string value from the asset for querying with `useMediaByIndex` in the renderer or `listByIndex` in the main process.
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
 
 const store = createMediaStore();
 

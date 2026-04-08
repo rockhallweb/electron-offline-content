@@ -68,7 +68,7 @@ Union of Electron `app.getPath` names:
 
 Skips all downloads and serves remote URLs directly. Intended for development only.
 
-**Constraints:** When `true`, downloads are skipped, `onSyncFailure` is overridden to `"throw"`, and hook URLs return remote `https://` URLs instead of `media://`.
+**Constraints:** When `true`, downloads are skipped, `onSyncFailure` is overridden to `"throw"`, and hook URLs return remote `http://` or `https://` URLs instead of `media://`.
 
 ```typescript
 devPassthrough: true;
@@ -342,10 +342,8 @@ resolveStore: async () => {
   const data = await res.json();
   const store = createMediaStore();
   for (const item of data.items) {
-    store.add({
-      key: item.id,
+    store.add(item.id, {
       version: item.updatedAt,
-      kind: item.kind,
       mimeType: item.mimeType,
       source: { url: item.url },
       metadata: item.metadata,

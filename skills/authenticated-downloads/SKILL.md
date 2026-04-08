@@ -195,18 +195,22 @@ Correct — generous TTL with `expiresAt`:
 
 ```typescript
 async function resolveStore() {
-  const store = createMediaStore();
   const ttlSeconds = 3600;
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  const store = createMediaStore({ expiresAt });
 
   for (const item of await fetchCatalog()) {
     const signedUrl = await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
       expiresIn: ttlSeconds,
     });
-    store.add({ key: item.id, version: item.rev, kind: "video", source: { url: signedUrl } });
+    store.add({
+      key: item.id,
+      version: item.rev,
+      mimeType: "video/mp4",
+      source: { url: signedUrl },
+    });
   }
 
-  store.expiresAt = expiresAt;
   return store;
 }
 ```

@@ -52,10 +52,8 @@ const mediaCache = createMediaCache({
     const data = await res.json();
     const store = createMediaStore();
     for (const item of data.items) {
-      store.add({
-        key: item.id,
+      store.add(item.id, {
         version: item.updatedAt,
-        kind: item.kind,
         mimeType: item.mimeType,
         source: { url: item.url },
         metadata: item.metadata,
