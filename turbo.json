@@ -3,7 +3,7 @@
   "globalEnv": ["TURBO_NODE_VERSION"],
   "tasks": {
     "build": {
-      "inputs": ["src/**", "package.json", "pnpm-lock.yaml", "tsconfig.json", "tsup.config.ts"],
+      "inputs": ["src/**", "package.json", "pnpm-lock.yaml", "tsconfig.json", "tsdown.config.ts"],
       "outputs": ["dist/**"]
     },
     "check": {
@@ -16,7 +16,7 @@
         "vitest.config.ts",
         "vitest.node.config.ts",
         "vitest.react.config.ts",
-        "tsup.config.ts"
+        "tsdown.config.ts"
       ]
     },
     "lint": {},
