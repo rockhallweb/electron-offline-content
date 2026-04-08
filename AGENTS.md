@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+## Cursor Cloud-specific instructions
 
 ### Overview
 
@@ -30,7 +30,7 @@ All commands are documented in `CONTRIBUTING.md`. Quick reference:
 
 ### Before pushing
 
-Always run `pnpm format` before committing — `oxfmt` enforces markdown table alignment and other formatting rules that are easy to miss when hand-editing. CI runs `pnpm validate` which is a Turbo pipeline: `lint`, `format:check`, `check` (TypeScript), `test:smoke`, `test:react`, then `build`. Note that `pnpm validate` does **not** run the full `pnpm test` suite (which also includes integration tests). A minimal pre-push sanity check:
+Always run `pnpm format` before committing — `oxfmt` enforces Markdown table alignment and other formatting rules that are easy to miss when hand-editing. CI runs `pnpm validate` which is a Turbo pipeline: `lint`, `format:check`, `check` (TypeScript), `test:smoke`, `test:react`, then `build`. Note that `pnpm validate` does **not** run the full `pnpm test` suite (which also includes integration tests). A minimal pre-push sanity check:
 
 ```bash
 pnpm format
