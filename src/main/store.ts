@@ -1,6 +1,7 @@
 import { StoreValidationError } from "../shared/errors.js";
 import { deriveAssetFileName } from "../internal/asset-file-name.js";
 import { mediaKindFromMime } from "../internal/media-kind.js";
+import { hashKey, displayKey, isValidKeyInput, type AssetKeyInput } from "../internal/asset-key.js";
 import {
   IndexTag,
   type FlatManifest,
@@ -51,6 +52,7 @@ export interface MediaStoreOptions {
 
 interface StoredAsset {
   key: string;
+  displayKey: string;
   version: string;
   mimeType: string;
   fileName: string;
@@ -68,7 +70,7 @@ interface StoredAsset {
  * ```ts
  * const store = createMediaStore();
  * const gallery = store.defineIndex("gallery");
- * store.add("forest/video", {
+ * store.add(["forest", "video"], {
  *   version: "v1",
  *   mimeType: "video/mp4",
  *   source: { url: "https://cdn.example.com/forest.mp4" },
@@ -124,44 +126,50 @@ export class MediaStore {
   /**
    * Add an asset to the store.
    *
-   * @param key - Unique asset key. May contain `/` for organizational naming (e.g. `"hubble/video"`).
+   * @param key - Unique asset key. A string or array of string segments (e.g. `["videos", "hubble", "main"]`).
    * @param input - Asset data: version, mimeType, source, and optional indexes/metadata.
    */
-  add(key: string, input: MediaAssetInput): void {
-    if (!key) {
-      throw new StoreValidationError("Asset key must be a non-empty string.");
+  add(key: AssetKeyInput, input: MediaAssetInput): void {
+    if (!isValidKeyInput(key)) {
+      throw new StoreValidationError(
+        "Asset key must be a non-empty string or non-empty string array.",
+      );
     }
-    if (this.assets.has(key)) {
-      throw new StoreValidationError(`Duplicate asset key "${key}".`);
+    const hashedKey = hashKey(key);
+    const display = displayKey(key);
+    if (this.assets.has(hashedKey)) {
+      throw new StoreValidationError(
+        `Duplicate asset key "${display}" (hash collision with existing key).`,
+      );
     }
 
     if (!input.version) {
-      throw new StoreValidationError(`Asset "${key}": version is required.`);
+      throw new StoreValidationError(`Asset "${display}": version is required.`);
     }
     if (!input.mimeType || !MIME_PATTERN.test(input.mimeType)) {
       throw new StoreValidationError(
-        `Asset "${key}": mimeType must be a valid type/subtype string (got "${input.mimeType ?? ""}").`,
+        `Asset "${display}": mimeType must be a valid type/subtype string (got "${input.mimeType ?? ""}").`,
       );
     }
     if (!input.source?.url) {
-      throw new StoreValidationError(`Asset "${key}": source.url is required.`);
+      throw new StoreValidationError(`Asset "${display}": source.url is required.`);
     }
     if (input.source.method !== undefined && input.source.method !== "GET") {
       throw new StoreValidationError(
-        `Asset "${key}": source.method must be GET (got "${input.source.method}").`,
+        `Asset "${display}": source.method must be GET (got "${input.source.method}").`,
       );
     }
     try {
       const parsed = new URL(input.source.url);
       if (!/^https?:$/i.test(parsed.protocol)) {
         throw new StoreValidationError(
-          `Asset "${key}": source URL must use http or https (got "${parsed.protocol}").`,
+          `Asset "${display}": source URL must use http or https (got "${parsed.protocol}").`,
         );
       }
     } catch (err) {
       if (err instanceof StoreValidationError) throw err;
       throw new StoreValidationError(
-        `Asset "${key}": source URL is not valid: "${input.source.url}".`,
+        `Asset "${display}": source URL is not valid: "${input.source.url}".`,
       );
     }
 
@@ -172,7 +180,7 @@ export class MediaStore {
       for (const tag of input.indexes) {
         if (!(tag instanceof IndexTag)) {
           throw new StoreValidationError(
-            `Asset "${key}": indexes must be an array of IndexTag entries produced by calling a defineIndex handle.`,
+            `Asset "${display}": indexes must be an array of IndexTag entries produced by calling a defineIndex handle.`,
           );
         }
         const indexName = tag.name;
@@ -180,25 +188,25 @@ export class MediaStore {
         const def = this.indexes.get(indexName);
         if (!def) {
           throw new StoreValidationError(
-            `Asset "${key}": index "${indexName}" has not been defined. Call store.defineIndex("${indexName}") first.`,
+            `Asset "${display}": index "${indexName}" has not been defined. Call store.defineIndex("${indexName}") first.`,
           );
         }
         if (indexName in assetIndexes) {
           throw new StoreValidationError(
-            `Asset "${key}": duplicate index "${indexName}" in indexes array.`,
+            `Asset "${display}": duplicate index "${indexName}" in indexes array.`,
           );
         }
 
         if (def.cardinality === "single") {
           if (Array.isArray(value)) {
             throw new StoreValidationError(
-              `Asset "${key}": index "${indexName}" has single cardinality but received an array. ` +
+              `Asset "${display}": index "${indexName}" has single cardinality but received an array. ` +
                 `Use { cardinality: "multi" } when defining the index to allow arrays.`,
             );
           }
           if (typeof value !== "string" || !value) {
             throw new StoreValidationError(
-              `Asset "${key}": index "${indexName}" value must be a non-empty string.`,
+              `Asset "${display}": index "${indexName}" value must be a non-empty string.`,
             );
           }
           assetIndexes[indexName] = value;
@@ -206,13 +214,13 @@ export class MediaStore {
           const values = Array.isArray(value) ? value : [value];
           if (values.length === 0) {
             throw new StoreValidationError(
-              `Asset "${key}": index "${indexName}" value array must not be empty.`,
+              `Asset "${display}": index "${indexName}" value array must not be empty.`,
             );
           }
           for (const v of values) {
             if (typeof v !== "string" || !v) {
               throw new StoreValidationError(
-                `Asset "${key}": index "${indexName}" values must be non-empty strings.`,
+                `Asset "${display}": index "${indexName}" values must be non-empty strings.`,
               );
             }
           }
@@ -221,8 +229,9 @@ export class MediaStore {
       }
     }
 
-    this.assets.set(key, {
-      key,
+    this.assets.set(hashedKey, {
+      key: hashedKey,
+      displayKey: display,
       version: input.version,
       mimeType: input.mimeType,
       fileName,
@@ -245,10 +254,10 @@ export class MediaStore {
   _serialize(): FlatManifest {
     for (const [, def] of this.indexes) {
       if (!def.required) continue;
-      for (const [assetKey, asset] of this.assets) {
+      for (const [, asset] of this.assets) {
         if (!(def.name in asset.indexes)) {
           throw new StoreValidationError(
-            `Asset "${assetKey}": required index "${def.name}" is missing.`,
+            `Asset "${asset.displayKey}": required index "${def.name}" is missing.`,
           );
         }
       }
@@ -273,6 +282,7 @@ export class MediaStore {
 
       assets.push({
         key: stored.key,
+        displayKey: stored.displayKey,
         version: stored.version,
         mimeType: stored.mimeType,
         mediaKind,

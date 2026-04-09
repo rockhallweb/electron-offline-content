@@ -9,7 +9,7 @@ export interface ExampleClientConfig {
   queueLabel: string;
   sourceLabel: string;
   collection: string;
-  defaultAssetKey: string;
+  defaultAssetKey: readonly string[];
   fileStem: string;
 }
 
@@ -18,6 +18,6 @@ export const exampleClientConfig: ExampleClientConfig = {
   queueLabel: "Local queue",
   sourceLabel: "Local fixtures",
   collection: "nature",
-  defaultAssetKey: "nature/forest-loop/main",
+  defaultAssetKey: ["nature", "forest-loop", "main"],
   fileStem: "rose-cut",
 };

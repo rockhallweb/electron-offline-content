@@ -13,13 +13,25 @@ function primaryAssets(assets: ResolvedMediaAsset[]): ResolvedMediaAsset[] {
   return assets.filter((a) => a.indexes.role === "primary");
 }
 
+function selectionMatchesAsset(
+  selected: string | readonly string[],
+  asset: ResolvedMediaAsset,
+): boolean {
+  return typeof selected === "string"
+    ? asset.key === selected
+    : asset.displayKey === selected.join("/");
+}
+
 function relatedAsset(
   assets: ResolvedMediaAsset[],
-  parentKey: string,
+  parentDisplayKey: string,
   role: string,
 ): ResolvedMediaAsset | undefined {
   return assets.find(
-    (a) => a.indexes.role === role && a.key.startsWith(parentKey.replace(/\/[^/]+$/, "/")),
+    (a) =>
+      a.indexes.role === role &&
+      typeof a.metadata.parentKey === "string" &&
+      a.metadata.parentKey === parentDisplayKey,
   );
 }
 
@@ -36,18 +48,25 @@ export function App() {
   const allAssets = useMemo(() => collectionItems ?? [], [collectionItems]);
   const videos = useMemo(() => primaryAssets(allAssets), [allAssets]);
 
-  const [selectedKey, setSelectedKey] = useState(exampleClientConfig.defaultAssetKey);
+  const [selectedKey, setSelectedKey] = useState<string | readonly string[]>(
+    exampleClientConfig.defaultAssetKey,
+  );
 
   useEffect(() => {
-    const keyExists = videos.some((a) => a.key === selectedKey);
+    const keyExists = videos.some((a) => selectionMatchesAsset(selectedKey, a));
     if (!keyExists && videos[0]) {
       setSelectedKey(videos[0].key);
     }
   }, [selectedKey, videos]);
 
   const currentAsset = useMediaAsset(selectedKey);
-  const posterAsset = relatedAsset(allAssets, selectedKey, "poster");
-  const subtitleAsset = relatedAsset(allAssets, selectedKey, "subtitle");
+  const parentDisplayKey = currentAsset.data?.displayKey;
+  const posterAsset = parentDisplayKey
+    ? relatedAsset(allAssets, parentDisplayKey, "poster")
+    : undefined;
+  const subtitleAsset = parentDisplayKey
+    ? relatedAsset(allAssets, parentDisplayKey, "subtitle")
+    : undefined;
 
   const errors = useMediaCacheErrors();
 
@@ -124,7 +143,11 @@ export function App() {
               {currentAsset.data?.indexes.collection ?? exampleClientConfig.collection}
             </p>
             <h2 className="m-0 font-serif text-[clamp(2rem,3vw,3.1rem)] leading-[0.96] tracking-[-0.04em]">
-              {String(currentAsset.data?.metadata.title ?? selectedKey)}
+              {String(
+                currentAsset.data?.metadata.title ??
+                  currentAsset.data?.displayKey ??
+                  (typeof selectedKey === "string" ? selectedKey : selectedKey.join("/")),
+              )}
             </h2>
             <p className="m-0 text-[15px] leading-[1.7] text-muted">
               {String(
@@ -164,8 +187,8 @@ export function App() {
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5">
           {videos.map((asset) => {
-            const isActive = asset.key === selectedKey;
-            const assetPoster = relatedAsset(allAssets, asset.key, "poster");
+            const isActive = selectionMatchesAsset(selectedKey, asset);
+            const assetPoster = relatedAsset(allAssets, asset.displayKey, "poster");
 
             return (
               <button
@@ -183,7 +206,7 @@ export function App() {
                     <img
                       className="block h-full w-full object-cover"
                       src={assetPoster.url}
-                      alt={String(asset.metadata.title ?? asset.key)}
+                      alt={String(asset.metadata.title ?? asset.displayKey)}
                     />
                   ) : (
                     <div className="grid h-full w-full place-items-center text-[11px] uppercase tracking-[0.18em] text-accent-warm">
@@ -196,7 +219,7 @@ export function App() {
                     {String(asset.indexes.collection ?? "")}
                   </p>
                   <strong className="m-0 text-base">
-                    {String(asset.metadata.title ?? asset.key)}
+                    {String(asset.metadata.title ?? asset.displayKey)}
                   </strong>
                   <span className="m-0 text-sm leading-[1.55] text-muted">
                     {String(

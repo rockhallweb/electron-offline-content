@@ -14,6 +14,7 @@ const nodeEntries = {
   "shared/stem": "src/shared/stem.ts",
   "shared/types": "src/shared/types.ts",
   "internal/asset-file-name": "src/internal/asset-file-name.ts",
+  "internal/asset-key": "src/internal/asset-key.ts",
   "internal/log-format": "src/internal/log-format.ts",
   "internal/media-kind": "src/internal/media-kind.ts",
   "internal/url-warn": "src/internal/url-warn.ts",

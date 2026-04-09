@@ -24,6 +24,7 @@ import {
   createProtocolHandler,
   createIpcHandlers,
   blobPathFor,
+  hashKey,
   partialPathFor,
   createStorageRoot,
   buildTestStore,
@@ -148,7 +149,7 @@ describe("media cache sync and queries (integration)", () => {
     await offlineCache.start();
     const committedBlobPath = join(
       storageRoot,
-      blobPathFor("nature/forest/main", "v1", "main.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
@@ -197,11 +198,15 @@ describe("media cache sync and queries (integration)", () => {
 
     const mainAsset = db
       .getGenerationAssets(activeGenerationId!)
-      .find((row) => row.assetKey === "nature/forest/main");
+      .find((row) => row.assetKey === hashKey("nature/forest/main"));
     expect(mainAsset?.relativePath).toBeTruthy();
 
-    const windowsRelativePath = "blobs\\nature%2Fforest%2Fmain\\v1\\main.mp4";
-    db.setAssetRelativePath(activeGenerationId!, "nature/forest/main", windowsRelativePath);
+    const windowsRelativePath = `blobs\\${hashKey("nature/forest/main")}\\v1\\main.mp4`;
+    db.setAssetRelativePath(
+      activeGenerationId!,
+      hashKey("nature/forest/main"),
+      windowsRelativePath,
+    );
 
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(1);
@@ -348,7 +353,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "resumable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "resumable.mp4"),
     );
     mkdirSync(join(storageRoot, "temp"), { recursive: true });
     mkdirSync(join(partialPath, ".."), { recursive: true });
@@ -378,7 +383,10 @@ describe("media cache sync and queries (integration)", () => {
     expect(requestRanges["/resumable.mp4"]).toContain("bytes=6-");
     expect(existsSync(partialPath)).toBe(false);
 
-    const finalPath = join(storageRoot, blobPathFor("nature/forest/main", "v1", "resumable.mp4"));
+    const finalPath = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v1", "resumable.mp4"),
+    );
     expect(readFileSync(finalPath, "utf8")).toBe("resume-data");
   });
 
@@ -387,7 +395,7 @@ describe("media cache sync and queries (integration)", () => {
     const body = "x".repeat(1_000_000);
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "reserve-resumable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "reserve-resumable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body.slice(0, 990_000));
@@ -445,7 +453,7 @@ describe("media cache sync and queries (integration)", () => {
         }
       ).enforceStorageLimits([
         {
-          assetKey: "nature/forest/main",
+          assetKey: hashKey("nature/forest/main"),
           version: "v1",
           fileName: "reserve-resumable.mp4",
           byteLength: body.length,
@@ -468,7 +476,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "resume-retryable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "resume-retryable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
@@ -499,7 +507,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature/forest/main", "v1", "resume-retryable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "resume-retryable.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe("resume-retry-success");
   });
@@ -508,7 +516,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "range-ignored.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-ignored.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
@@ -543,7 +551,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "range-mismatch.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-mismatch.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
@@ -575,7 +583,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature/forest/main", "v1", "range-mismatch.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "range-mismatch.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe("range-mismatch");
   });
@@ -585,7 +593,7 @@ describe("media cache sync and queries (integration)", () => {
     const body = "range-416";
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "range-not-satisfiable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-not-satisfiable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body);
@@ -617,7 +625,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature/forest/main", "v1", "range-not-satisfiable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "range-not-satisfiable.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe(body);
   });
@@ -647,12 +655,14 @@ describe("media cache sync and queries (integration)", () => {
     await expect(cache.start()).rejects.toThrow("terminated");
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "v1", "drop-after-two.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "drop-after-two.mp4"),
     );
     expect(existsSync(partialPath)).toBe(true);
     expect(statSync(partialPath).size).toBeGreaterThan(0);
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v1", "drop-after-two.mp4"))),
+      existsSync(
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "drop-after-two.mp4")),
+      ),
     ).toBe(false);
   });
 
@@ -660,7 +670,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const obsoletePartialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "stale-version", "main.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "stale-version", "main.mp4"),
     );
     mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
     writeFileSync(obsoletePartialPath, "stale-bytes");
@@ -673,16 +683,16 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     expect(existsSync(obsoletePartialPath)).toBe(false);
-    expect(existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v1", "main.mp4")))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
+    ).toBe(true);
   });
 
   it("cleans up obsolete partial files while passthrough mode is enabled", async () => {
     const storageRoot = createStorageRoot();
     const obsoletePartialPath = join(
       storageRoot,
-      partialPathFor("nature/forest/main", "stale-version", "main.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "stale-version", "main.mp4"),
     );
     mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
     writeFileSync(obsoletePartialPath, "stale-bytes");
@@ -727,7 +737,10 @@ describe("media cache sync and queries (integration)", () => {
     );
 
     await expect(cache.start()).rejects.toThrow(StorageLimitError);
-    const partialPath = join(storageRoot, partialPathFor("nature/forest/main", "v1", "main.mp4"));
+    const partialPath = join(
+      storageRoot,
+      partialPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
+    );
     expect(existsSync(partialPath)).toBe(false);
   });
 
@@ -765,11 +778,13 @@ describe("media cache sync and queries (integration)", () => {
     await cache.syncNow();
 
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v2", "retry-once.mp4"))),
+      existsSync(
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v2", "retry-once.mp4")),
+      ),
     ).toBe(false);
-    expect(existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v1", "main.mp4")))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
+    ).toBe(true);
     expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
   });
 
@@ -832,17 +847,17 @@ describe("media cache sync and queries (integration)", () => {
     });
     const orphanManifest = validateFlatManifest(orphanStore._serialize());
     const stagedGenerationId = initialDb.createStagedGeneration(orphanManifest, 2);
-    const reusedMainPath = blobPathFor("nature/forest/main", "v1", "main.mp4");
-    const orphanPosterPath = blobPathFor("nature/forest/poster", "v2", "poster-v2.jpg");
+    const reusedMainPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const orphanPosterPath = blobPathFor(hashKey("nature/forest/poster"), "v2", "poster-v2.jpg");
     initialDb.setAssetDownloadState(
       stagedGenerationId,
-      "nature/forest/main",
+      hashKey("nature/forest/main"),
       reusedMainPath,
       "video/mp4",
     );
     initialDb.setAssetDownloadState(
       stagedGenerationId,
-      "nature/forest/poster",
+      hashKey("nature/forest/poster"),
       orphanPosterPath,
       "image/jpeg",
     );
@@ -961,11 +976,11 @@ describe("media cache sync and queries (integration)", () => {
     });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
-    expect(existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v1", "main.mp4")))).toBe(
-      false,
-    );
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature/forest/main", "v2", "flower.mp4"))),
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
+    ).toBe(false);
+    expect(
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v2", "flower.mp4"))),
     ).toBe(true);
   });
 
@@ -1032,9 +1047,15 @@ describe("media cache sync and queries (integration)", () => {
     });
     await cache.syncNow();
 
-    const v1Path = join(storageRoot, blobPathFor("nature/forest/main", "v1", "main.mp4"));
-    const v2Path = join(storageRoot, blobPathFor("nature/forest/main", "v2", "flower.mp4"));
-    const v3Path = join(storageRoot, blobPathFor("nature/forest/main", "v3", "resumable.mp4"));
+    const v1Path = join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"));
+    const v2Path = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v2", "flower.mp4"),
+    );
+    const v3Path = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v3", "resumable.mp4"),
+    );
     expect(existsSync(v1Path)).toBe(true);
     expect(existsSync(v2Path)).toBe(true);
     expect(existsSync(v3Path)).toBe(true);

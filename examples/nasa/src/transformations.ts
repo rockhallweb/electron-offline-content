@@ -156,7 +156,7 @@ function addItemAssets(
   const version = `${data.nasa_id}-${data.date_created.slice(0, 10)}`;
   const primaryMime = data.media_type === "video" ? "video/mp4" : "image/jpeg";
 
-  store.add(`${collectionName}/${data.nasa_id}/primary`, {
+  store.add([collectionName, data.nasa_id, "primary"], {
     version,
     mimeType: primaryMime,
     source: { url: primaryUrl },
@@ -168,7 +168,7 @@ function addItemAssets(
     ],
   });
 
-  store.add(`${collectionName}/${data.nasa_id}/poster`, {
+  store.add([collectionName, data.nasa_id, "poster"], {
     version,
     mimeType: "image/jpeg",
     source: { url: posterUrl },

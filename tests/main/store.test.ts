@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { hashKey } from "../../src/internal/asset-key.js";
 import { createMediaStore, MediaStore } from "../../src/main/store.js";
 import { StoreValidationError } from "../../src/shared/errors.js";
 import { IndexTag } from "../../src/shared/types.js";
@@ -401,7 +402,8 @@ describe("store._serialize", () => {
 
     const manifest = store._serialize();
     for (const [key, , expectedKind] of cases) {
-      const asset = manifest.assets.find((a) => a.key === key);
+      const asset = manifest.assets.find((a) => a.displayKey === key);
+      expect(asset?.key).toBe(hashKey(key));
       expect(asset?.mediaKind).toBe(expectedKind);
       expect(asset?.indexes.mediaKind).toBe(expectedKind);
     }
@@ -525,7 +527,7 @@ describe("store._serialize", () => {
     });
 
     const manifest = store._serialize();
-    expect(manifest.assets.map((a) => a.key)).toEqual(["b", "a"]);
+    expect(manifest.assets.map((a) => a.displayKey)).toEqual(["b", "a"]);
   });
 
   it("includes byteLength when provided", () => {

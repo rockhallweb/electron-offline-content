@@ -58,6 +58,9 @@ export interface MediaRemoteSource {
   headers?: Record<string, string>;
 }
 
+/** Accepted asset key input: a plain string or an array of string segments. */
+export type AssetKeyInput = string | readonly string[];
+
 /** Tagged index entry produced by calling a {@link import("../main/store.js").MediaIndex} handle. */
 export class IndexTag {
   constructor(
@@ -88,6 +91,7 @@ export interface IndexDefinition {
 /** One asset in the serialized flat manifest (output of `MediaStore._serialize()`). */
 export interface FlatManifestAsset {
   key: string;
+  displayKey: string;
   version: string;
   mimeType: string;
   mediaKind: MediaKind;
@@ -227,6 +231,7 @@ export interface SyncRunSummary {
 /** One asset after resolution: flat key-value with `media:` URL or remote URL in passthrough mode. */
 export interface ResolvedMediaAsset {
   key: string;
+  displayKey: string;
   version: string;
   mimeType: string;
   kind: MediaKind;
@@ -247,7 +252,7 @@ export interface FileStemMatch {
 export interface MediaCacheBridge {
   getStatus(): Promise<MediaCacheStatus>;
   syncNow(): Promise<void>;
-  getAsset(key: string): Promise<ResolvedMediaAsset | null>;
+  getAsset(key: AssetKeyInput): Promise<ResolvedMediaAsset | null>;
   listByIndex(
     indexName: string,
     value: string,

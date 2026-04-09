@@ -34,6 +34,7 @@ import {
   collectFiles,
   blobPathFor,
   buildTestStore,
+  hashKey,
   createStorageRoot,
   electronSupportsProtocolRegistration,
   mimeManifestStore,
@@ -278,17 +279,17 @@ describe("media cache sync and queries (smoke)", () => {
     await cache.start();
 
     const asset = await cache.getAsset("nature/forest/main");
-    expect(asset?.url).toBe(`media://asset/${encodeURIComponent("nature/forest/main")}`);
+    expect(asset?.url).toBe(`media://asset/${hashKey("nature/forest/main")}`);
     expect(asset?.mimeType).toBe("video/mp4");
     const status = await cache.getStatus();
     expect(status.storageRoot).toBe(storageRoot);
 
     const indexList = await cache.listByIndex("mimeType", "video/mp4", { limit: 10 });
-    expect(indexList.items.map((entry) => entry.key)).toContain("nature/forest/main");
+    expect(indexList.items.map((entry) => entry.displayKey)).toContain("nature/forest/main");
 
     const fileStem = await cache.findByFileStem("flower", { limit: 10 });
     expect(fileStem.items).toHaveLength(1);
-    expect(fileStem.items[0]?.asset.key).toBe("nature.flowerVideos/rose/main");
+    expect(fileStem.items[0]?.asset.displayKey).toBe("nature.flowerVideos/rose/main");
   });
 
   it("start() orchestrates protocol registration, IPC attach, then sync", async () => {
@@ -392,7 +393,7 @@ describe("media cache sync and queries (smoke)", () => {
 
     expect(requestCounts["/main.mp4"]).toBe(1);
     expect((await cache.getAsset("nature/forest/main"))?.url).toBe(
-      `media://asset/${encodeURIComponent("nature/forest/main")}`,
+      `media://asset/${hashKey("nature/forest/main")}`,
     );
     expect((await cache.getStatus()).lastRun?.stats.downloadedAssets).toBe(4);
   });
@@ -522,7 +523,7 @@ describe("media cache sync and queries (smoke)", () => {
     await offlineCache.start();
     const committedBlobPath = join(
       storageRoot,
-      blobPathFor("nature/forest/main", "v1", "main.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
@@ -599,13 +600,11 @@ describe("media cache sync and queries (smoke)", () => {
 
     await cache.start();
     const asset = await cache.getAsset("nature|archive/forest|loop/main|primary");
-    expect(asset?.url).toBe(
-      `media://asset/${encodeURIComponent("nature|archive/forest|loop/main|primary")}`,
-    );
+    expect(asset?.url).toBe(`media://asset/${hashKey("nature|archive/forest|loop/main|primary")}`);
 
     const matches = await cache.findByFileStem("main", { limit: 10 });
     expect(matches.items).toHaveLength(1);
-    expect(matches.items[0]?.asset.key).toBe("nature|archive/forest|loop/main|primary");
+    expect(matches.items[0]?.asset.displayKey).toBe("nature|archive/forest|loop/main|primary");
   });
 
   it("marks removed assets for deletion instead of deleting them immediately", async () => {
@@ -834,14 +833,10 @@ describe("media cache sync and queries (smoke)", () => {
       fetchFile: async (_request, filePath) => new Response(readFileSync(filePath, "utf8")),
     });
 
-    const response = await handler(
-      new Request(`media://asset/${encodeURIComponent("nature/forest/main")}`),
-    );
+    const response = await handler(new Request(`media://asset/${hashKey("nature/forest/main")}`));
     expect(await response.text()).toBe("video-one");
 
-    const missing = await handler(
-      new Request(`media://asset/${encodeURIComponent("nature/forest/missing")}`),
-    );
+    const missing = await handler(new Request(`media://asset/${hashKey("nature/forest/missing")}`));
     expect(missing.status).toBe(404);
   });
 
@@ -1022,7 +1017,7 @@ describe("media cache sync and queries (smoke)", () => {
     const handler = await createProtocolHandler(cache);
 
     const response = await handler(
-      new Request(`media://asset/${encodeURIComponent("nature/forest/main")}`, {
+      new Request(`media://asset/${hashKey("nature/forest/main")}`, {
         headers: {
           range: "bytes=0-4",
         },
@@ -1046,7 +1041,7 @@ describe("media cache sync and queries (smoke)", () => {
     const handler = await createProtocolHandler(cache);
 
     const response = await handler(
-      new Request(`media://asset/${encodeURIComponent("nature/forest/main")}`, {
+      new Request(`media://asset/${hashKey("nature/forest/main")}`, {
         method: "HEAD",
       }),
     );
@@ -1088,7 +1083,7 @@ describe("media cache sync and queries (smoke)", () => {
     ] as const;
 
     for (const [assetKey, expectedMime] of cases) {
-      const response = await handler(new Request(`media://asset/${encodeURIComponent(assetKey)}`));
+      const response = await handler(new Request(`media://asset/${hashKey(assetKey)}`));
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toBe(expectedMime);
     }
@@ -1104,7 +1099,7 @@ describe("media cache sync and queries (smoke)", () => {
     await cache.start();
     const handler = await createProtocolHandler(cache);
 
-    const assetUrl = `media://asset/${encodeURIComponent("nature/forest/main")}`;
+    const assetUrl = `media://asset/${hashKey("nature/forest/main")}`;
 
     const cases = [
       {
@@ -1323,7 +1318,7 @@ describe("media cache sync and queries (smoke)", () => {
          SET metadata_json = ?
          WHERE generation_id = ? AND asset_key = ?`,
       )
-      .run("{", activeGenerationId, "nature/forest/main");
+      .run("{", activeGenerationId, hashKey("nature/forest/main"));
 
     await expect(cache.getAsset("nature/forest/main")).rejects.toThrow(DataValidationError);
   });
@@ -1431,13 +1426,13 @@ describe("media cache sync and queries (smoke)", () => {
     });
     await cache.start();
 
-    await expect(cache.getAsset("")).rejects.toThrow(DataValidationError);
+    await expect(cache.getAsset("")).resolves.toBeNull();
     await expect(cache.listByIndex("", "video/mp4")).rejects.toThrow(DataValidationError);
     await expect(cache.listByIndex("mimeType", "")).rejects.toThrow(DataValidationError);
     await expect(cache.findByFileStem("")).rejects.toThrow(DataValidationError);
 
     const long = "x".repeat(2001);
-    await expect(cache.getAsset(long)).rejects.toThrow(DataValidationError);
+    await expect(cache.getAsset(long)).resolves.toBeNull();
     await expect(cache.listByIndex(long, "video/mp4")).rejects.toThrow(DataValidationError);
     await expect(cache.listByIndex("mimeType", long)).rejects.toThrow(DataValidationError);
     await expect(cache.findByFileStem(long)).rejects.toThrow(DataValidationError);

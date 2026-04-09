@@ -3,6 +3,7 @@ export { createMediaStore, MediaStore, type MediaIndex } from "./store.js";
 export { mediaKindFromMime } from "../internal/media-kind.js";
 export {
   IndexTag,
+  type AssetKeyInput,
   type FileStemMatch,
   type FlatManifest,
   type FlatManifestAsset,

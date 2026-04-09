@@ -27,7 +27,7 @@ sources:
 A complete `resolveStore` function that fetches from an API and builds a flat asset store with secondary indexes:
 
 ```typescript
-import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
 
 interface ApiCourse {
   id: string;
@@ -44,37 +44,34 @@ async function resolveStore() {
   const courses: ApiCourse[] = await res.json();
 
   const store = createMediaStore();
-  store.defineIndex("level", (asset) => asset.metadata.level as string);
-  store.defineIndex("type", (asset) => asset.metadata.type as string);
+  const level = store.defineIndex("level");
+  const type = store.defineIndex("type");
 
   for (const course of courses) {
-    store.add({
-      key: `course/${course.id}/video`,
+    store.add(["course", course.id, "video"], {
       version: course.revision,
-      kind: "video",
       mimeType: "video/mp4",
       source: { url: course.videoUrl },
       metadata: { title: course.title, level: course.level, type: "video" },
+      indexes: [level(course.level), type("video")],
     });
 
-    store.add({
-      key: `course/${course.id}/poster`,
+    store.add(["course", course.id, "poster"], {
       version: course.revision,
-      kind: "image",
       mimeType: "image/jpeg",
       source: { url: course.posterUrl },
       metadata: { title: `${course.title} poster`, level: course.level, type: "poster" },
+      indexes: [level(course.level), type("poster")],
     });
 
     if (course.subtitleUrl) {
-      store.add({
-        key: `course/${course.id}/subs-en`,
+      store.add(["course", course.id, "subs-en"], {
         version: course.revision,
-        kind: "document",
         mimeType: "text/vtt",
         fileName: "en.vtt",
         source: { url: course.subtitleUrl },
         metadata: { title: `${course.title} subtitles`, level: course.level, type: "subtitle" },
+        indexes: [level(course.level), type("subtitle")],
       });
     }
   }
@@ -83,26 +80,26 @@ async function resolveStore() {
 }
 ```
 
+Resolved assets expose `asset.key` (storage hash) and `asset.displayKey` (human-readable path, e.g. `course/intro-101/video`).
+
 ## Core Patterns
 
 ### User-defined secondary indexes
 
-Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets. Each index extracts a string value from the asset for querying with `useMediaByIndex` in the renderer or `listByIndex` in the main process.
+Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets, then pass `IndexTag` values from each handle into `store.add()` for querying with `useMediaByIndex` in the renderer or `listByIndex` in the main process.
 
 ```typescript
-import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
 
 const store = createMediaStore();
 
-store.defineIndex("category", (asset) => asset.metadata.category as string);
-store.defineIndex("year", (asset) => String(asset.metadata.year));
-store.defineIndex("floor", (asset) => asset.metadata.floor as string);
+const category = store.defineIndex("category");
+const year = store.defineIndex("year");
+const floor = store.defineIndex("floor");
 
 for (const exhibit of exhibits) {
-  store.add({
-    key: `exhibit/${exhibit.slug}`,
+  store.add(["exhibit", exhibit.slug], {
     version: exhibit.revision,
-    kind: mediaKindFromMime(exhibit.mimeType),
     mimeType: exhibit.mimeType,
     source: { url: exhibit.mediaUrl },
     metadata: {
@@ -111,6 +108,7 @@ for (const exhibit of exhibits) {
       year: exhibit.year,
       floor: exhibit.floor,
     },
+    indexes: [category(exhibit.category), year(String(exhibit.year)), floor(exhibit.floor)],
   });
 }
 ```
@@ -123,34 +121,30 @@ const videos2026 = useMediaByIndex("year", "2026");
 
 ### Asset key conventions
 
-Asset keys are flat strings that uniquely identify each asset. Use forward-slash delimited paths for logical grouping:
+The first argument to `store.add()` is an `AssetKeyInput`: a non-empty string or a non-empty array of non-empty string segments. Arrays avoid ambiguity at segment boundaries and produce a readable `displayKey` (segments joined with `/`) while `key` on resolved assets remains the storage hash.
 
 ```typescript
-store.add({ key: "video/welcome", ... });
-store.add({ key: "video/welcome/poster", ... });
-store.add({ key: "inductee/2026/beyonce/ceremony", ... });
-store.add({ key: "inductee/2026/beyonce/poster", ... });
+store.add(["video", "welcome"], { ... });
+store.add(["video", "welcome", "poster"], { ... });
+store.add(["inductee", "2026", "beyonce", "ceremony"], { ... });
+store.add(["inductee", "2026", "beyonce", "poster"], { ... });
 ```
 
-Keys are used directly in `useMediaAsset(key)` for single-asset lookups and in the `media://asset/{encodedAssetKey}` protocol URL.
+Use the same `AssetKeyInput` in `useMediaAsset(key)` for single-asset lookups. Protocol URLs still use the encoded storage identity derived from the hash.
 
 ### Per-asset versioning
 
 Each asset has its own `version` string. When the version changes, the asset is re-downloaded. Assets with unchanged versions keep their cached blobs.
 
 ```typescript
-store.add({
-  key: "video/welcome",
+store.add(["video", "welcome"], {
   version: apiEntry.updatedAt, // timestamp-based: "2026-03-15T08:30:00Z"
-  kind: "video",
   mimeType: "video/mp4",
   source: { url: apiEntry.videoUrl },
 });
 
-store.add({
-  key: "image/logo",
+store.add(["image", "logo"], {
   version: apiEntry.contentMd5, // content-hash: "a1b2c3d4e5f6"
-  kind: "image",
   mimeType: "image/png",
   source: { url: apiEntry.logoUrl },
 });
@@ -178,10 +172,8 @@ async function resolveStore() {
       { expiresIn: 3600 },
     );
 
-    store.add({
-      key: item.id,
+    store.add(["s3", item.id], {
       version: item.revision,
-      kind: "video",
       mimeType: "video/mp4",
       source: { url: signedUrl },
     });
@@ -194,10 +186,8 @@ async function resolveStore() {
 For long-lived API keys, use `source.headers` instead:
 
 ```typescript
-store.add({
-  key: "video/welcome",
+store.add(["video", "welcome"], {
   version: "v2",
-  kind: "video",
   mimeType: "video/mp4",
   source: {
     url: "https://cdn.example.com/video.mp4",
@@ -212,44 +202,42 @@ Related assets share a key prefix and use the same indexes. Use `useMediaAsset(k
 
 ```typescript
 const store = createMediaStore();
-store.defineIndex("inductee", (asset) => asset.metadata.inducteeId as string);
-store.defineIndex("role", (asset) => asset.metadata.role as string);
+const inductee = store.defineIndex("inductee");
+const role = store.defineIndex("role");
 
-store.add({
-  key: "inductee/2026/beyonce/ceremony",
+store.add(["inductee", "2026", "beyonce", "ceremony"], {
   version: "3",
-  kind: "video",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/beyonce-ceremony.mp4" },
   metadata: { inducteeId: "beyonce-2026", role: "primary", title: "Beyoncé Induction Ceremony" },
+  indexes: [inductee("beyonce-2026"), role("primary")],
 });
 
-store.add({
-  key: "inductee/2026/beyonce/poster",
+store.add(["inductee", "2026", "beyonce", "poster"], {
   version: "3",
-  kind: "image",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/beyonce-poster.jpg" },
   metadata: { inducteeId: "beyonce-2026", role: "poster", title: "Beyoncé Poster" },
+  indexes: [inductee("beyonce-2026"), role("poster")],
 });
 
-store.add({
-  key: "inductee/2026/beyonce/subs-en",
+store.add(["inductee", "2026", "beyonce", "subs-en"], {
   version: "3",
-  kind: "document",
   mimeType: "text/vtt",
   fileName: "en.vtt",
   source: { url: "https://cdn.example.com/beyonce-en.vtt" },
   metadata: { inducteeId: "beyonce-2026", role: "subtitle", title: "English subtitles" },
+  indexes: [inductee("beyonce-2026"), role("subtitle")],
 });
 ```
 
 ```tsx
 // In renderer — look up related assets by index
 const beyonceAssets = useMediaByIndex("inductee", "beyonce-2026");
-// Or look up individual assets by key
-const ceremony = useMediaAsset("inductee/2026/beyonce/ceremony");
-const poster = useMediaAsset("inductee/2026/beyonce/poster");
+// Or look up individual assets by the same AssetKeyInput used in resolveStore
+const ceremony = useMediaAsset(["inductee", "2026", "beyonce", "ceremony"]);
+const poster = useMediaAsset(["inductee", "2026", "beyonce", "poster"]);
+// asset.displayKey shows the joined path; asset.key is the stable hash
 ```
 
 ## Common Mistakes
@@ -259,15 +247,15 @@ const poster = useMediaAsset("inductee/2026/beyonce/poster");
 `store.add()` throws `StoreValidationError` when a key has already been added to the store. Each asset key must be unique.
 
 ```typescript
-// WRONG — duplicate key
-store.add({ key: "video/welcome", version: "1", kind: "video", ... });
-store.add({ key: "video/welcome", version: "2", kind: "video", ... });
+// WRONG — duplicate key (same AssetKeyInput resolves to the same storage hash)
+store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", source: { url } });
+store.add(["video", "welcome"], { version: "2", mimeType: "video/mp4", source: { url } });
 ```
 
 ```typescript
 // CORRECT — unique keys
-store.add({ key: "video/welcome", version: "1", kind: "video", ... });
-store.add({ key: "video/welcome-v2", version: "2", kind: "video", ... });
+store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", source: { url } });
+store.add(["video", "welcome-v2"], { version: "2", mimeType: "video/mp4", source: { url } });
 ```
 
 Source: store.ts; validation.ts
@@ -278,19 +266,17 @@ Source: store.ts; validation.ts
 
 ```typescript
 // WRONG — missing version
-store.add({
-  key: "video/welcome",
-  kind: "video",
+store.add(["video", "welcome"], {
+  mimeType: "video/mp4",
   source: { url },
 });
 ```
 
 ```typescript
 // CORRECT — version present
-store.add({
-  key: "video/welcome",
+store.add(["video", "welcome"], {
   version: "2026-03-15",
-  kind: "video",
+  mimeType: "video/mp4",
   source: { url },
 });
 ```
@@ -303,20 +289,18 @@ When `fileName` is omitted, it is derived from the URL basename. URLs ending in 
 
 ```typescript
 // WRONG — URL has no filename to derive
-store.add({
-  key: "video/ceremony",
+store.add(["video", "ceremony"], {
   version: "1",
-  kind: "video",
+  mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/api/stream/" },
 });
 ```
 
 ```typescript
 // CORRECT — explicit fileName when URL lacks one
-store.add({
-  key: "video/ceremony",
+store.add(["video", "ceremony"], {
   version: "1",
-  kind: "video",
+  mimeType: "video/mp4",
   fileName: "ceremony.mp4",
   source: { url: "https://cdn.example.com/api/stream/" },
 });
@@ -331,15 +315,26 @@ Indexes must be defined with `store.defineIndex()` before assets are added. If y
 ```typescript
 // WRONG — index not defined
 const store = createMediaStore();
-store.add({ key: "video/welcome", ..., metadata: { category: "lobby" } });
+store.add(["video", "welcome"], {
+  version: "1",
+  mimeType: "video/mp4",
+  source: { url },
+  metadata: { category: "lobby" },
+});
 // useMediaByIndex("category", "lobby") returns nothing
 ```
 
 ```typescript
 // CORRECT — define index before adding assets
 const store = createMediaStore();
-store.defineIndex("category", (asset) => asset.metadata.category as string);
-store.add({ key: "video/welcome", ..., metadata: { category: "lobby" } });
+const category = store.defineIndex("category");
+store.add(["video", "welcome"], {
+  version: "1",
+  mimeType: "video/mp4",
+  source: { url },
+  metadata: { category: "lobby" },
+  indexes: [category("lobby")],
+});
 ```
 
 Source: store.ts; README

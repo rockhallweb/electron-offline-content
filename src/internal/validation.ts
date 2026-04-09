@@ -185,6 +185,7 @@ export const generationAssetRowSchema: z.ZodType<GenerationAssetRow> = z.object(
 export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   generationId: nonNegativeIntegerSchema,
   assetKey: z.string(),
+  displayKey: z.string(),
   version: z.string(),
   mimeType: z.string(),
   mediaKind: mediaKindSchema,

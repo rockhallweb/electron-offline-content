@@ -9,6 +9,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import type {
+  AssetKeyInput,
   FileStemMatch,
   MediaCacheBridge,
   MediaCacheErrors,
@@ -127,15 +128,16 @@ export function useMediaCacheStatus(): UseMediaCacheStatusResult {
 /**
  * Fetches a single asset by key.
  *
- * @param key - The asset key to look up.
+ * @param key - The asset key to look up. A string or array of string segments.
  * @param options - Optional sync-triggered refetch behavior.
  */
 export function useMediaAsset(
-  key: string,
+  key: AssetKeyInput,
   options?: MediaQuerySyncOptions,
 ): AsyncState<ResolvedMediaAsset | null> {
   const { bridge, status } = useMediaCacheRuntime();
-  return useAsyncResource(() => bridge.getAsset(key), [bridge, key], status, {
+  const stableKey = typeof key === "string" ? key : key.join("\0");
+  return useAsyncResource(() => bridge.getAsset(key), [bridge, stableKey], status, {
     refetchOnSyncComplete: options?.refetchOnSyncComplete,
   });
 }
@@ -421,6 +423,7 @@ function useRefetchOnReadyGeneration(
 }
 
 export type {
+  AssetKeyInput,
   FileStemMatch,
   MediaCacheBridge,
   MediaCacheErrors,

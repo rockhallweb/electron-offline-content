@@ -4,6 +4,10 @@ Complete reference for the React bindings exported from `@rockhallweb/electron-o
 
 ## Shared Types
 
+### AssetKeyInput
+
+`string | readonly string[]` — pass the same value to `store.add()` in `resolveStore` and to `useMediaAsset()` / `getAsset()`. Non-empty strings or non-empty arrays of non-empty strings are accepted; there is no further key format validation. Arrays are joined with `/` for `displayKey` on resolved assets.
+
 ### AsyncState\<T\>
 
 Every data-fetching hook returns this shape:
@@ -179,19 +183,19 @@ function SyncProgress() {
 
 ### useMediaAsset
 
-Looks up a single asset by its unique key.
+Looks up a single asset by `AssetKeyInput` — the same string or segment array passed as the first argument to `store.add()` in `resolveStore`.
 
 ```typescript
 function useMediaAsset(
-  key: string,
+  key: AssetKeyInput,
   options?: { refetchOnSyncComplete?: boolean },
 ): AsyncState<ResolvedMediaAsset | null>;
 ```
 
-| Parameter | Type     | Description                                                  |
-| --------- | -------- | ------------------------------------------------------------ |
-| `key`     | `string` | The asset key (as passed to `store.add()` in `resolveStore`) |
-| `options` | `object` | Optional. `refetchOnSyncComplete` re-fetches after sync.     |
+| Parameter | Type            | Description                                                                 |
+| --------- | --------------- | --------------------------------------------------------------------------- |
+| `key`     | `AssetKeyInput` | `string` or `readonly string[]` — must match the key used in `store.add()`. |
+| `options` | `object`        | Optional. `refetchOnSyncComplete` re-fetches after sync.                    |
 
 **Returns:** `AsyncState<ResolvedMediaAsset | null>`
 
@@ -199,11 +203,11 @@ function useMediaAsset(
 import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
 
 function WelcomeVideo() {
-  const { data: asset, loading } = useMediaAsset("video/welcome");
+  const { data: asset, loading } = useMediaAsset(["video", "welcome"]);
 
   if (loading || !asset) return null;
 
-  return <video src={asset.url} controls />;
+  return <video src={asset.url} title={asset.displayKey} controls />;
 }
 ```
 
@@ -256,7 +260,7 @@ function ExhibitList() {
     <>
       {data.items.map((asset) => (
         <div key={asset.key}>
-          <img src={asset.url} alt={asset.metadata.title as string} />
+          <img src={asset.url} alt={(asset.metadata.title as string) ?? asset.displayKey} />
         </div>
       ))}
     </>
@@ -303,7 +307,7 @@ function Search({ query }: { query: string }) {
   return (
     <ul>
       {data.items.map((match) => (
-        <li key={match.asset.key}>{match.asset.key}</li>
+        <li key={match.asset.key}>{match.asset.displayKey}</li>
       ))}
     </ul>
   );
@@ -367,6 +371,7 @@ A single resolved asset with a ready-to-render URL.
 ```typescript
 interface ResolvedMediaAsset {
   key: string;
+  displayKey: string;
   version: string;
   kind: MediaKind;
   mimeType: string;
@@ -377,16 +382,17 @@ interface ResolvedMediaAsset {
 }
 ```
 
-| Field        | Description                                                                    |
-| ------------ | ------------------------------------------------------------------------------ |
-| `key`        | Unique asset key (as defined in `store.add()`).                                |
-| `version`    | Content version string from the store.                                         |
-| `kind`       | Media kind enum value (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).    |
-| `mimeType`   | MIME type (e.g. `"video/mp4"`).                                                |
-| `byteLength` | Size in bytes when known from the store.                                       |
-| `url`        | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode. |
-| `indexes`    | Index names to their values; arrays for multi-cardinality indexes.             |
-| `metadata`   | Arbitrary JSON metadata from `store.add()`.                                    |
+| Field        | Description                                                                      |
+| ------------ | -------------------------------------------------------------------------------- |
+| `key`        | Stable storage identity (SHA-256–derived hash, 16 hex chars).                    |
+| `displayKey` | Original human-readable key (`string` input, or array segments joined with `/`). |
+| `version`    | Content version string from the store.                                           |
+| `kind`       | Media kind enum value (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).      |
+| `mimeType`   | MIME type (e.g. `"video/mp4"`).                                                  |
+| `byteLength` | Size in bytes when known from the store.                                         |
+| `url`        | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode.   |
+| `indexes`    | Index names to their values; arrays for multi-cardinality indexes.               |
+| `metadata`   | Arbitrary JSON metadata from `store.add()`.                                      |
 
 ### FileStemMatch
 

@@ -19,6 +19,7 @@ export function createBridge(overrides: Partial<MediaCacheBridge> = {}): MediaCa
 export function buildAsset(key: string): ResolvedMediaAsset {
   return {
     key,
+    displayKey: key,
     version: "v1",
     mimeType: "video/mp4",
     kind: "video",

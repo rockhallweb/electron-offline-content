@@ -68,7 +68,7 @@ export async function resolveStore() {
   const collection = store.defineIndex("collection");
 
   for (const video of videos) {
-    store.add(`videos/${video.slug}/main`, {
+    store.add(["videos", video.slug, "main"], {
       version: video.updatedAt,
       mimeType: "video/mp4",
       source: { url: video.fileUrl },
@@ -138,7 +138,7 @@ function App() {
   return (
     <div>
       {videos.data?.items.map((asset) => (
-        <video key={asset.key} src={asset.url} controls />
+        <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
       ))}
     </div>
   );
@@ -171,14 +171,14 @@ const store = createMediaStore({
 const gallery = store.defineIndex("gallery");
 const role = store.defineIndex("role");
 
-store.add("lobby/spring-campaign/video", {
+store.add(["lobby", "spring-campaign", "video"], {
   version: "2026-03-10.1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/spring-campaign.mp4" },
   indexes: [gallery("lobby"), role("primary")],
 });
 
-store.add("lobby/spring-campaign/poster", {
+store.add(["lobby", "spring-campaign", "poster"], {
   version: "2026-03-10.1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/spring-campaign-poster.jpg" },
@@ -186,7 +186,7 @@ store.add("lobby/spring-campaign/poster", {
 });
 ```
 
-Asset keys are unique strings. Use path-like conventions (e.g. `"collection/id/role"`) for organizational naming, but the store treats them as flat opaque keys.
+Pass a non-empty string or a non-empty array of non-empty string segments as the first argument to `store.add()` (the `AssetKeyInput` type). Segments are joined for a human-readable `displayKey` on resolved assets; internally the package stores a **SHA-256 hash** (first 16 hex characters) as the stable `key`. Either form can be used with `getAsset()` / `useMediaAsset()` as long as it matches what you passed to `add()`.
 
 ### Building stores from arrays
 
@@ -211,14 +211,14 @@ const store = createMediaStore();
 const collection = store.defineIndex("collection");
 
 for (const v of videos) {
-  store.add(`videos/${v.id}/main`, {
+  store.add(["videos", v.id, "main"], {
     version: v.version,
     mimeType: "video/mp4",
     source: { url: v.fileUrl },
     metadata: { title: v.title },
     indexes: [collection("videos")],
   });
-  store.add(`videos/${v.id}/poster`, {
+  store.add(["videos", v.id, "poster"], {
     version: v.version,
     mimeType: "image/jpeg",
     source: { url: v.posterUrl },
@@ -230,19 +230,19 @@ for (const v of videos) {
 
 ### Callable index handles and `IndexTag`
 
-`store.defineIndex` returns a `MediaIndex` value: a callable function (typed as an interface) plus read-only metadata (`indexName`, `cardinality`, `required`). Call the handle with a string (single-value indexes) or `string[]` (multi-value indexes) to produce an `IndexTag` instance. Pass those tags in the `indexes` array on each `store.add` call:
+`store.defineIndex` returns a `MediaIndex` value: a callable function (typed as an interface) plus read-only metadata (`indexName`, `cardinality`, `required`). Call the handle with a string (single-value indexes) or `string[]` (multi-value indexes) to produce an `IndexTag` instance. Pass those tags in the `indexes` array on each `store.add(assetKey, input)` call (`assetKey` is `AssetKeyInput`):
 
 ```ts
 const gallery = store.defineIndex("gallery");
 
-store.add("photo-1", {
+store.add(["photos", "photo-1"], {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/photo-1.jpg" },
   indexes: [gallery("nature")],
 });
 
-store.add("photo-2", {
+store.add(["photos", "photo-2"], {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/photo-2.jpg" },
@@ -267,7 +267,8 @@ The cache checks `expiresAt` immediately after store resolution and again before
 
 ### Validation rules
 
-- Asset keys must be unique.
+- Asset keys must be unique (storage identity is a SHA-256–derived hash; duplicates are rejected).
+- Key inputs must be a non-empty string or a non-empty array of non-empty strings; there is no further key content validation.
 - `version` is required on every asset (the package is version-driven for cache busting).
 - `mimeType` is required and must be a valid `type/subtype` string.
 - `fileName` is optional; when omitted, derived from the source URL basename.
@@ -302,7 +303,7 @@ const category = store.defineIndex("category", { required: true });
 Pass `IndexTag` values in the `indexes` array when calling `store.add` (each tag comes from calling a `defineIndex` handle):
 
 ```ts
-store.add("forest/video", {
+store.add(["forest", "video"], {
   version: "v1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/forest.mp4" },
@@ -346,14 +347,14 @@ If your app has a namespace concept, model it as an index:
 ```ts
 const namespace = store.defineIndex("namespace");
 
-store.add("lobby/welcome-video", {
+store.add(["lobby", "welcome-video"], {
   version: "v1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/welcome.mp4" },
   indexes: [namespace("lobby")],
 });
 
-store.add("exhibits/hubble", {
+store.add(["exhibits", "hubble"], {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/hubble.jpg" },
@@ -410,7 +411,7 @@ async function resolveStore() {
   const videos = await fetchCatalog();
   for (const video of videos) {
     const signedUrl = await getS3PresignedUrl(video.s3Key);
-    store.add(`videos/${video.id}`, {
+    store.add(["videos", video.id], {
       version: video.version,
       mimeType: "video/mp4",
       source: { url: signedUrl },
@@ -430,7 +431,7 @@ async function resolveStore() {
   const token = await getAccessToken();
   const store = createMediaStore();
 
-  store.add("protected/asset", {
+  store.add(["protected", "asset"], {
     version: "v1",
     mimeType: "video/mp4",
     source: {
@@ -478,7 +479,7 @@ All errors extend `MediaCacheError`, which carries a `code` string for programma
 `useMediaCacheErrors()` combines sync errors and all active query errors under the current `MediaCacheProvider` into a single view:
 
 ```tsx
-const featured = useMediaAsset("space/hubble-cosmos/main");
+const featured = useMediaAsset(["space", "hubble-cosmos", "main"]);
 const catalog = useMediaByIndex("collection", "space", { limit: 20 });
 const errors = useMediaCacheErrors();
 
@@ -590,7 +591,7 @@ Returned by `createMediaStore`. Build the store imperatively by defining indexes
 | Method                        | Returns        | Description                                                                                                                  |
 | ----------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `defineIndex(name, options?)` | `MediaIndex`   | Register a secondary index. Returns a callable handle. Options: `{ cardinality?: "single" \| "multi", required?: boolean }`. |
-| `add(key, input)`             | `void`         | Add an asset. `key` is a unique string; `input` is a `MediaAssetInput`.                                                      |
+| `add(key, input)`             | `void`         | Add an asset. `key` is `AssetKeyInput` (`string` or `readonly string[]`); `input` is a `MediaAssetInput`.                    |
 | `_serialize()`                | `FlatManifest` | Internal: serializes for the sync engine. Not part of the public consumer API.                                               |
 
 **`MediaAssetInput`**
@@ -611,7 +612,7 @@ Callable function type (interface) returned by `MediaStore.defineIndex`. Invokin
 
 ```ts
 const gallery = store.defineIndex("gallery");
-store.add("photo-1", {
+store.add(["photos", "photo-1"], {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/photo-1.jpg" },
@@ -623,6 +624,10 @@ console.log(gallery.indexName); // "gallery"
 #### `IndexTag`
 
 Class whose instances are produced by calling a `MediaIndex` handle. Used as elements of `MediaAssetInput.indexes`. Exported from `@rockhallweb/electron-offline-content/main`.
+
+#### `AssetKeyInput`
+
+Type alias: `string | readonly string[]`. Used for `MediaStore.add`, `getAsset`, and `useMediaAsset`. Arrays are joined with `/` for `displayKey` and hashed for stable `key` identity.
 
 #### `mediaKindFromMime(mimeType)`
 
@@ -667,7 +672,7 @@ Returned by `createMediaCache`. Requires exclusive ownership of its resolved sto
 | `start()`                                    | `Promise<void>`                                 | One-call setup: register protocol, attach IPC, run initial sync.  |
 | `syncNow()`                                  | `Promise<void>`                                 | Run or join a sync. Concurrent callers share one run.             |
 | `getStatus()`                                | `Promise<MediaCacheStatus>`                     | Current phase, progress, last run, and error.                     |
-| `getAsset(key)`                              | `Promise<ResolvedMediaAsset \| null>`           | Single asset by key, or `null` if missing.                        |
+| `getAsset(key)`                              | `Promise<ResolvedMediaAsset \| null>`           | Single asset by `AssetKeyInput`, or `null` if missing.            |
 | `listByIndex(indexName, value, pagination?)` | `Promise<PaginationResult<ResolvedMediaAsset>>` | Assets matching a secondary index value, paginated.               |
 | `findByFileStem(stem, pagination?)`          | `Promise<PaginationResult<FileStemMatch>>`      | Search by normalized filename stem.                               |
 | `registerProtocol(options?)`                 | `Promise<void>`                                 | Register the `media:` handler on a session.                       |
@@ -677,7 +682,7 @@ In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing 
 
 #### Key types
 
-**ResolvedMediaAsset** -- `{ key, version, mimeType, kind: MediaKind, byteLength?, url, metadata: Record<string, JsonValue>, indexes: Record<string, string | string[]> }`. `kind` is derived from `mimeType` via `mediaKindFromMime()`. `url` is a `media://asset/{encodedKey}` URL in offline mode or a remote URL in passthrough mode.
+**ResolvedMediaAsset** -- `{ key, displayKey, version, mimeType, kind: MediaKind, byteLength?, url, metadata: Record<string, JsonValue>, indexes: Record<string, string | string[]> }`. `key` is the stable storage hash; `displayKey` is the original human-readable key (string or segment path joined with `/`). `kind` is derived from `mimeType` via `mediaKindFromMime()`. `url` is a `media://asset/{encodedKey}` URL in offline mode or a remote URL in passthrough mode.
 
 **FileStemMatch** -- `{ asset: ResolvedMediaAsset }`
 
@@ -731,15 +736,15 @@ Returns `UseMediaCacheStatusResult`: the same fields as `AsyncState<MediaCacheSt
 
 #### `useMediaAsset(key, options?)`
 
-Fetches a single asset by key. Returns `AsyncState<ResolvedMediaAsset | null>`.
+Fetches a single asset by `AssetKeyInput` (same string or segment array you used in `store.add`). Returns `AsyncState<ResolvedMediaAsset | null>`.
 
 Options: `{ refetchOnSyncComplete? }`
 
 ```tsx
-const asset = useMediaAsset("videos/welcome/main");
+const asset = useMediaAsset(["videos", "welcome", "main"]);
 
 if (asset.data) {
-  return <video src={asset.data.url} controls />;
+  return <video src={asset.data.url} title={asset.data.displayKey} controls />;
 }
 ```
 
@@ -753,7 +758,9 @@ Options: `{ limit?, cursor?, refetchOnSyncComplete? }`
 const videos = useMediaByIndex("collection", "exhibits", { limit: 20 });
 
 if (videos.data) {
-  return videos.data.items.map((asset) => <video key={asset.key} src={asset.url} controls />);
+  return videos.data.items.map((asset) => (
+    <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
+  ));
 }
 ```
 

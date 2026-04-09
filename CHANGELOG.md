@@ -12,6 +12,8 @@
 - `resolveAssetRequest` option removed entirely; embed signed URLs or auth headers in `source` during `resolveStore()`.
 - Hierarchical `namespace/item/asset` model replaced by flat `assetKey` model with user-defined secondary indexes.
 - Per-asset versioning: each asset has its own `version` string (no longer inherited from parent item).
+- Asset keys are hashed for storage identity (SHA-256, first 16 hex characters). `store.add()`, `getAsset()`, and `useMediaAsset()` accept `string | readonly string[]` (the `AssetKeyInput` type). There is no validation of key characters or shape beyond non-empty strings or non-empty string segments.
+- `ResolvedMediaAsset.key` is the stable hash; the original human-readable key is available as `displayKey`.
 
 **Error renames:**
 
@@ -34,13 +36,14 @@
 
 - Removed: `MediaCacheManifest`, `MediaNamespaceValue`, `MediaItemValue`, `MediaAssetValue`, `ResolvedMediaContentItem`
 - New: `MediaAssetInput`, `FlatManifest`, `FlatManifestAsset`, `IndexDefinition`
-- `ResolvedMediaAsset` now has: `key`, `version`, `kind: MediaKind`, `mimeType`, `indexes: Record<string, string>`, `metadata: Record<string, unknown>`
+- `ResolvedMediaAsset` now has: `key` (hash), `displayKey` (original key), `version`, `kind: MediaKind`, `mimeType`, `indexes: Record<string, string>`, `metadata: Record<string, unknown>`
 - `FileStemMatch` now has `asset: ResolvedMediaAsset` instead of `item: ResolvedMediaContentItem`
 - `SyncProgress.phase` includes `"resolving-store"` instead of `"resolving-manifest"`
 
 **New exports:**
 
 - `createMediaStore`, `MediaStore`, `MediaIndex`, `mediaKindFromMime`
+- Types: `AssetKeyInput`, `IndexTag`
 
 **Protocol URL:**
 
@@ -86,19 +89,18 @@ const manifest = defineManifest({
 });
 
 // After — flat store with createMediaStore / defineIndex / store.add
-import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
 
 const store = createMediaStore();
-store.defineIndex("category", (asset) => asset.metadata.category as string);
+const category = store.defineIndex("category");
 
 for (const v of data.videos) {
-  store.add({
-    key: `video/${v.slug}`,
+  store.add(["video", v.slug], {
     version: v.updatedAt,
-    kind: "video",
     mimeType: "video/mp4",
     source: { url: v.videoUrl },
     metadata: { title: v.title, category: "videos" },
+    indexes: [category("videos")],
   });
 }
 ```
@@ -122,15 +124,14 @@ const mediaCache = createMediaCache({
     const res = await fetch("https://cms.example.com/api/content");
     const data = await res.json();
     const store = createMediaStore();
-    store.defineIndex("category", (asset) => asset.metadata.category as string);
+    const category = store.defineIndex("category");
     for (const item of data.items) {
-      store.add({
-        key: item.id,
+      store.add(["items", item.id], {
         version: item.updatedAt,
-        kind: mediaKindFromMime(item.mimeType),
         mimeType: item.mimeType,
         source: { url: item.url },
         metadata: item.metadata,
+        indexes: [category("catalog")],
       });
     }
     return store;
@@ -147,8 +148,8 @@ const list = useMedia({ kind: "list", namespace: "videos", limit: 20 });
 // item.data.assetsByRole.primary?.url
 // list.data.items.map(...)
 
-// After — useMediaAsset / useMediaByIndex
-const asset = useMediaAsset("video/welcome");
+// After — useMediaAsset / useMediaByIndex (key may be a string or string[]; must match resolveStore)
+const asset = useMediaAsset(["video", "welcome"]);
 const videos = useMediaByIndex("category", "videos", { limit: 20 });
 // asset.data?.url
 // videos.data?.items.map(...)
@@ -179,7 +180,7 @@ const mediaCache = createMediaCache({
         new GetObjectCommand({ Bucket: "b", Key: item.key }),
         { expiresIn: 3600 },
       );
-      store.add(item.key, {
+      store.add(["assets", item.id], {
         version: item.revision,
         mimeType: "video/mp4",
         source: { url: signedUrl },

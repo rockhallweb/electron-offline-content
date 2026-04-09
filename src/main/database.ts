@@ -38,6 +38,7 @@ const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 export interface ActiveAssetRow {
   generationId: number;
   assetKey: string;
+  displayKey: string;
   version: string;
   mimeType: string;
   mediaKind: MediaKind;
@@ -332,9 +333,9 @@ export class MediaCacheDatabase {
 
       const assetStmt = this.db.prepare(
         `INSERT INTO assets (
-          generation_id, asset_key, version, mime_type, media_kind, file_name, file_stem,
+          generation_id, asset_key, display_key, version, mime_type, media_kind, file_name, file_stem,
           byte_length, source_json, metadata_json, indexes_json, order_index, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
       const indexStmt = this.db.prepare(
         `INSERT INTO asset_indexes (generation_id, asset_key, index_name, index_value)
@@ -345,6 +346,7 @@ export class MediaCacheDatabase {
         assetStmt.run(
           generationId,
           asset.key,
+          asset.displayKey,
           asset.version,
           asset.mimeType,
           asset.mediaKind,
@@ -580,6 +582,7 @@ export class MediaCacheDatabase {
         `SELECT
            generation_id AS generationId,
            asset_key AS assetKey,
+           display_key AS displayKey,
            version,
            mime_type AS mimeType,
            media_kind AS mediaKind,
@@ -623,6 +626,7 @@ export class MediaCacheDatabase {
           `SELECT
              a.generation_id AS generationId,
              a.asset_key AS assetKey,
+             a.display_key AS displayKey,
              a.version,
              a.mime_type AS mimeType,
              a.media_kind AS mediaKind,
@@ -663,6 +667,7 @@ export class MediaCacheDatabase {
           `SELECT
              generation_id AS generationId,
              asset_key AS assetKey,
+             display_key AS displayKey,
              version,
              mime_type AS mimeType,
              media_kind AS mediaKind,
@@ -714,6 +719,7 @@ export class MediaCacheDatabase {
 
     return {
       key: row.assetKey,
+      displayKey: row.displayKey,
       version: row.version,
       mimeType: row.mimeType,
       kind: row.mediaKind,
@@ -738,6 +744,7 @@ export class MediaCacheDatabase {
       CREATE TABLE IF NOT EXISTS assets (
         generation_id INTEGER NOT NULL,
         asset_key TEXT NOT NULL,
+        display_key TEXT NOT NULL,
         version TEXT NOT NULL,
         mime_type TEXT NOT NULL,
         media_kind TEXT NOT NULL,

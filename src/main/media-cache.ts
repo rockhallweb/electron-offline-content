@@ -30,6 +30,7 @@ import {
   toSerializedError,
 } from "../shared/errors.js";
 import type {
+  AssetKeyInput,
   FlatManifest,
   FileStemMatch,
   JsonValue,
@@ -56,6 +57,7 @@ import {
 } from "../internal/validation.js";
 import { MediaCacheDatabase } from "./database.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
+import { hashKey } from "../internal/asset-key.js";
 import type { StorageRootLockHandle } from "./storage-root-lock.js";
 import {
   acquireStorageRootLock,
@@ -357,10 +359,10 @@ export class MediaCache implements MediaCacheMain {
     return this.status;
   }
 
-  async getAsset(key: string): Promise<ResolvedMediaAsset | null> {
-    const validatedKey = parseWithSchema(stringInputSchema, key, "asset key");
+  async getAsset(key: AssetKeyInput): Promise<ResolvedMediaAsset | null> {
+    const hashedKey = hashKey(key);
     await this.ensureInitialized();
-    return this.db!.getAsset(validatedKey);
+    return this.db!.getAsset(hashedKey);
   }
 
   async listByIndex(
@@ -481,7 +483,9 @@ export class MediaCache implements MediaCacheMain {
 
     ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
     ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
-    ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: string) => this.getAsset(key));
+    ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: AssetKeyInput) =>
+      this.getAsset(key),
+    );
     ipcMain.handle(
       MEDIA_CACHE_IPC.listByIndex,
       async (_event, indexName: string, value: string, pagination?: PaginationInput) =>

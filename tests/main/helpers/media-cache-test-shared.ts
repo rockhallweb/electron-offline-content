@@ -12,6 +12,7 @@ import {
 } from "../../../src/main/media-cache.js";
 import { DataValidationError } from "../../../src/shared/errors.js";
 import { IndexTag, type JsonValue } from "../../../src/shared/types.js";
+import { hashKey } from "../../../src/internal/asset-key.js";
 import { mediaCacheStoragePathSchema, parseWithSchema } from "../../../src/internal/validation.js";
 import { createMediaStore, type MediaStore } from "../../../src/main/store.js";
 
@@ -511,6 +512,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
 }
 
 export { resetMediaCacheProtocolRegistrationStateForTests };
+export { hashKey } from "../../../src/internal/asset-key.js";
 
 export function collectFiles(root: string): string[] {
   if (!existsSync(root)) {

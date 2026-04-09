@@ -40,11 +40,7 @@ Three files wire the integration across all three Electron processes: main, prel
 ```typescript
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
-import {
-  createMediaCache,
-  createMediaStore,
-  mediaKindFromMime,
-} from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
   app.exit(1);
@@ -57,16 +53,15 @@ const mediaCache = createMediaCache({
     const data = await res.json();
 
     const store = createMediaStore();
-    store.defineIndex("category", (asset) => asset.metadata.category as string);
+    const category = store.defineIndex("category");
 
     for (const v of data.videos) {
-      store.add({
-        key: `video/${v.slug}`,
+      store.add(["video", v.slug], {
         version: v.updatedAt,
-        kind: "video",
         mimeType: "video/mp4",
         source: { url: v.videoUrl },
         metadata: { title: v.title, category: "videos" },
+        indexes: [category("videos")],
       });
     }
 
@@ -122,7 +117,7 @@ function Content() {
   return (
     <div>
       {videos.data?.items.map((asset) => (
-        <video key={asset.key} src={asset.url} controls />
+        <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
       ))}
     </div>
   );
@@ -170,32 +165,30 @@ ipcMain.handle("begin-sync", () => {
 
 ### Building a media store with createMediaStore
 
-`createMediaStore()` creates a flat asset store. Add assets with `store.add()` and define secondary indexes with `store.defineIndex()` for querying. Each asset has its own `key`, `version`, and `kind`:
+`createMediaStore()` creates a flat asset store. Add assets with `store.add(assetKey, input)` and define secondary indexes with `store.defineIndex()` for querying. The first argument is an `AssetKeyInput` (`string` or `readonly string[]`); resolved assets expose `key` (hash) and `displayKey` (human-readable).
 
 ```typescript
-import { createMediaStore, mediaKindFromMime } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
 
 const store = createMediaStore();
 
-store.defineIndex("category", (asset) => asset.metadata.category as string);
-store.defineIndex("year", (asset) => String(asset.metadata.year));
+const category = store.defineIndex("category");
+const year = store.defineIndex("year");
 
-store.add({
-  key: "video/welcome",
+store.add(["video", "welcome"], {
   version: "v2",
-  kind: "video",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/welcome.v2.mp4" },
   metadata: { title: "Welcome Video", category: "lobby", year: 2026 },
+  indexes: [category("lobby"), year("2026")],
 });
 
-store.add({
-  key: "image/welcome-poster",
+store.add(["image", "welcome-poster"], {
   version: "v2",
-  kind: "image",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/welcome-poster.jpg" },
   metadata: { title: "Welcome Poster", category: "lobby", year: 2026 },
+  indexes: [category("lobby"), year("2026")],
 });
 ```
 
@@ -403,7 +396,7 @@ Source: Maintainer interview
 
 ### HIGH Tension: Store validation vs sync-time failures
 
-`resolveStore` must return a valid **`MediaStore`**. Validation is strict on required fields like `key`, `version`, and HTTP(S) asset URLs. Use **`createMediaStore`** and **`store.add()`** so errors surface when you build the store, not only during sync.
+`resolveStore` must return a valid **`MediaStore`**. Validation is strict on required fields like `version` and HTTP(S) asset URLs; keys must be non-empty (`AssetKeyInput`) but are not otherwise content-validated. Use **`createMediaStore`** and **`store.add()`** so errors surface when you build the store, not only during sync.
 
 See also: store-authoring/SKILL.md § Common Mistakes
 

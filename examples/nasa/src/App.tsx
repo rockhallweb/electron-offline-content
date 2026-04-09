@@ -231,28 +231,49 @@ function DownloadingView({ onStartDownload, isStartingDownload }: SyncDownloadCo
   );
 }
 
-/** Derives a poster asset key from a primary asset key by swapping the trailing segment. */
-function posterKeyFrom(primaryKey: string): string {
-  return primaryKey.replace(/\/primary$/, "/poster");
+function selectionMatchesAsset(
+  selected: string | readonly string[],
+  asset: ResolvedMediaAsset,
+): boolean {
+  return typeof selected === "string"
+    ? asset.key === selected
+    : asset.displayKey === selected.join("/");
 }
 
-/** Extracts the collection path from an asset key (e.g. "space.images" from "space.images/ID/primary"). */
-function collectionFromKey(key: string): string {
-  const parts = key.split("/");
-  return parts.length >= 3 ? parts.slice(0, -2).join("/") : key;
+function posterForPrimary(
+  primary: ResolvedMediaAsset | undefined,
+  posters: ResolvedMediaAsset[],
+): ResolvedMediaAsset | undefined {
+  if (!primary) return undefined;
+  const collection = primary.indexes.collection;
+  const nasaId = primary.metadata.nasaId;
+  if (typeof collection !== "string" || nasaId == null) return undefined;
+  const nasaIdStr = String(nasaId);
+  return posters.find(
+    (p) =>
+      p.indexes.role === "poster" &&
+      p.indexes.collection === collection &&
+      String(p.metadata.nasaId) === nasaIdStr,
+  );
 }
 
 function ArchiveView() {
   const status = useMediaCacheStatus();
   const primaryAssets = useMediaByIndex("role", "primary", { limit: 40 });
+  const posterAssets = useMediaByIndex("role", "poster", { limit: 200 });
   const fileStemMatches = useFileStemMatch("mars-large-organics", { limit: 10 });
 
-  const [selectedKey, setSelectedKey] = useState("space.images/SSC-20110203-S00095H/primary");
+  const [selectedKey, setSelectedKey] = useState<string | readonly string[]>([
+    "space.images",
+    "SSC-20110203-S00095H",
+    "primary",
+  ]);
   const [filter, setFilter] = useState<"all" | "image" | "video">("all");
   const { phase } = status;
   const generation = String(status.data?.activeGenerationId ?? "none");
 
   const queue = primaryAssets.data?.items ?? [];
+  const posterQueue = posterAssets.data?.items ?? [];
   const filteredQueue =
     filter === "all"
       ? queue
@@ -261,22 +282,26 @@ function ArchiveView() {
           return typeof mt === "string" && mt === filter;
         });
 
-  const selectedExists = filteredQueue.some((asset) => asset.key === selectedKey);
+  const selectedExists = filteredQueue.some((asset) => selectionMatchesAsset(selectedKey, asset));
   const effectiveKey = selectedExists
     ? selectedKey
     : (filteredQueue[0]?.key ?? queue[0]?.key ?? selectedKey);
 
   const currentAsset = useMediaAsset(effectiveKey);
-  const posterAsset = useMediaAsset(posterKeyFrom(effectiveKey));
+  const resolvedPoster = posterForPrimary(currentAsset.data ?? undefined, posterQueue);
 
-  const title = String(currentAsset.data?.metadata.title ?? effectiveKey);
+  const title = String(
+    currentAsset.data?.metadata.title ??
+      currentAsset.data?.displayKey ??
+      (typeof effectiveKey === "string" ? effectiveKey : effectiveKey.join("/")),
+  );
   const description = String(
     currentAsset.data?.metadata.description ??
       "Metadata will appear here after the cache exposes the current asset.",
   );
   const isPrimaryVideo = currentAsset.data?.kind === "video";
   const primaryUrl = currentAsset.data?.url ?? null;
-  const posterUrl = posterAsset.data?.url ?? null;
+  const posterUrl = resolvedPoster?.url ?? null;
   const imageUrl = !isPrimaryVideo && primaryUrl ? primaryUrl : posterUrl;
 
   return (
@@ -326,7 +351,8 @@ function ArchiveView() {
               <QueueCard
                 key={asset.key}
                 asset={asset}
-                isActive={asset.key === effectiveKey}
+                isActive={selectionMatchesAsset(effectiveKey, asset)}
+                posterUrl={posterForPrimary(asset, posterQueue)?.url ?? null}
                 onSelect={() => setSelectedKey(asset.key)}
               />
             ))}
@@ -365,7 +391,7 @@ function ArchiveView() {
 
           <div className="grid content-start gap-3 border-l-2 border-accent bg-surface-alt p-4 min-[860px]:p-5">
             <p className="text-tech text-[10px] tracking-[0.2em] text-text-dim">
-              {collectionFromKey(effectiveKey)}
+              {String(currentAsset.data?.indexes.collection ?? "")}
             </p>
             <h2 className="font-display text-[clamp(1.4rem,2vw,2rem)] leading-[1.05] text-[#e4e4e7]">
               {title}
@@ -390,17 +416,17 @@ function QueueCard({
   asset,
   isActive,
   onSelect,
+  posterUrl,
 }: {
   asset: ResolvedMediaAsset;
   isActive: boolean;
   onSelect: () => void;
+  posterUrl: string | null;
 }) {
-  const posterAsset = useMediaAsset(posterKeyFrom(asset.key));
-  const posterUrl = posterAsset.data?.url ?? null;
   const cardMediaType =
     typeof asset.indexes.mediaType === "string" ? asset.indexes.mediaType : "asset";
-  const assetTitle = String(asset.metadata.title ?? asset.key);
-  const collection = collectionFromKey(asset.key);
+  const assetTitle = String(asset.metadata.title ?? asset.displayKey);
+  const collection = String(asset.indexes.collection ?? "");
 
   return (
     <button

@@ -35,7 +35,7 @@ function buildStore(baseUrl: string): MediaStore {
   const collection = store.defineIndex("collection");
   const role = store.defineIndex("role");
 
-  store.add("nature/forest-loop/main", {
+  store.add(["nature", "forest-loop", "main"], {
     version: "2026-03-forest-v1",
     mimeType: "video/mp4",
     byteLength: 14638,
@@ -49,7 +49,7 @@ function buildStore(baseUrl: string): MediaStore {
     indexes: [collection("nature"), role("primary")],
   });
 
-  store.add("nature/forest-loop/poster", {
+  store.add(["nature", "forest-loop", "poster"], {
     version: "2026-03-forest-v1",
     mimeType: "image/jpeg",
     byteLength: 3284,
@@ -61,7 +61,7 @@ function buildStore(baseUrl: string): MediaStore {
     indexes: [collection("nature"), role("poster")],
   });
 
-  store.add("nature/rose-cut/main", {
+  store.add(["nature", "rose-cut", "main"], {
     version: "2026-03-rose-v1",
     mimeType: "video/mp4",
     byteLength: 14600,
@@ -75,7 +75,7 @@ function buildStore(baseUrl: string): MediaStore {
     indexes: [collection("nature"), role("primary")],
   });
 
-  store.add("nature/rose-cut/subtitles", {
+  store.add(["nature", "rose-cut", "subtitles"], {
     version: "2026-03-rose-v1",
     mimeType: "text/vtt",
     byteLength: 97,
