@@ -11,7 +11,7 @@ import {
   type MediaCacheMain,
 } from "../../../src/main/media-cache.js";
 import { DataValidationError } from "../../../src/shared/errors.js";
-import type { JsonValue } from "../../../src/shared/types.js";
+import { IndexTag, type JsonValue } from "../../../src/shared/types.js";
 import { mediaCacheStoragePathSchema, parseWithSchema } from "../../../src/internal/validation.js";
 import { createMediaStore, type MediaStore } from "../../../src/main/store.js";
 
@@ -61,6 +61,15 @@ export function buildTestStore(input: {
   }
 
   for (const asset of input.assets) {
+    const indexTags: IndexTag[] = [];
+    if (asset.indexes) {
+      for (const [name, value] of Object.entries(asset.indexes)) {
+        const handle = indexHandles.get(name);
+        if (handle) {
+          indexTags.push(handle(value));
+        }
+      }
+    }
     store.add(asset.key, {
       version: asset.version,
       mimeType: asset.mimeType,
@@ -68,7 +77,7 @@ export function buildTestStore(input: {
       byteLength: asset.byteLength,
       source: asset.source,
       metadata: asset.metadata,
-      indexes: asset.indexes,
+      indexes: indexTags.length > 0 ? indexTags : undefined,
     });
   }
 

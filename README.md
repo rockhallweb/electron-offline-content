@@ -72,7 +72,7 @@ export async function resolveStore() {
       version: video.updatedAt,
       mimeType: "video/mp4",
       source: { url: video.fileUrl },
-      indexes: { [`${collection}`]: "videos" },
+      indexes: [collection("videos")],
     });
   }
 
@@ -175,14 +175,14 @@ store.add("lobby/spring-campaign/video", {
   version: "2026-03-10.1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/spring-campaign.mp4" },
-  indexes: { [`${gallery}`]: "lobby", [`${role}`]: "primary" },
+  indexes: [gallery("lobby"), role("primary")],
 });
 
 store.add("lobby/spring-campaign/poster", {
   version: "2026-03-10.1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/spring-campaign-poster.jpg" },
-  indexes: { [`${gallery}`]: "lobby", [`${role}`]: "poster" },
+  indexes: [gallery("lobby"), role("poster")],
 });
 ```
 
@@ -216,40 +216,41 @@ for (const v of videos) {
     mimeType: "video/mp4",
     source: { url: v.fileUrl },
     metadata: { title: v.title },
-    indexes: { [`${collection}`]: "videos" },
+    indexes: [collection("videos")],
   });
   store.add(`videos/${v.id}/poster`, {
     version: v.version,
     mimeType: "image/jpeg",
     source: { url: v.posterUrl },
     metadata: { title: v.title },
-    indexes: { [`${collection}`]: "videos" },
+    indexes: [collection("videos")],
   });
 }
 ```
 
-### Using MediaIndex as computed keys
+### Callable index handles and `IndexTag`
 
-`store.defineIndex` returns a `MediaIndex` instance. It has a `Symbol.toPrimitive` override, so it stringifies to its name. Use template literals to set index values on assets:
+`store.defineIndex` returns a `MediaIndex` value: a callable function (typed as an interface) plus read-only metadata (`indexName`, `cardinality`, `required`). Call the handle with a string (single-value indexes) or `string[]` (multi-value indexes) to produce an `IndexTag` instance. Pass those tags in the `indexes` array on each `store.add` call:
 
 ```ts
 const gallery = store.defineIndex("gallery");
 
-// Correct: template literal invokes Symbol.toPrimitive
 store.add("photo-1", {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/photo-1.jpg" },
-  indexes: { [`${gallery}`]: "nature" },
+  indexes: [gallery("nature")],
 });
 
-// Also correct: use the .name property directly
 store.add("photo-2", {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/photo-2.jpg" },
-  indexes: { [gallery.name]: "wildlife" },
+  indexes: [gallery("wildlife")],
 });
+
+// Index name is available on the handle without invoking it
+console.log(gallery.indexName); // "gallery"
 ```
 
 ### Signed URL expiration
@@ -298,18 +299,14 @@ const category = store.defineIndex("category", { required: true });
 
 ### Tagging assets with indexes
 
-Pass index values in the `indexes` object when calling `store.add`:
+Pass `IndexTag` values in the `indexes` array when calling `store.add` (each tag comes from calling a `defineIndex` handle):
 
 ```ts
 store.add("forest/video", {
   version: "v1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/forest.mp4" },
-  indexes: {
-    [`${collection}`]: "nature",
-    [`${tags}`]: ["forest", "outdoor", "4k"],
-    [`${category}`]: "video",
-  },
+  indexes: [collection("nature"), tags(["forest", "outdoor", "4k"]), category("video")],
 });
 ```
 
@@ -353,14 +350,14 @@ store.add("lobby/welcome-video", {
   version: "v1",
   mimeType: "video/mp4",
   source: { url: "https://cdn.example.com/welcome.mp4" },
-  indexes: { [`${namespace}`]: "lobby" },
+  indexes: [namespace("lobby")],
 });
 
 store.add("exhibits/hubble", {
   version: "v1",
   mimeType: "image/jpeg",
   source: { url: "https://cdn.example.com/hubble.jpg" },
-  indexes: { [`${namespace}`]: "exhibits" },
+  indexes: [namespace("exhibits")],
 });
 ```
 
@@ -590,32 +587,42 @@ Creates a `MediaStore` instance for populating in a `resolveStore` callback.
 
 Returned by `createMediaStore`. Build the store imperatively by defining indexes and adding assets.
 
-| Method                        | Returns        | Description                                                                                       |
-| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
-| `defineIndex(name, options?)` | `MediaIndex`   | Register a secondary index. Options: `{ cardinality?: "single" \| "multi", required?: boolean }`. |
-| `add(key, input)`             | `void`         | Add an asset. `key` is a unique string; `input` is a `MediaAssetInput`.                           |
-| `_serialize()`                | `FlatManifest` | Internal: serializes for the sync engine. Not part of the public consumer API.                    |
+| Method                        | Returns        | Description                                                                                                                  |
+| ----------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `defineIndex(name, options?)` | `MediaIndex`   | Register a secondary index. Returns a callable handle. Options: `{ cardinality?: "single" \| "multi", required?: boolean }`. |
+| `add(key, input)`             | `void`         | Add an asset. `key` is a unique string; `input` is a `MediaAssetInput`.                                                      |
+| `_serialize()`                | `FlatManifest` | Internal: serializes for the sync engine. Not part of the public consumer API.                                               |
 
 **`MediaAssetInput`**
 
-| Field        | Type                                 | Required | Description                                                      |
-| ------------ | ------------------------------------ | -------- | ---------------------------------------------------------------- |
-| `version`    | `string`                             | yes      | Bump triggers re-download.                                       |
-| `mimeType`   | `string`                             | yes      | Valid `type/subtype` MIME type.                                  |
-| `fileName`   | `string`                             | no       | Override for the filename; derived from source URL when omitted. |
-| `byteLength` | `number`                             | no       | Expected file size in bytes; used for storage limit pre-checks.  |
-| `source`     | `MediaRemoteSource`                  | yes      | `{ url, method?, headers? }` -- the download template.           |
-| `metadata`   | `Record<string, JsonValue>`          | no       | Arbitrary key-value metadata returned on resolved assets.        |
-| `indexes`    | `Record<string, string \| string[]>` | no       | Index values keyed by index name.                                |
+| Field        | Type                        | Required | Description                                                                                        |
+| ------------ | --------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `version`    | `string`                    | yes      | Bump triggers re-download.                                                                         |
+| `mimeType`   | `string`                    | yes      | Valid `type/subtype` MIME type.                                                                    |
+| `fileName`   | `string`                    | no       | Override for the filename; derived from source URL when omitted.                                   |
+| `byteLength` | `number`                    | no       | Expected file size in bytes; used for storage limit pre-checks.                                    |
+| `source`     | `MediaRemoteSource`         | yes      | `{ url, method?, headers? }` -- the download template.                                             |
+| `metadata`   | `Record<string, JsonValue>` | no       | Arbitrary key-value metadata returned on resolved assets.                                          |
+| `indexes`    | `IndexTag[]`                | no       | Tags from calling each `defineIndex` handle with a value (string or `string[]` for multi indexes). |
 
 #### `MediaIndex`
 
-Returned by `MediaStore.defineIndex`. Has `name`, `cardinality`, and `required` properties. Implements `Symbol.toPrimitive` so it stringifies to its name when used in template literals.
+Callable function type (interface) returned by `MediaStore.defineIndex`. Invoking it with a value produces an `IndexTag`. The handle also exposes read-only `indexName`, `cardinality`, and `required`.
 
 ```ts
 const gallery = store.defineIndex("gallery");
-console.log(`${gallery}`); // "gallery"
+store.add("photo-1", {
+  version: "v1",
+  mimeType: "image/jpeg",
+  source: { url: "https://cdn.example.com/photo-1.jpg" },
+  indexes: [gallery("nature")],
+});
+console.log(gallery.indexName); // "gallery"
 ```
+
+#### `IndexTag`
+
+Class whose instances are produced by calling a `MediaIndex` handle. Used as elements of `MediaAssetInput.indexes`. Exported from `@rockhallweb/electron-offline-content/main`.
 
 #### `mediaKindFromMime(mimeType)`
 

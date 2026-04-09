@@ -161,11 +161,11 @@ function addItemAssets(
     mimeType: primaryMime,
     source: { url: primaryUrl },
     metadata,
-    indexes: {
-      [`${indexes.collection}`]: collectionName,
-      [`${indexes.mediaType}`]: data.media_type,
-      [`${indexes.role}`]: "primary",
-    },
+    indexes: [
+      indexes.collection(collectionName),
+      indexes.mediaType(data.media_type),
+      indexes.role("primary"),
+    ],
   });
 
   store.add(`${collectionName}/${data.nasa_id}/poster`, {
@@ -173,11 +173,11 @@ function addItemAssets(
     mimeType: "image/jpeg",
     source: { url: posterUrl },
     metadata,
-    indexes: {
-      [`${indexes.collection}`]: collectionName,
-      [`${indexes.mediaType}`]: data.media_type,
-      [`${indexes.role}`]: "poster",
-    },
+    indexes: [
+      indexes.collection(collectionName),
+      indexes.mediaType(data.media_type),
+      indexes.role("poster"),
+    ],
   });
 }
 

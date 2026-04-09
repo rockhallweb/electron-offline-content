@@ -1,13 +1,14 @@
 import { StoreValidationError } from "../shared/errors.js";
 import { deriveAssetFileName } from "../internal/asset-file-name.js";
 import { mediaKindFromMime } from "../internal/media-kind.js";
-import type {
-  FlatManifest,
-  FlatManifestAsset,
-  IndexDefinition,
-  JsonValue,
-  MediaAssetInput,
-  MediaRemoteSource,
+import {
+  IndexTag,
+  type FlatManifest,
+  type FlatManifestAsset,
+  type IndexDefinition,
+  type JsonValue,
+  type MediaAssetInput,
+  type MediaRemoteSource,
 } from "../shared/types.js";
 
 const MIME_PATTERN = /^\S+\/\S+$/;
@@ -20,32 +21,19 @@ function fileStem(fileName: string): string {
 }
 
 /**
- * Handle returned by {@link MediaStore.defineIndex}. Use as a computed property key when
- * setting index values on assets:
+ * Callable handle returned by {@link MediaStore.defineIndex}. Call it with a value
+ * to produce an {@link IndexTag} for use in the `indexes` array of {@link MediaStore.add}:
  *
  * ```ts
  * const gallery = store.defineIndex("gallery");
- * store.add("photo-1", { ..., indexes: { [gallery]: "nature" } });
+ * store.add("photo-1", { ..., indexes: [gallery("nature")] });
  * ```
  */
-export class MediaIndex {
-  readonly name: string;
+export interface MediaIndex {
+  (value: string | string[]): IndexTag;
+  readonly indexName: string;
   readonly cardinality: "single" | "multi";
   readonly required: boolean;
-
-  constructor(name: string, cardinality: "single" | "multi", required: boolean) {
-    this.name = name;
-    this.cardinality = cardinality;
-    this.required = required;
-  }
-
-  toString(): string {
-    return this.name;
-  }
-
-  [Symbol.toPrimitive](): string {
-    return this.name;
-  }
 }
 
 /** Options for {@link createMediaStore}. */
@@ -84,7 +72,7 @@ interface StoredAsset {
  *   version: "v1",
  *   mimeType: "video/mp4",
  *   source: { url: "https://cdn.example.com/forest.mp4" },
- *   indexes: { [gallery]: "nature" },
+ *   indexes: [gallery("nature")],
  * });
  * ```
  */
@@ -103,7 +91,7 @@ export class MediaStore {
    *
    * @param name - Unique index name. Must not collide with built-in indexes (`mimeType`, `mediaKind`).
    * @param options - Cardinality (`"single"` or `"multi"`) and whether the index is required on every asset.
-   * @returns A {@link MediaIndex} handle usable as a computed property key.
+   * @returns A callable {@link MediaIndex} handle. Call it with a value to produce an {@link IndexTag}.
    */
   defineIndex(
     name: string,
@@ -123,7 +111,14 @@ export class MediaStore {
     const required = options?.required ?? false;
 
     this.indexes.set(name, { name, cardinality, required, builtin: false });
-    return new MediaIndex(name, cardinality, required);
+
+    const fn = (value: string | string[]) => new IndexTag(name, value);
+    Object.defineProperties(fn, {
+      indexName: { value: name, enumerable: true },
+      cardinality: { value: cardinality, enumerable: true },
+      required: { value: required, enumerable: true },
+    });
+    return fn as MediaIndex;
   }
 
   /**
@@ -174,11 +169,23 @@ export class MediaStore {
 
     const assetIndexes: Record<string, string | string[]> = {};
     if (input.indexes) {
-      for (const [indexName, value] of Object.entries(input.indexes)) {
+      for (const tag of input.indexes) {
+        if (!(tag instanceof IndexTag)) {
+          throw new StoreValidationError(
+            `Asset "${key}": indexes must be an array of IndexTag entries produced by calling a defineIndex handle.`,
+          );
+        }
+        const indexName = tag.name;
+        const value = tag.value;
         const def = this.indexes.get(indexName);
         if (!def) {
           throw new StoreValidationError(
             `Asset "${key}": index "${indexName}" has not been defined. Call store.defineIndex("${indexName}") first.`,
+          );
+        }
+        if (indexName in assetIndexes) {
+          throw new StoreValidationError(
+            `Asset "${key}": duplicate index "${indexName}" in indexes array.`,
           );
         }
 

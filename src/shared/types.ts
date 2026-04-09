@@ -58,6 +58,14 @@ export interface MediaRemoteSource {
   headers?: Record<string, string>;
 }
 
+/** Tagged index entry produced by calling a {@link import("../main/store.js").MediaIndex} handle. */
+export class IndexTag {
+  constructor(
+    readonly name: string,
+    readonly value: string | string[],
+  ) {}
+}
+
 /** Input for adding an asset to a {@link import("../main/store.js").MediaStore}. */
 export interface MediaAssetInput {
   version: string;
@@ -66,7 +74,7 @@ export interface MediaAssetInput {
   byteLength?: number;
   source: MediaRemoteSource;
   metadata?: Record<string, JsonValue>;
-  indexes?: Record<string, string | string[]>;
+  indexes?: IndexTag[];
 }
 
 /** Describes one user-defined or built-in index in the serialized store output. */

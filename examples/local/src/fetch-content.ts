@@ -46,10 +46,7 @@ function buildStore(baseUrl: string): MediaStore {
       summary: "Fixture item used for exact namespace lookup.",
       curatorNote: "Fixture-driven kiosk content for local demo.",
     },
-    indexes: {
-      [`${collection}`]: "nature",
-      [`${role}`]: "primary",
-    },
+    indexes: [collection("nature"), role("primary")],
   });
 
   store.add("nature/forest-loop/poster", {
@@ -61,10 +58,7 @@ function buildStore(baseUrl: string): MediaStore {
       title: "Forest Loop – Poster",
       parentKey: "nature/forest-loop/main",
     },
-    indexes: {
-      [`${collection}`]: "nature",
-      [`${role}`]: "poster",
-    },
+    indexes: [collection("nature"), role("poster")],
   });
 
   store.add("nature/rose-cut/main", {
@@ -78,10 +72,7 @@ function buildStore(baseUrl: string): MediaStore {
       summary: "Used for subtree and file stem lookup in the example app.",
       captionExcerpt: "A quiet looping cut for namespace-tree validation.",
     },
-    indexes: {
-      [`${collection}`]: "nature",
-      [`${role}`]: "primary",
-    },
+    indexes: [collection("nature"), role("primary")],
   });
 
   store.add("nature/rose-cut/subtitles", {
@@ -93,10 +84,7 @@ function buildStore(baseUrl: string): MediaStore {
       title: "Rose Cut – Subtitles",
       parentKey: "nature/rose-cut/main",
     },
-    indexes: {
-      [`${collection}`]: "nature",
-      [`${role}`]: "subtitle",
-    },
+    indexes: [collection("nature"), role("subtitle")],
   });
 
   return store;

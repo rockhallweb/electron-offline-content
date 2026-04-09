@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createMediaStore, MediaIndex, MediaStore } from "../../src/main/store.js";
+import { createMediaStore, MediaStore } from "../../src/main/store.js";
 import { StoreValidationError } from "../../src/shared/errors.js";
+import { IndexTag } from "../../src/shared/types.js";
 
 describe("createMediaStore", () => {
   it("returns a MediaStore instance with no options", () => {
@@ -39,11 +40,11 @@ describe("createMediaStore", () => {
 });
 
 describe("store.defineIndex", () => {
-  it("returns a MediaIndex with default single cardinality and not required", () => {
+  it("returns a callable MediaIndex with default single cardinality and not required", () => {
     const store = createMediaStore();
     const idx = store.defineIndex("gallery");
-    expect(idx).toBeInstanceOf(MediaIndex);
-    expect(idx.name).toBe("gallery");
+    expect(typeof idx).toBe("function");
+    expect(idx.indexName).toBe("gallery");
     expect(idx.cardinality).toBe("single");
     expect(idx.required).toBe(false);
   });
@@ -95,8 +96,8 @@ describe("store.defineIndex", () => {
     const store = createMediaStore();
     const a = store.defineIndex("alpha");
     const b = store.defineIndex("beta");
-    expect(a.name).toBe("alpha");
-    expect(b.name).toBe("beta");
+    expect(a.indexName).toBe("alpha");
+    expect(b.indexName).toBe("beta");
   });
 });
 
@@ -124,7 +125,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${gallery}`]: "nature" },
+        indexes: [gallery("nature")],
       }),
     ).not.toThrow();
   });
@@ -134,7 +135,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${tags}`]: ["forest", "ambient"] },
+        indexes: [tags(["forest", "ambient"])],
       }),
     ).not.toThrow();
   });
@@ -144,7 +145,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${tags}`]: "single-tag" },
+        indexes: [tags("single-tag")],
       }),
     ).not.toThrow();
   });
@@ -258,16 +259,17 @@ describe("store.add", () => {
 
   it("rejects unknown index reference", () => {
     const { store } = makeStore();
+    const unknownTag = new IndexTag("unknown", "value");
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { unknown: "value" },
+        indexes: [unknownTag],
       }),
     ).toThrow(StoreValidationError);
     expect(() =>
-      store.add("photo-1", {
+      store.add("photo-2", {
         ...validAsset,
-        indexes: { unknown: "value" },
+        indexes: [unknownTag],
       }),
     ).toThrow(/has not been defined/);
   });
@@ -277,13 +279,13 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${gallery}`]: ["a", "b"] as unknown as string },
+        indexes: [gallery(["a", "b"] as unknown as string)],
       }),
     ).toThrow(StoreValidationError);
     expect(() =>
       store.add("photo-2", {
         ...validAsset,
-        indexes: { [`${gallery}`]: ["a", "b"] as unknown as string },
+        indexes: [gallery(["a", "b"] as unknown as string)],
       }),
     ).toThrow(/single cardinality/);
   });
@@ -293,13 +295,13 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${tags}`]: [] },
+        indexes: [tags([])],
       }),
     ).toThrow(StoreValidationError);
     expect(() =>
       store.add("photo-2", {
         ...validAsset,
-        indexes: { [`${tags}`]: [] },
+        indexes: [tags([])],
       }),
     ).toThrow(/must not be empty/);
   });
@@ -309,7 +311,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${gallery}`]: "" },
+        indexes: [gallery("")],
       }),
     ).toThrow(StoreValidationError);
   });
@@ -319,9 +321,25 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        indexes: { [`${tags}`]: ["valid", ""] },
+        indexes: [tags(["valid", ""])],
       }),
     ).toThrow(StoreValidationError);
+  });
+
+  it("rejects duplicate index names in the array", () => {
+    const { store, gallery } = makeStore();
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        indexes: [gallery("nature"), gallery("urban")],
+      }),
+    ).toThrow(StoreValidationError);
+    expect(() =>
+      store.add("photo-2", {
+        ...validAsset,
+        indexes: [gallery("nature"), gallery("urban")],
+      }),
+    ).toThrow(/duplicate index/);
   });
 });
 
@@ -422,7 +440,7 @@ describe("store._serialize", () => {
       version: "v1",
       mimeType: "image/jpeg",
       source: { url: "https://cdn.example.com/photo-1.jpg" },
-      indexes: { [`${gallery}`]: "nature", [`${tags}`]: ["forest", "ambient"] },
+      indexes: [gallery("nature"), tags(["forest", "ambient"])],
     });
 
     const manifest = store._serialize();
@@ -487,7 +505,7 @@ describe("store._serialize", () => {
       version: "v1",
       mimeType: "image/jpeg",
       source: { url: "https://cdn.example.com/photo-1.jpg" },
-      indexes: { [`${category}`]: "landscape" },
+      indexes: [category("landscape")],
     });
 
     expect(() => store._serialize()).not.toThrow();
@@ -537,29 +555,33 @@ describe("store._serialize", () => {
 });
 
 describe("MediaIndex", () => {
-  it("toString() returns the index name", () => {
-    const idx = new MediaIndex("gallery", "single", false);
-    expect(idx.toString()).toBe("gallery");
-    expect(`${idx}`).toBe("gallery");
+  it("produces IndexTag instances when called", () => {
+    const store = createMediaStore();
+    const gallery = store.defineIndex("gallery");
+    const tag = gallery("nature");
+    expect(tag).toBeInstanceOf(IndexTag);
+    expect(tag.name).toBe("gallery");
+    expect(tag.value).toBe("nature");
   });
 
-  it("Symbol.toPrimitive returns the index name", () => {
-    const idx = new MediaIndex("tags", "multi", true);
-    expect(`prefix-${idx}-suffix`).toBe("prefix-tags-suffix");
+  it("produces IndexTag with array values for multi-cardinality", () => {
+    const store = createMediaStore();
+    const tags = store.defineIndex("tags", { cardinality: "multi" });
+    const tag = tags(["forest", "ambient"]);
+    expect(tag).toBeInstanceOf(IndexTag);
+    expect(tag.name).toBe("tags");
+    expect(tag.value).toEqual(["forest", "ambient"]);
   });
 
-  it("works as a computed property key", () => {
-    const idx = new MediaIndex("gallery", "single", false);
-    const obj: Record<string, string> = { [`${idx}`]: "nature" };
-    expect(obj.gallery).toBe("nature");
-  });
-
-  it("exposes cardinality and required properties", () => {
-    const single = new MediaIndex("a", "single", false);
+  it("exposes indexName, cardinality, and required properties", () => {
+    const store = createMediaStore();
+    const single = store.defineIndex("a");
+    expect(single.indexName).toBe("a");
     expect(single.cardinality).toBe("single");
     expect(single.required).toBe(false);
 
-    const multi = new MediaIndex("b", "multi", true);
+    const multi = store.defineIndex("b", { cardinality: "multi", required: true });
+    expect(multi.indexName).toBe("b");
     expect(multi.cardinality).toBe("multi");
     expect(multi.required).toBe(true);
   });
