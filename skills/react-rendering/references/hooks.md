@@ -149,9 +149,17 @@ interface MediaCacheStatus {
 }
 
 interface SyncProgress {
-  phase: "resolving-store" | "downloading" | "committing";
+  phase:
+    | "resolving-store"
+    | "staging-generation"
+    | "diffing"
+    | "downloading"
+    | "committing"
+    | "pruning";
   totalAssets: number;
   completedAssets: number;
+  downloadedAssets: number;
+  skippedAssets: number;
   bytesDownloaded: number;
 }
 ```

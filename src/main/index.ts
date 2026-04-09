@@ -18,6 +18,7 @@ export {
   type MediaCacheLogHandler,
   type MediaCacheLogLevel,
   type MediaCacheOptions,
+  type MediaCachePhase,
   type MediaCacheReadyState,
   type MediaCacheStatus,
   type MediaCacheStoragePath,

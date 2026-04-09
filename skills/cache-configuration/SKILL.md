@@ -98,7 +98,7 @@ When `devPassthrough` is `true`:
 
 - Downloads are skipped — assets load from their original remote URLs.
 - `onSyncFailure` is overridden to `"throw"` — there is no snapshot to serve.
-- Hook URLs return remote `https://` URLs instead of `media://` URLs.
+- Hook URLs return remote `http://` or `https://` URLs instead of `media://` URLs.
 - `assetBaseUrl` becomes available for origin overrides.
 
 ### Storage limits

@@ -337,6 +337,8 @@ Function called at the start of each sync cycle to produce the current asset sto
 **Constraints:** Must return a valid `MediaStore` built with `createMediaStore()`. See store-authoring/SKILL.md for structure and validation rules.
 
 ```typescript
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+
 resolveStore: async () => {
   const res = await fetch("https://cms.example.com/api/content");
   const data = await res.json();

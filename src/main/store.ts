@@ -112,6 +112,17 @@ export class MediaStore {
     const cardinality = options?.cardinality ?? "single";
     const required = options?.required ?? false;
 
+    if (cardinality !== "single" && cardinality !== "multi") {
+      throw new StoreValidationError(
+        `Index "${name}": cardinality must be "single" or "multi" (got "${String(cardinality)}").`,
+      );
+    }
+    if (typeof required !== "boolean") {
+      throw new StoreValidationError(
+        `Index "${name}": required must be a boolean (got ${typeof required}).`,
+      );
+    }
+
     this.indexes.set(name, { name, cardinality, required, builtin: false });
 
     const fn = (value: string | string[]) => new IndexTag(name, value);
@@ -173,9 +184,20 @@ export class MediaStore {
       );
     }
 
+    if (
+      input.byteLength !== undefined &&
+      (typeof input.byteLength !== "number" ||
+        !Number.isFinite(input.byteLength) ||
+        input.byteLength < 0)
+    ) {
+      throw new StoreValidationError(
+        `Asset "${display}": byteLength must be a non-negative finite number (got ${String(input.byteLength)}).`,
+      );
+    }
+
     const fileName = input.fileName ?? deriveAssetFileName(input.source);
 
-    const assetIndexes: Record<string, string | string[]> = {};
+    const assetIndexes: Record<string, string | string[]> = Object.create(null);
     if (input.indexes) {
       for (const tag of input.indexes) {
         if (!(tag instanceof IndexTag)) {
