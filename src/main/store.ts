@@ -176,6 +176,8 @@ export class MediaStore {
       throw new StoreValidationError(`Asset "${display}": URL is not valid: "${input.url}".`);
     }
 
+    // byteLength: any non-negative finite number is accepted, including non-integer fractions
+    // (see MediaAssetInput.byteLength JSDoc).
     if (
       input.byteLength !== undefined &&
       (typeof input.byteLength !== "number" ||

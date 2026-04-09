@@ -84,14 +84,12 @@ describe("store.defineIndex", () => {
 
   it("rejects reserved name mimeType", () => {
     const store = createMediaStore();
-    expect(() => store.defineIndex("mimeType")).toThrow(StoreValidationError);
-    expect(() => store.defineIndex("mimeType")).toThrow(/reserved/);
+    expect(() => store.defineIndex("mimeType")).toThrow(/reserved as a built-in index/);
   });
 
   it("rejects reserved name mediaKind", () => {
     const store = createMediaStore();
-    expect(() => store.defineIndex("mediaKind")).toThrow(StoreValidationError);
-    expect(() => store.defineIndex("mediaKind")).toThrow(/reserved/);
+    expect(() => store.defineIndex("mediaKind")).toThrow(/reserved as a built-in index/);
   });
 
   it("allows multiple distinct indexes", () => {

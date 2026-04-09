@@ -1,5 +1,6 @@
 export { createMediaCache, type MediaCacheMain } from "./media-cache.js";
 export { createMediaStore, MediaStore, type MediaIndex, type MediaStoreOptions } from "./store.js";
+export { hashKey, displayKey, isValidKeyInput } from "../internal/asset-key.js";
 export { mediaKindFromMime } from "../internal/media-kind.js";
 export {
   IndexTag,

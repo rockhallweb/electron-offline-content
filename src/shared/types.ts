@@ -68,6 +68,11 @@ export interface MediaAssetInput {
   mimeType: string;
   url: string;
   fileName?: string;
+  /**
+   * Optional declared size in bytes. When set, must be a **non-negative finite** number
+   * (`Number.isFinite` and `>= 0`). **Fractional values are allowed** (e.g. estimates);
+   * the store does not require integers.
+   */
   byteLength?: number;
   metadata?: Record<string, JsonValue>;
   indexes?: IndexTag[];

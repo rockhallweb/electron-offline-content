@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { hashKey } from "@rockhallweb/electron-offline-content/main";
 import {
   useMediaAsset,
   useMediaByIndex,
@@ -13,13 +14,8 @@ function primaryAssets(assets: ResolvedMediaAsset[]): ResolvedMediaAsset[] {
   return assets.filter((a) => a.indexes.role === "primary");
 }
 
-function selectionMatchesAsset(
-  selected: string | readonly string[],
-  asset: ResolvedMediaAsset,
-): boolean {
-  return typeof selected === "string"
-    ? asset.key === selected
-    : asset.displayKey === selected.join("/");
+function selectionMatchesAsset(selectedKey: string, asset: ResolvedMediaAsset): boolean {
+  return asset.key === selectedKey;
 }
 
 function relatedAsset(
@@ -48,8 +44,8 @@ export function App() {
   const allAssets = useMemo(() => collectionItems ?? [], [collectionItems]);
   const videos = useMemo(() => primaryAssets(allAssets), [allAssets]);
 
-  const [selectedKey, setSelectedKey] = useState<string | readonly string[]>(
-    exampleClientConfig.defaultAssetKey,
+  const [selectedKey, setSelectedKey] = useState<string>(() =>
+    hashKey(exampleClientConfig.defaultAssetKey),
   );
 
   useEffect(() => {
