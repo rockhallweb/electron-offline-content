@@ -71,7 +71,7 @@ export async function resolveStore() {
     store.add(["videos", video.slug, "main"], {
       version: video.updatedAt,
       mimeType: "video/mp4",
-      source: { url: video.fileUrl },
+      url: video.fileUrl,
       indexes: [collection("videos")],
     });
   }
@@ -174,14 +174,14 @@ const role = store.defineIndex("role");
 store.add(["lobby", "spring-campaign", "video"], {
   version: "2026-03-10.1",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/spring-campaign.mp4" },
+  url: "https://cdn.example.com/spring-campaign.mp4",
   indexes: [gallery("lobby"), role("primary")],
 });
 
 store.add(["lobby", "spring-campaign", "poster"], {
   version: "2026-03-10.1",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/spring-campaign-poster.jpg" },
+  url: "https://cdn.example.com/spring-campaign-poster.jpg",
   indexes: [gallery("lobby"), role("poster")],
 });
 ```
@@ -214,14 +214,14 @@ for (const v of videos) {
   store.add(["videos", v.id, "main"], {
     version: v.version,
     mimeType: "video/mp4",
-    source: { url: v.fileUrl },
+    url: v.fileUrl,
     metadata: { title: v.title },
     indexes: [collection("videos")],
   });
   store.add(["videos", v.id, "poster"], {
     version: v.version,
     mimeType: "image/jpeg",
-    source: { url: v.posterUrl },
+    url: v.posterUrl,
     metadata: { title: v.title },
     indexes: [collection("videos")],
   });
@@ -238,14 +238,14 @@ const gallery = store.defineIndex("gallery");
 store.add(["photos", "photo-1"], {
   version: "v1",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/photo-1.jpg" },
+  url: "https://cdn.example.com/photo-1.jpg",
   indexes: [gallery("nature")],
 });
 
 store.add(["photos", "photo-2"], {
   version: "v1",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/photo-2.jpg" },
+  url: "https://cdn.example.com/photo-2.jpg",
   indexes: [gallery("wildlife")],
 });
 
@@ -271,8 +271,8 @@ The cache checks `expiresAt` immediately after store resolution and again before
 - Key inputs must be a non-empty string or a non-empty array of non-empty strings; there is no further key content validation.
 - `version` is required on every asset (the package is version-driven for cache busting).
 - `mimeType` is required and must be a valid `type/subtype` string.
-- `fileName` is optional; when omitted, derived from the source URL basename.
-- `source.url` must use `http` or `https`.
+- `fileName` is optional; when omitted, derived from the URL basename.
+- `url` must use `http` or `https`.
 - `expiresAt` is optional; when present, it must be an ISO 8601 timestamp.
 - Indexes referenced in `store.add` must have been declared with `store.defineIndex` first.
 - Built-in index names (`mimeType`, `mediaKind`) cannot be used with `defineIndex`.
@@ -306,7 +306,7 @@ Pass `IndexTag` values in the `indexes` array when calling `store.add` (each tag
 store.add(["forest", "video"], {
   version: "v1",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/forest.mp4" },
+  url: "https://cdn.example.com/forest.mp4",
   indexes: [collection("nature"), tags(["forest", "outdoor", "4k"]), category("video")],
 });
 ```
@@ -350,14 +350,14 @@ const namespace = store.defineIndex("namespace");
 store.add(["lobby", "welcome-video"], {
   version: "v1",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/welcome.mp4" },
+  url: "https://cdn.example.com/welcome.mp4",
   indexes: [namespace("lobby")],
 });
 
 store.add(["exhibits", "hubble"], {
   version: "v1",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/hubble.jpg" },
+  url: "https://cdn.example.com/hubble.jpg",
   indexes: [namespace("exhibits")],
 });
 ```
@@ -370,7 +370,7 @@ const lobbyAssets = useMediaByIndex("namespace", "lobby", { limit: 20 });
 
 ### File stem search
 
-`useFileStemMatch` finds assets by the normalized filename stem (name without extension) of their source URL:
+`useFileStemMatch` finds assets by the normalized filename stem (name without extension) of their download URL:
 
 ```tsx
 const matches = useFileStemMatch("spring-campaign", { limit: 10 });
@@ -390,13 +390,13 @@ const mediaCache = createMediaCache({
 });
 ```
 
-`assetBaseUrl` is an optional origin override for passthrough mode. It replaces only the origin of each asset's source URL (preserving path and query string). It must be an origin only -- no path, query string, hash, or credentials.
+`assetBaseUrl` is an optional origin override for passthrough mode. It replaces only the origin of each asset's URL (preserving path and query string). It must be an origin only -- no path, query string, hash, or credentials.
 
-**Limitations in v1:** dev passthrough is limited to public assets. Assets requiring signed URLs, per-request headers, or other authenticated request shaping are not supported in this mode. Startup is fail-fast (sync failures always throw; `onSyncFailure` is ignored).
+**Limitations in v1:** dev passthrough is limited to public assets. Assets that require signed URLs or other authenticated downloads are not supported in this mode unless the URL itself embeds auth (for example a presigned URL). Startup is fail-fast (sync failures always throw; `onSyncFailure` is ignored).
 
 ## Signed URLs and authentication
 
-Consumers embed signed URLs and auth headers directly in the asset `source` during `resolveStore()`. There is no separate per-asset request hook.
+Downloads use a plain `GET` to each asset’s `url` string. There is no separate per-asset request hook and no support for custom HTTP methods or headers—put credentials into the URL (typically a presigned URL) when you build the store in `resolveStore()`.
 
 **Signed URLs** -- generate pre-signed URLs at store build time:
 
@@ -414,7 +414,7 @@ async function resolveStore() {
     store.add(["videos", video.id], {
       version: video.version,
       mimeType: "video/mp4",
-      source: { url: signedUrl },
+      url: signedUrl,
     });
   }
 
@@ -423,26 +423,6 @@ async function resolveStore() {
 ```
 
 Set `expiresAt` on the store to the earliest shared URL expiry. The cache checks `expiresAt` immediately after store resolution and again before each download starts, so expired URLs fail with `STORE_EXPIRED` rather than an opaque HTTP 403.
-
-**Bearer token** -- attach an auth header to stable URLs:
-
-```ts
-async function resolveStore() {
-  const token = await getAccessToken();
-  const store = createMediaStore();
-
-  store.add(["protected", "asset"], {
-    version: "v1",
-    mimeType: "video/mp4",
-    source: {
-      url: "https://cdn.example.com/asset.mp4",
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  });
-
-  return store;
-}
-```
 
 ## Error handling and sync failures
 
@@ -578,11 +558,11 @@ Creates a `MediaStore` instance for populating in a `resolveStore` callback.
 
 **`MediaStoreOptions`**
 
-| Option        | Type     | Required | Description                                                        |
-| ------------- | -------- | -------- | ------------------------------------------------------------------ |
-| `snapshotId`  | `string` | no       | Opaque id for correlation, debugging, or multi-source merges.      |
-| `retrievedAt` | `string` | no       | ISO 8601 timestamp describing when the store payload was built.    |
-| `expiresAt`   | `string` | no       | ISO 8601 timestamp after which source URLs are treated as expired. |
+| Option        | Type     | Required | Description                                                       |
+| ------------- | -------- | -------- | ----------------------------------------------------------------- |
+| `snapshotId`  | `string` | no       | Opaque id for correlation, debugging, or multi-source merges.     |
+| `retrievedAt` | `string` | no       | ISO 8601 timestamp describing when the store payload was built.   |
+| `expiresAt`   | `string` | no       | ISO 8601 timestamp after which asset URLs are treated as expired. |
 
 #### `MediaStore`
 
@@ -596,15 +576,15 @@ Returned by `createMediaStore`. Build the store imperatively by defining indexes
 
 **`MediaAssetInput`**
 
-| Field        | Type                        | Required | Description                                                                                        |
-| ------------ | --------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `version`    | `string`                    | yes      | Bump triggers re-download.                                                                         |
-| `mimeType`   | `string`                    | yes      | Valid `type/subtype` MIME type.                                                                    |
-| `fileName`   | `string`                    | no       | Override for the filename; derived from source URL when omitted.                                   |
-| `byteLength` | `number`                    | no       | Expected file size in bytes; used for storage limit pre-checks.                                    |
-| `source`     | `MediaRemoteSource`         | yes      | `{ url, method?, headers? }` -- the download template.                                             |
-| `metadata`   | `Record<string, JsonValue>` | no       | Arbitrary key-value metadata returned on resolved assets.                                          |
-| `indexes`    | `IndexTag[]`                | no       | Tags from calling each `defineIndex` handle with a value (string or `string[]` for multi indexes). |
+| Field        | Type                        | Required | Description                                                                                                                                                    |
+| ------------ | --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`    | `string`                    | yes      | Bump triggers re-download.                                                                                                                                     |
+| `mimeType`   | `string`                    | yes      | Valid `type/subtype` MIME type.                                                                                                                                |
+| `fileName`   | `string`                    | no       | Override for the filename; derived from the URL when omitted.                                                                                                  |
+| `byteLength` | `number`                    | no       | Expected file size in bytes; used for storage limit pre-checks.                                                                                                |
+| `url`        | `string`                    | yes      | `http` or `https` download URL (use presigned URLs when auth is required). There is no `source` wrapper and no `MediaRemoteSource` type—only this flat string. |
+| `metadata`   | `Record<string, JsonValue>` | no       | Arbitrary key-value metadata returned on resolved assets.                                                                                                      |
+| `indexes`    | `IndexTag[]`                | no       | Tags from calling each `defineIndex` handle with a value (string or `string[]` for multi indexes).                                                             |
 
 #### `MediaIndex`
 
@@ -615,7 +595,7 @@ const gallery = store.defineIndex("gallery");
 store.add(["photos", "photo-1"], {
   version: "v1",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/photo-1.jpg" },
+  url: "https://cdn.example.com/photo-1.jpg",
   indexes: [gallery("nature")],
 });
 console.log(gallery.indexName); // "gallery"

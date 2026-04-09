@@ -30,7 +30,6 @@ import {
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
-import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -46,7 +45,7 @@ export interface ActiveAssetRow {
   metadata: string;
   indexesJson: string;
   relativePath: string | null;
-  sourceJson: string;
+  url: string;
   fileStem: string;
   orderIndex: number;
 }
@@ -56,7 +55,7 @@ export interface GenerationAssetRow {
   version: string;
   relativePath: string | null;
   mimeType: string;
-  sourceJson: string;
+  url: string;
 }
 
 export interface PendingDeletion {
@@ -80,7 +79,7 @@ export class MediaCacheDatabase {
       assetBaseUrlOrigin: string | null;
       /**
        * Invoked only when dev passthrough origin override fails (fallback to stored URL).
-       * Not called for invalid `source_json` (parse error or missing url) — those throw.
+       * Not called for invalid `url` (parse error) — those throw.
        */
       onWarn?: (contextLabel: string, err: unknown) => void;
     },
@@ -334,7 +333,7 @@ export class MediaCacheDatabase {
       const assetStmt = this.db.prepare(
         `INSERT INTO assets (
           generation_id, asset_key, display_key, version, mime_type, media_kind, file_name, file_stem,
-          byte_length, source_json, metadata_json, indexes_json, order_index, relative_path
+          byte_length, url, metadata_json, indexes_json, order_index, relative_path
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       );
       const indexStmt = this.db.prepare(
@@ -353,7 +352,7 @@ export class MediaCacheDatabase {
           asset.fileName,
           asset.fileStem,
           asset.byteLength ?? null,
-          JSON.stringify(asset.source),
+          asset.url,
           JSON.stringify(asset.metadata),
           JSON.stringify(asset.indexes),
           assetOrder,
@@ -433,7 +432,7 @@ export class MediaCacheDatabase {
              version,
              relative_path AS relativePath,
              mime_type AS mimeType,
-             source_json AS sourceJson
+             url
            FROM assets
            WHERE generation_id = ?
            ORDER BY order_index`,
@@ -590,7 +589,7 @@ export class MediaCacheDatabase {
            metadata_json AS metadata,
            indexes_json AS indexesJson,
            relative_path AS relativePath,
-           source_json AS sourceJson,
+           url,
            file_stem AS fileStem,
            order_index AS orderIndex
          FROM assets
@@ -634,7 +633,7 @@ export class MediaCacheDatabase {
              a.metadata_json AS metadata,
              a.indexes_json AS indexesJson,
              a.relative_path AS relativePath,
-             a.source_json AS sourceJson,
+             a.url,
              a.file_stem AS fileStem,
              a.order_index AS orderIndex
            FROM asset_indexes ai
@@ -675,7 +674,7 @@ export class MediaCacheDatabase {
              metadata_json AS metadata,
              indexes_json AS indexesJson,
              relative_path AS relativePath,
-             source_json AS sourceJson,
+             url,
              file_stem AS fileStem,
              order_index AS orderIndex
            FROM assets
@@ -708,14 +707,27 @@ export class MediaCacheDatabase {
       `indexes for asset "${row.assetKey}"`,
     ) as Record<string, string | string[]>;
 
-    const url = this.options.devPassthrough
-      ? resolveAssetBaseUrl(
-          row.sourceJson,
-          this.options.assetBaseUrlOrigin,
-          `asset source for "${row.assetKey}"`,
-          this.options.onWarn,
-        )
-      : `media://asset/${encodeURIComponent(row.assetKey)}`;
+    let url: string;
+    if (this.options.devPassthrough) {
+      url = row.url;
+      const origin = this.options.assetBaseUrlOrigin;
+      if (origin) {
+        try {
+          const base = new URL(origin);
+          const resolved = new URL(url);
+          resolved.protocol = base.protocol;
+          resolved.hostname = base.hostname;
+          resolved.port = base.port;
+          url = resolved.toString();
+        } catch (err) {
+          if (this.options.onWarn) {
+            this.options.onWarn(`asset source for "${row.assetKey}"`, err);
+          }
+        }
+      }
+    } else {
+      url = `media://asset/${encodeURIComponent(row.assetKey)}`;
+    }
 
     return {
       key: row.assetKey,
@@ -751,7 +763,7 @@ export class MediaCacheDatabase {
         file_name TEXT NOT NULL,
         file_stem TEXT NOT NULL,
         byte_length INTEGER,
-        source_json TEXT NOT NULL,
+        url TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         indexes_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
@@ -809,52 +821,6 @@ export class MediaCacheDatabase {
         PRIMARY KEY (scope_type, scope_key)
       );
     `);
-  }
-}
-
-/**
- * Dev passthrough: parse `source_json` and optionally rewrite URL origin.
- * @param onWarn Invoked only when origin override fails (graceful fallback). Parse errors and
- *   missing `url` throw without calling `onWarn` — catch the error to observe those failures.
- */
-function resolveAssetBaseUrl(
-  sourceJson: string,
-  assetBaseUrlOrigin: string | null,
-  contextLabel: string,
-  onWarn?: (contextLabel: string, err: unknown) => void,
-): string {
-  let parsed: { url?: string };
-  try {
-    parsed = JSON.parse(sourceJson) as { url?: string };
-  } catch (err) {
-    throw new Error(
-      `${contextLabel}: Failed to parse source_json (${err instanceof Error ? err.message : String(err)})`,
-      { cause: err },
-    );
-  }
-  if (typeof parsed?.url !== "string" || !parsed?.url) {
-    throw new Error(`${contextLabel}: source_json missing url`);
-  }
-  const url = parsed.url;
-
-  if (!assetBaseUrlOrigin) {
-    return url;
-  }
-
-  try {
-    const origin = new URL(assetBaseUrlOrigin);
-    const resolved = new URL(url);
-    resolved.protocol = origin.protocol;
-    resolved.hostname = origin.hostname;
-    resolved.port = origin.port;
-    return resolved.toString();
-  } catch (err) {
-    if (onWarn) {
-      onWarn(contextLabel, err);
-    } else {
-      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
-    }
-    return url;
   }
 }
 

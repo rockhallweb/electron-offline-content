@@ -59,7 +59,7 @@ const mediaCache = createMediaCache({
       store.add(["video", v.slug], {
         version: v.updatedAt,
         mimeType: "video/mp4",
-        source: { url: v.videoUrl },
+        url: v.videoUrl,
         metadata: { title: v.title, category: "videos" },
         indexes: [category("videos")],
       });
@@ -178,7 +178,7 @@ const year = store.defineIndex("year");
 store.add(["video", "welcome"], {
   version: "v2",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/welcome.v2.mp4" },
+  url: "https://cdn.example.com/welcome.v2.mp4",
   metadata: { title: "Welcome Video", category: "lobby", year: 2026 },
   indexes: [category("lobby"), year("2026")],
 });
@@ -186,7 +186,7 @@ store.add(["video", "welcome"], {
 store.add(["image", "welcome-poster"], {
   version: "v2",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/welcome-poster.jpg" },
+  url: "https://cdn.example.com/welcome-poster.jpg",
   metadata: { title: "Welcome Poster", category: "lobby", year: 2026 },
   indexes: [category("lobby"), year("2026")],
 });

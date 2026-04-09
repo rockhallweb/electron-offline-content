@@ -41,7 +41,7 @@ describe("MediaCacheDatabase", () => {
       }
       const assetColumns = dbInternal.prepare("PRAGMA table_info(assets)").all();
       expect(assetColumns.map((c) => c.name)).toContain("asset_key");
-      expect(assetColumns.map((c) => c.name)).toContain("source_json");
+      expect(assetColumns.map((c) => c.name)).toContain("url");
       expect(assetColumns.map((c) => c.name)).toContain("indexes_json");
       expect(assetColumns.map((c) => c.name)).toContain("media_kind");
       expect(assetColumns.map((c) => c.name)).toContain("file_stem");

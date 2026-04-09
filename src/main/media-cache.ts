@@ -41,7 +41,6 @@ import type {
   MediaCacheLogLevel,
   MediaCacheOptions,
   MediaCacheStatus,
-  MediaRemoteSource,
   PaginationInput,
   PaginationResult,
   ResolvedMediaAsset,
@@ -181,7 +180,7 @@ interface QueuedDownloadTarget {
   version: string;
   fileName: string;
   byteLength?: number;
-  source: MediaRemoteSource;
+  url: string;
 }
 
 interface RuntimeDependencies {
@@ -726,7 +725,7 @@ export class MediaCache implements MediaCacheMain {
           version: manifestAsset.version,
           fileName: manifestAsset.fileName,
           byteLength: manifestAsset.byteLength,
-          source: manifestAsset.source,
+          url: manifestAsset.url,
         });
       }
 
@@ -757,7 +756,7 @@ export class MediaCache implements MediaCacheMain {
             run_id: runId,
             asset_key: download.assetKey,
             version: download.version,
-            url: download.source.url,
+            url: download.url,
           });
           const { relativePath, fallbackMimeType } = await this.downloadAsset(
             download,
@@ -982,7 +981,7 @@ export class MediaCache implements MediaCacheMain {
           await unlink(tempPath).catch(() => undefined);
           this.emitLog("error", "asset_download_storage_failed", {
             asset_key: download.assetKey,
-            url: download.source.url,
+            url: download.url,
           });
           throw new StorageLimitError(`Disk is full while downloading ${download.assetKey}.`, {
             cause: error,
@@ -1039,13 +1038,13 @@ export class MediaCache implements MediaCacheMain {
 
     for (;;) {
       const resumeSize = existsSync(tempPath) ? statSync(tempPath).size : 0;
-      const headers = new Headers(download.source.headers);
+      const headers = new Headers();
       if (resumeSize > 0) {
         headers.set("range", `bytes=${resumeSize}-`);
       }
 
-      const response = await this.deps.fetchImpl(download.source.url, {
-        method: download.source.method ?? "GET",
+      const response = await this.deps.fetchImpl(download.url, {
+        method: "GET",
         headers,
       });
 
@@ -1074,7 +1073,7 @@ export class MediaCache implements MediaCacheMain {
           asset_key: download.assetKey,
           status: response.status,
           status_text: response.statusText,
-          url: download.source.url,
+          url: download.url,
         });
         throw createDownloadError(
           `Download failed for ${download.assetKey}: ${response.status} ${response.statusText}`,

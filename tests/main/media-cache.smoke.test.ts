@@ -499,9 +499,7 @@ describe("media cache sync and queries (smoke)", () => {
           version: "v2",
           mimeType: "video/mp4",
           fileName: "main.mp4",
-          source: {
-            url: `${baseUrl}/main.mp4`,
-          },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -563,9 +561,7 @@ describe("media cache sync and queries (smoke)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: 9,
-          source: {
-            url: `${baseUrl}/main.mp4`,
-          },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -585,9 +581,7 @@ describe("media cache sync and queries (smoke)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: 9,
-          source: {
-            url: `${baseUrl}/main.mp4`,
-          },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -649,9 +643,7 @@ describe("media cache sync and queries (smoke)", () => {
           mimeType: "video/mp4",
           fileName: "broken.mp4",
           byteLength: 6,
-          source: {
-            url: `${baseUrl}/broken.mp4`,
-          },
+          url: `${baseUrl}/broken.mp4`,
         },
       ],
     });
@@ -682,9 +674,7 @@ describe("media cache sync and queries (smoke)", () => {
           mimeType: "video/mp4",
           fileName: "broken.mp4",
           byteLength: 6,
-          source: {
-            url: `${baseUrl}/broken.mp4`,
-          },
+          url: `${baseUrl}/broken.mp4`,
         },
       ],
     });
@@ -712,9 +702,7 @@ describe("media cache sync and queries (smoke)", () => {
                 mimeType: "video/mp4",
                 fileName: "main.mp4",
                 byteLength: 9,
-                source: {
-                  url: `${baseUrl}/main.mp4`,
-                },
+                url: `${baseUrl}/main.mp4`,
               },
             ],
           }),
@@ -749,9 +737,7 @@ describe("media cache sync and queries (smoke)", () => {
                 mimeType: "video/mp4",
                 fileName: "nonretryable.mp4",
                 byteLength: 6,
-                source: {
-                  url: `${baseUrl}/nonretryable.mp4`,
-                },
+                url: `${baseUrl}/nonretryable.mp4`,
               },
             ],
           }),
@@ -783,9 +769,7 @@ describe("media cache sync and queries (smoke)", () => {
               mimeType: "video/mp4",
               fileName: "retry-once.mp4",
               byteLength: "retry-success".length,
-              source: {
-                url: `${baseUrl}/retry-once.mp4`,
-              },
+              url: `${baseUrl}/retry-once.mp4`,
             },
           ],
         }),
@@ -808,9 +792,7 @@ describe("media cache sync and queries (smoke)", () => {
               mimeType: "video/mp4",
               fileName: "nonretryable.mp4",
               byteLength: 1,
-              source: {
-                url: `${baseUrl}/nonretryable.mp4`,
-              },
+              url: `${baseUrl}/nonretryable.mp4`,
             },
           ],
         }),
@@ -1450,7 +1432,7 @@ describe("media cache sync and queries (smoke)", () => {
           version: "v1",
           mimeType: "video/mp4",
           fileName: "main.mp4",
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
           metadata: circular as unknown as Record<string, JsonValue>,
         },
       ],
@@ -1475,7 +1457,7 @@ describe("media cache sync and queries (smoke)", () => {
           version: "v1",
           mimeType: "video/mp4",
           byteLength: 12.5,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });

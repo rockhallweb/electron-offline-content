@@ -159,7 +159,7 @@ function addItemAssets(
   store.add([collectionName, data.nasa_id, "primary"], {
     version,
     mimeType: primaryMime,
-    source: { url: primaryUrl },
+    url: primaryUrl,
     metadata,
     indexes: [
       indexes.collection(collectionName),
@@ -171,7 +171,7 @@ function addItemAssets(
   store.add([collectionName, data.nasa_id, "poster"], {
     version,
     mimeType: "image/jpeg",
-    source: { url: posterUrl },
+    url: posterUrl,
     metadata,
     indexes: [
       indexes.collection(collectionName),

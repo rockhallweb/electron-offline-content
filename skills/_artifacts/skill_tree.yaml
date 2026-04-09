@@ -5,7 +5,7 @@
 
 library:
   name: "@rockhallweb/electron-offline-content"
-  version: "0.3.0"
+  version: "0.4.0"
   repository: "https://github.com/rockhallweb/electron-offline-content"
   description: >
     Electron package for kiosk-style apps that syncs offline media content
@@ -24,7 +24,7 @@ skills:
     path: "skills/getting-started/SKILL.md"
     description: >
       Full greenfield integration of @rockhallweb/electron-offline-content:
-      install, write resolveManifest, configure createMediaCache in main,
+      install, write resolveStore with createMediaStore, configure createMediaCache in main,
       wire preload bridge with exposeMediaCacheBridge, add MediaCacheProvider
       and hooks in React, render first content offline. Covers
       app.requestSingleInstanceLock, createMediaCache timing relative to
@@ -34,6 +34,7 @@ skills:
       - "rockhallweb/electron-offline-content:README.md"
       - "rockhallweb/electron-offline-content:src/main/index.ts"
       - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
+      - "rockhallweb/electron-offline-content:src/main/store.ts"
       - "rockhallweb/electron-offline-content:src/preload/index.ts"
       - "rockhallweb/electron-offline-content:src/react/index.tsx"
       - "rockhallweb/electron-offline-content:examples/local/src/main.ts"
@@ -48,16 +49,15 @@ skills:
     domain: "content-sync"
     path: "skills/manifest-authoring/SKILL.md"
     description: >
-      Writing resolveManifest functions against any remote source (CMS, S3,
-      REST API). Using defineManifest, defineItem, defineAsset
-      producer helpers for flat readable configs. Organizing content into
-      dot-delimited namespace hierarchies. Validation rules for keys,
-      versions, asset URLs, and fileName derivation. Version-driven cache
-      busting. namespacesFromEntries / itemsFromEntries / assetsFromEntries.
+      Writing resolveStore functions against any remote source (CMS, S3,
+      REST API). Using createMediaStore, store.defineIndex, and store.add
+      with a flat url string per asset. Secondary indexes for querying.
+      Validation rules for keys, versions, URLs, and fileName derivation.
+      Version-driven cache busting.
     requires:
       - "getting-started"
     sources:
-      - "rockhallweb/electron-offline-content:src/main/producer.ts"
+      - "rockhallweb/electron-offline-content:src/main/store.ts"
       - "rockhallweb/electron-offline-content:src/shared/normalize.ts"
       - "rockhallweb/electron-offline-content:src/shared/types.ts"
       - "rockhallweb/electron-offline-content:src/internal/validation.ts"
@@ -119,18 +119,15 @@ skills:
     domain: "content-sync"
     path: "skills/authenticated-downloads/SKILL.md"
     description: >
-      Adding authentication to asset downloads: resolveAssetRequest callback
-      for per-asset signed URL generation and bearer token injection,
-      ResolveAssetRequestContext and DownloadRequest types,
-      MediaRemoteSource.headers for static auth at manifest build time.
-      Choosing between manifest-time pre-signed URLs (simple, TTL-limited)
-      and download-time signing via resolveAssetRequest (robust, not
-      available in devPassthrough). Pre-signed URL expiration vs catalog
-      sync duration tradeoff.
+      Adding authentication to asset downloads by embedding presigned URLs
+      in each asset’s flat url field during resolveStore. Pre-signed URL
+      expiration vs catalog sync duration tradeoff; dev passthrough vs
+      offline download testing.
     requires:
       - "manifest-authoring"
     sources:
       - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
+      - "rockhallweb/electron-offline-content:src/main/store.ts"
       - "rockhallweb/electron-offline-content:src/shared/types.ts"
       - "rockhallweb/electron-offline-content:README.md"
     subsystems: []

@@ -86,7 +86,7 @@ describe("media cache sync and queries (integration)", () => {
           key: "nature/forest/main",
           version: "v1",
           mimeType: "video/mp4",
-          source: { url: `${baseUrl}/main.mp4?token=abc123` },
+          url: `${baseUrl}/main.mp4?token=abc123`,
         },
       ],
     });
@@ -115,7 +115,7 @@ describe("media cache sync and queries (integration)", () => {
           version: "v1",
           mimeType: "video/mp4",
           fileName: "video.mp4",
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -187,7 +187,7 @@ describe("media cache sync and queries (integration)", () => {
             version: string;
             relativePath: string | null;
             mimeType: string;
-            sourceJson: string;
+            url: string;
           }>;
           setAssetRelativePath(generationId: number, assetKey: string, relativePath: string): void;
         };
@@ -223,7 +223,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: 9,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
           metadata: {
             keep: "asset",
             drop: undefined,
@@ -279,7 +279,7 @@ describe("media cache sync and queries (integration)", () => {
                 mimeType: "video/mp4",
                 fileName: "main.mp4",
                 byteLength: "video-one".length,
-                source: { url: `${baseUrl}/main.mp4` },
+                url: `${baseUrl}/main.mp4`,
               },
               {
                 key: "nature/forest/poster",
@@ -287,7 +287,7 @@ describe("media cache sync and queries (integration)", () => {
                 mimeType: "image/jpeg",
                 fileName: "poster.jpg",
                 byteLength: "poster".length,
-                source: { url: `${baseUrl}/poster.jpg` },
+                url: `${baseUrl}/poster.jpg`,
               },
             ],
           }),
@@ -334,7 +334,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "expired-update.mp4",
           byteLength: 12,
-          source: { url: `${baseUrl}/expired-update.mp4` },
+          url: `${baseUrl}/expired-update.mp4`,
         },
       ],
     });
@@ -368,7 +368,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "resumable.mp4",
           byteLength: "resume-data".length,
-          source: { url: `${baseUrl}/resumable.mp4` },
+          url: `${baseUrl}/resumable.mp4`,
         },
       ],
     });
@@ -409,7 +409,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "reserve-resumable.mp4",
           byteLength: body.length,
-          source: { url: `${baseUrl}/reserve-resumable.mp4` },
+          url: `${baseUrl}/reserve-resumable.mp4`,
         },
       ],
     });
@@ -447,7 +447,7 @@ describe("media cache sync and queries (integration)", () => {
               version: string;
               fileName: string;
               byteLength?: number;
-              source: { url: string };
+              url: string;
             }>,
           ): Promise<void>;
         }
@@ -457,7 +457,7 @@ describe("media cache sync and queries (integration)", () => {
           version: "v1",
           fileName: "reserve-resumable.mp4",
           byteLength: body.length,
-          source: { url: `${baseUrl}/reserve-resumable.mp4` },
+          url: `${baseUrl}/reserve-resumable.mp4`,
         },
       ]),
     ).resolves.toBeUndefined();
@@ -490,7 +490,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "resume-retryable.mp4",
           byteLength: "resume-retry-success".length,
-          source: { url: `${baseUrl}/resume-retryable.mp4` },
+          url: `${baseUrl}/resume-retryable.mp4`,
         },
       ],
     });
@@ -530,7 +530,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "range-ignored.mp4",
           byteLength: "range-ignore".length,
-          source: { url: `${baseUrl}/range-ignored.mp4` },
+          url: `${baseUrl}/range-ignored.mp4`,
         },
       ],
     });
@@ -565,7 +565,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "range-mismatch.mp4",
           byteLength: "range-mismatch".length,
-          source: { url: `${baseUrl}/range-mismatch.mp4` },
+          url: `${baseUrl}/range-mismatch.mp4`,
         },
       ],
     });
@@ -607,7 +607,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "range-not-satisfiable.mp4",
           byteLength: body.length,
-          source: { url: `${baseUrl}/range-not-satisfiable.mp4` },
+          url: `${baseUrl}/range-not-satisfiable.mp4`,
         },
       ],
     });
@@ -641,7 +641,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "drop-after-two.mp4",
           byteLength: "retry-bytes".length,
-          source: { url: `${baseUrl}/drop-after-two.mp4` },
+          url: `${baseUrl}/drop-after-two.mp4`,
         },
       ],
     });
@@ -762,7 +762,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "retry-once.mp4",
           byteLength: "retry-success".length,
-          source: { url: `${baseUrl}/retry-once.mp4` },
+          url: `${baseUrl}/retry-once.mp4`,
         },
         {
           key: "nature/forest/poster",
@@ -770,7 +770,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "image/jpeg",
           fileName: "broken.mp4",
           byteLength: 6,
-          source: { url: `${baseUrl}/broken.mp4` },
+          url: `${baseUrl}/broken.mp4`,
         },
       ],
     });
@@ -833,7 +833,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: "video-one".length,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
         {
           key: "nature/forest/poster",
@@ -841,7 +841,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "image/jpeg",
           fileName: "poster-v2.jpg",
           byteLength: "poster".length,
-          source: { url: `${baseUrl}/poster.jpg` },
+          url: `${baseUrl}/poster.jpg`,
         },
       ],
     });
@@ -935,7 +935,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: 9,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -970,7 +970,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "flower.mp4",
           byteLength: 12,
-          source: { url: `${baseUrl}/flower.mp4` },
+          url: `${baseUrl}/flower.mp4`,
         },
       ],
     });
@@ -996,7 +996,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: "video-one".length,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -1025,7 +1025,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "flower.mp4",
           byteLength: "flower-video".length,
-          source: { url: `${baseUrl}/flower.mp4` },
+          url: `${baseUrl}/flower.mp4`,
         },
       ],
     });
@@ -1041,7 +1041,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "resumable.mp4",
           byteLength: "resume-data".length,
-          source: { url: `${baseUrl}/resumable.mp4` },
+          url: `${baseUrl}/resumable.mp4`,
         },
       ],
     });
@@ -1079,7 +1079,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "mime-manifest.bin",
           byteLength: "mime-manifest".length,
-          source: { url: `${baseUrl}/mime-manifest.bin` },
+          url: `${baseUrl}/mime-manifest.bin`,
         },
       ],
     });
@@ -1103,7 +1103,7 @@ describe("media cache sync and queries (integration)", () => {
           mimeType: "video/mp4",
           fileName: "mime-manifest.bin",
           byteLength: "mime-manifest".length,
-          source: { url: `${baseUrl}/mime-manifest.bin` },
+          url: `${baseUrl}/mime-manifest.bin`,
         },
       ],
     });

@@ -7,7 +7,6 @@ import type {
   MediaCacheStatus,
   MediaCacheStoragePath,
   MediaKind,
-  MediaRemoteSource,
   SerializedMediaCacheError,
   SyncProgress,
   SyncRunStats,
@@ -101,17 +100,6 @@ const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
   "binary",
 ]);
 
-export const mediaRemoteSourceSchema: z.ZodType<MediaRemoteSource> = z.object({
-  url: z
-    .string()
-    .url()
-    .refine((u) => /^https?:\/\//i.test(u), {
-      message: "Asset source URL must use http or https",
-    }),
-  method: z.literal("GET").optional(),
-  headers: stringRecordSchema.optional(),
-});
-
 const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
   "home",
   "appData",
@@ -178,7 +166,7 @@ export const generationAssetRowSchema: z.ZodType<GenerationAssetRow> = z.object(
   version: z.string(),
   relativePath: z.string().nullable(),
   mimeType: z.string(),
-  sourceJson: z.string(),
+  url: z.string(),
 });
 
 /** Row shape for a fully joined active asset used for queries. */
@@ -193,7 +181,7 @@ export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
   metadata: z.string(),
   indexesJson: z.string(),
   relativePath: z.string().nullable(),
-  sourceJson: z.string(),
+  url: z.string(),
   fileStem: z.string(),
   orderIndex: nonNegativeIntegerSchema,
 });

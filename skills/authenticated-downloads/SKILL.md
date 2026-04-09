@@ -1,18 +1,15 @@
 ---
 name: authenticated-downloads
 description: >
-  Adding authentication to asset downloads in the flat store model.
-  Embedding signed URLs in source.url during resolveStore for
-  per-asset pre-signed URL generation. Using source.headers for
-  static auth tokens at store build time. Choosing between
-  store-time pre-signed URLs (simple, TTL-limited) and static
-  headers (long-lived tokens). Pre-signed URL expiration vs catalog
-  sync duration tradeoff.
+  Adding authentication to asset downloads in the flat store model by
+  embedding presigned (or otherwise signed) URLs in each asset’s top-level
+  url field during resolveStore. Pre-signed URL expiration vs catalog sync
+  duration tradeoff.
 type: core
 library: electron-offline-content
 library_version: "0.4.0"
 requires:
-  - store-authoring
+  - manifest-authoring
 sources:
   - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
   - "rockhallweb/electron-offline-content:src/main/store.ts"
@@ -20,7 +17,7 @@ sources:
   - "rockhallweb/electron-offline-content:README.md"
 ---
 
-> **Dependency:** This skill builds on store-authoring. Read it first for resolveStore and createMediaStore patterns.
+> **Dependency:** This skill builds on manifest-authoring. Read it first for resolveStore and createMediaStore patterns.
 
 ## Setup
 
@@ -49,12 +46,10 @@ const mediaCache = createMediaCache({
         { expiresIn: 3600 },
       );
 
-      store.add({
-        key: item.id,
+      store.add(["assets", item.id], {
         version: item.revision,
-        kind: "video",
         mimeType: "video/mp4",
-        source: { url: signedUrl },
+        url: signedUrl,
         metadata: item.metadata,
       });
     }
@@ -66,9 +61,9 @@ const mediaCache = createMediaCache({
 
 ## Core Patterns
 
-### Embedding signed URLs in resolveStore
+### Embedding presigned URLs in resolveStore
 
-All authentication is handled during `resolveStore()`. Embed signed URLs directly in each asset's `source.url`. The download pipeline uses these URLs as-is.
+All authentication is handled during `resolveStore()`. The download pipeline fetches each asset using only its `url` string. Put signing parameters, tokens, or credentials into that URL (for example an S3 presigned URL) before calling `store.add`.
 
 ```typescript
 import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
@@ -88,12 +83,10 @@ async function resolveStore() {
       { expiresIn: 3600 },
     );
 
-    store.add({
-      key: item.id,
+    store.add(["assets", item.id], {
       version: item.revision,
-      kind: "video",
       mimeType: "video/mp4",
-      source: { url: signedUrl },
+      url: signedUrl,
     });
   }
 
@@ -101,70 +94,17 @@ async function resolveStore() {
 }
 ```
 
-### Static headers on asset sources
+### OAuth or rotating credentials
 
-For long-lived API keys or bearer tokens, set `headers` directly on each asset's `source`. Simpler than pre-signing every URL.
+If you use short-lived tokens, exchange them for presigned download URLs (or a backend-issued URL that already includes auth) inside `resolveStore` before calling `store.add`. The library does not accept separate auth configuration per asset—only the final URL string.
 
-```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+### TTL and catalog size
 
-async function resolveStore() {
-  const store = createMediaStore();
-  const catalog = await fetchCatalog();
-
-  for (const item of catalog) {
-    store.add({
-      key: item.id,
-      version: item.revision,
-      kind: "video",
-      mimeType: "video/mp4",
-      source: {
-        url: `https://cdn.example.com/${item.objectKey}`,
-        headers: { Authorization: `Bearer ${API_KEY}` },
-      },
-    });
-  }
-
-  return store;
-}
-```
-
-### Bearer token injection
-
-For OAuth or rotating tokens, fetch a fresh token at the start of `resolveStore` and embed it in headers on every asset:
-
-```typescript
-async function resolveStore() {
-  const token = await fetchOAuthToken();
-  const store = createMediaStore();
-
-  for (const item of await fetchCatalog()) {
-    store.add({
-      key: item.id,
-      version: item.revision,
-      kind: "video",
-      mimeType: "video/mp4",
-      source: {
-        url: item.downloadUrl,
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    });
-  }
-
-  return store;
-}
-```
-
-The token must remain valid for the duration of the sync. For large catalogs, use a token with a generous TTL.
-
-### Choosing between strategies
-
-| Credential type          | Catalog size         | Recommended approach                          |
-| ------------------------ | -------------------- | --------------------------------------------- |
-| Long-lived API key/token | Any                  | `source.headers` on each asset                |
-| Short-lived S3 URL       | Small (< 100 assets) | Pre-sign in `resolveStore` with generous TTL  |
-| Short-lived S3 URL       | Large (100+ assets)  | Pre-sign with long TTL + store `expiresAt`    |
-| OAuth / rotating token   | Any                  | Fetch token at start of `resolveStore`, embed |
+| Scenario            | Recommendation                                                                   |
+| ------------------- | -------------------------------------------------------------------------------- |
+| Any protected asset | Presign (or otherwise embed auth in) the `url` before `store.add`.               |
+| Small catalog       | Presign in `resolveStore` with a TTL that comfortably exceeds full sync time.    |
+| Large catalog       | Use a long TTL and set store `expiresAt` to match for fail-fast `STORE_EXPIRED`. |
 
 ## Common Mistakes
 
@@ -185,7 +125,7 @@ async function resolveStore() {
       new GetObjectCommand({ Bucket: "b", Key: item.key }),
       { expiresIn: 300 }, // 5 minutes — too short for 500 assets
     );
-    store.add({ key: item.id, version: item.rev, kind: "video", source: { url: signedUrl } });
+    store.add(["assets", item.id], { version: item.rev, mimeType: "video/mp4", url: signedUrl });
   }
   return store;
 }
@@ -203,11 +143,10 @@ async function resolveStore() {
     const signedUrl = await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
       expiresIn: ttlSeconds,
     });
-    store.add({
-      key: item.id,
+    store.add(["assets", item.id], {
       version: item.rev,
       mimeType: "video/mp4",
-      source: { url: signedUrl },
+      url: signedUrl,
     });
   }
 
@@ -219,7 +158,7 @@ Source: Maintainer interview
 
 ### HIGH: Auth not tested in offline mode
 
-In dev passthrough mode, assets load from their original remote URLs directly in the renderer. Auth issues only surface when `devPassthrough` is `false` and the main process downloads assets using the signed URLs or headers from `resolveStore`.
+In dev passthrough mode, assets load from their original remote URLs directly in the renderer. Auth issues only surface when `devPassthrough` is `false` and the main process downloads assets using the URLs from `resolveStore`.
 
 Wrong — testing only in dev passthrough:
 
@@ -245,59 +184,20 @@ const mediaCache = createMediaCache({
 Source: README
 Cross-skill: cache-configuration/SKILL.md § Common Mistakes
 
-### MEDIUM: Using pre-signed URLs for long-lived static tokens
-
-Pre-signing every URL adds complexity and creates TTL management overhead. If the token is long-lived, `source.headers` is simpler.
-
-Wrong:
-
-```typescript
-async function resolveStore() {
-  const store = createMediaStore();
-  for (const item of await fetchCatalog()) {
-    const signedUrl = signUrlWithStaticKey(item.url, STATIC_API_KEY);
-    store.add({ key: item.id, version: item.rev, kind: "video", source: { url: signedUrl } });
-  }
-  return store;
-}
-```
-
-Correct — set headers on asset sources in the store:
-
-```typescript
-async function resolveStore() {
-  const store = createMediaStore();
-  for (const item of await fetchCatalog()) {
-    store.add({
-      key: item.id,
-      version: item.rev,
-      kind: "video",
-      source: {
-        url: item.url,
-        headers: { Authorization: `Bearer ${STATIC_API_KEY}` },
-      },
-    });
-  }
-  return store;
-}
-```
-
-Source: README
-
 ### HIGH Tension: Pre-signed URL TTL vs catalog size
 
 Pre-signed URLs embedded at store build time are simple but have a TTL ceiling: expiration must cover the entire download queue. For large catalogs, evaluate expected sync duration and set TTLs accordingly. Use store `expiresAt` for fail-fast behavior.
 
-See also: store-authoring/SKILL.md § Common Mistakes
+See also: manifest-authoring/SKILL.md § Common Mistakes
 
 ### HIGH Tension: Dev passthrough simplicity vs production correctness
 
-`devPassthrough` bypasses downloads entirely. Code that works in dev (where auth isn't needed for public URLs) may fail in production when assets require signed downloads or auth headers.
+`devPassthrough` bypasses downloads entirely. Code that works in dev (where auth isn't needed for public URLs) may fail in production when assets require signed downloads.
 
 See also: cache-configuration/SKILL.md § Common Mistakes
 
 ---
 
-See also: store-authoring/SKILL.md — Asset source definition and headers
+See also: manifest-authoring/SKILL.md — Asset URL definition and resolveStore
 See also: cache-configuration/SKILL.md — devPassthrough mode bypasses downloads
 See also: production-checklist/SKILL.md — Verify auth works in offline mode before deploy

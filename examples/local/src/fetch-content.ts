@@ -39,7 +39,7 @@ function buildStore(baseUrl: string): MediaStore {
     version: "2026-03-forest-v1",
     mimeType: "video/mp4",
     byteLength: 14638,
-    source: { url: `${baseUrl}/forest-loop.mp4` },
+    url: `${baseUrl}/forest-loop.mp4`,
     metadata: {
       title: "Forest Loop",
       description: "Local fixture video with a paired poster image.",
@@ -53,7 +53,7 @@ function buildStore(baseUrl: string): MediaStore {
     version: "2026-03-forest-v1",
     mimeType: "image/jpeg",
     byteLength: 3284,
-    source: { url: `${baseUrl}/forest-poster.jpg` },
+    url: `${baseUrl}/forest-poster.jpg`,
     metadata: {
       title: "Forest Loop – Poster",
       parentKey: "nature/forest-loop/main",
@@ -65,7 +65,7 @@ function buildStore(baseUrl: string): MediaStore {
     version: "2026-03-rose-v1",
     mimeType: "video/mp4",
     byteLength: 14600,
-    source: { url: `${baseUrl}/rose-cut.mp4` },
+    url: `${baseUrl}/rose-cut.mp4`,
     metadata: {
       title: "Rose Cut",
       description: "Subtree fixture item with a subtitle track.",
@@ -79,7 +79,7 @@ function buildStore(baseUrl: string): MediaStore {
     version: "2026-03-rose-v1",
     mimeType: "text/vtt",
     byteLength: 97,
-    source: { url: `${baseUrl}/rose-cut.vtt` },
+    url: `${baseUrl}/rose-cut.vtt`,
     metadata: {
       title: "Rose Cut – Subtitles",
       parentKey: "nature/rose-cut/main",

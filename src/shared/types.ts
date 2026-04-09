@@ -51,13 +51,6 @@ export type MediaCacheLoggingOptions =
 /** High-level media category derived from an asset's mimeType. */
 export type MediaKind = "video" | "image" | "audio" | "document" | "html" | "text" | "binary";
 
-/** Remote request template used during sync to fetch an asset (URL plus optional headers). */
-export interface MediaRemoteSource {
-  url: string;
-  method?: "GET";
-  headers?: Record<string, string>;
-}
-
 /** Accepted asset key input: a plain string or an array of string segments. */
 export type AssetKeyInput = string | readonly string[];
 
@@ -73,9 +66,9 @@ export class IndexTag {
 export interface MediaAssetInput {
   version: string;
   mimeType: string;
+  url: string;
   fileName?: string;
   byteLength?: number;
-  source: MediaRemoteSource;
   metadata?: Record<string, JsonValue>;
   indexes?: IndexTag[];
 }
@@ -95,10 +88,10 @@ export interface FlatManifestAsset {
   version: string;
   mimeType: string;
   mediaKind: MediaKind;
+  url: string;
   fileName: string;
   fileStem: string;
   byteLength?: number;
-  source: MediaRemoteSource;
   metadata: Record<string, JsonValue>;
   indexes: Record<string, string | string[]>;
 }

@@ -9,7 +9,6 @@ import {
   type IndexDefinition,
   type JsonValue,
   type MediaAssetInput,
-  type MediaRemoteSource,
 } from "../shared/types.js";
 
 const MIME_PATTERN = /^\S+\/\S+$/;
@@ -55,9 +54,9 @@ interface StoredAsset {
   displayKey: string;
   version: string;
   mimeType: string;
+  url: string;
   fileName: string;
   byteLength?: number;
-  source: MediaRemoteSource;
   metadata: Record<string, JsonValue>;
   indexes: Record<string, string | string[]>;
 }
@@ -73,7 +72,7 @@ interface StoredAsset {
  * store.add(["forest", "video"], {
  *   version: "v1",
  *   mimeType: "video/mp4",
- *   source: { url: "https://cdn.example.com/forest.mp4" },
+ *   url: "https://cdn.example.com/forest.mp4",
  *   indexes: [gallery("nature")],
  * });
  * ```
@@ -162,26 +161,19 @@ export class MediaStore {
         `Asset "${display}": mimeType must be a valid type/subtype string (got "${input.mimeType ?? ""}").`,
       );
     }
-    if (!input.source?.url) {
-      throw new StoreValidationError(`Asset "${display}": source.url is required.`);
-    }
-    if (input.source.method !== undefined && input.source.method !== "GET") {
-      throw new StoreValidationError(
-        `Asset "${display}": source.method must be GET (got "${input.source.method}").`,
-      );
+    if (!input.url) {
+      throw new StoreValidationError(`Asset "${display}": url is required.`);
     }
     try {
-      const parsed = new URL(input.source.url);
+      const parsed = new URL(input.url);
       if (!/^https?:$/i.test(parsed.protocol)) {
         throw new StoreValidationError(
-          `Asset "${display}": source URL must use http or https (got "${parsed.protocol}").`,
+          `Asset "${display}": URL must use http or https (got "${parsed.protocol}").`,
         );
       }
     } catch (err) {
       if (err instanceof StoreValidationError) throw err;
-      throw new StoreValidationError(
-        `Asset "${display}": source URL is not valid: "${input.source.url}".`,
-      );
+      throw new StoreValidationError(`Asset "${display}": URL is not valid: "${input.url}".`);
     }
 
     if (
@@ -195,7 +187,7 @@ export class MediaStore {
       );
     }
 
-    const fileName = input.fileName ?? deriveAssetFileName(input.source);
+    const fileName = input.fileName ?? deriveAssetFileName(input.url);
 
     const assetIndexes: Record<string, string | string[]> = Object.create(null);
     if (input.indexes) {
@@ -256,13 +248,9 @@ export class MediaStore {
       displayKey: display,
       version: input.version,
       mimeType: input.mimeType,
+      url: input.url,
       fileName,
       byteLength: input.byteLength,
-      source: {
-        url: input.source.url,
-        ...(input.source.method ? { method: input.source.method } : {}),
-        ...(input.source.headers ? { headers: input.source.headers } : {}),
-      },
       metadata: input.metadata ?? {},
       indexes: assetIndexes,
     });
@@ -308,10 +296,10 @@ export class MediaStore {
         version: stored.version,
         mimeType: stored.mimeType,
         mediaKind,
+        url: stored.url,
         fileName: stored.fileName,
         fileStem: stem,
         byteLength: stored.byteLength,
-        source: stored.source,
         metadata: stored.metadata,
         indexes: allIndexes,
       });

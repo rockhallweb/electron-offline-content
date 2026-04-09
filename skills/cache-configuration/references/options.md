@@ -84,7 +84,7 @@ devPassthrough: true;
 | **Required** | No               |
 | **Default**  | `null`           |
 
-Origin override for asset URLs in dev passthrough mode. Replaces the origin of all asset source URLs.
+Origin override for asset URLs in dev passthrough mode. Replaces the origin of each asset’s `url` (the top-level string on every store entry).
 
 **Constraints:** Must be an origin only (protocol + hostname + optional port). Must not include path, query, hash, or credentials. Requires `devPassthrough: true` — constructor throws if set while `devPassthrough` is `false`.
 
@@ -347,7 +347,7 @@ resolveStore: async () => {
     store.add(item.id, {
       version: item.updatedAt,
       mimeType: item.mimeType,
-      source: { url: item.url },
+      url: item.url,
       metadata: item.metadata,
     });
   }

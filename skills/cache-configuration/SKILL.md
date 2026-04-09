@@ -55,7 +55,7 @@ const mediaCache = createMediaCache({
       store.add(item.id, {
         version: item.updatedAt,
         mimeType: item.mimeType,
-        source: { url: item.url },
+        url: item.url,
         metadata: item.metadata,
       });
     }

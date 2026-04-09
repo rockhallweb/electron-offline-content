@@ -26,7 +26,7 @@ export interface TestAsset {
   mimeType: string;
   fileName?: string;
   byteLength?: number;
-  source: { url: string; method?: "GET"; headers?: Record<string, string> };
+  url: string;
   metadata?: Record<string, JsonValue>;
   indexes?: Record<string, string | string[]>;
 }
@@ -76,7 +76,7 @@ export function buildTestStore(input: {
       mimeType: asset.mimeType,
       fileName: asset.fileName,
       byteLength: asset.byteLength,
-      source: asset.source,
+      url: asset.url,
       metadata: asset.metadata,
       indexes: indexTags.length > 0 ? indexTags : undefined,
     });
@@ -468,7 +468,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
           mimeType: "video/mp4",
           fileName: "main.mp4",
           byteLength: 9,
-          source: { url: `${baseUrl}/main.mp4` },
+          url: `${baseUrl}/main.mp4`,
         },
         {
           key: "nature/forest/poster",
@@ -476,7 +476,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
           mimeType: "image/jpeg",
           fileName: "poster.jpg",
           byteLength: 6,
-          source: { url: `${baseUrl}/poster.jpg` },
+          url: `${baseUrl}/poster.jpg`,
         },
         {
           key: "nature.flowerVideos/rose/main",
@@ -484,7 +484,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
           mimeType: "video/mp4",
           fileName: "flower.mp4",
           byteLength: 12,
-          source: { url: `${baseUrl}/flower.mp4` },
+          url: `${baseUrl}/flower.mp4`,
         },
         {
           key: "nature.flowerVideos/rose/captions",
@@ -492,7 +492,7 @@ export async function createMediaCacheTestFixture(): Promise<MediaCacheTestFixtu
           mimeType: "text/vtt",
           fileName: "sub.vtt",
           byteLength: 6,
-          source: { url: `${baseUrl}/sub.vtt` },
+          url: `${baseUrl}/sub.vtt`,
         },
       ],
     });
@@ -614,103 +614,103 @@ export function mimeManifestStore(baseUrl: string): MediaStore {
     key: string;
     fileName: string;
     mimeType: string;
-    source: { url: string };
+    url: string;
   }> = [
     {
       key: "mime/types/main",
       fileName: "sample.mp4",
       mimeType: "video/mp4",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
     {
       key: "mime/types/webm",
       fileName: "sample.webm",
       mimeType: "video/webm",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
     {
       key: "mime/types/mov",
       fileName: "sample.mov",
       mimeType: "video/quicktime",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
     {
       key: "mime/types/jpg",
       fileName: "sample.jpg",
       mimeType: "image/jpeg",
-      source: { url: `${baseUrl}/poster.jpg` },
+      url: `${baseUrl}/poster.jpg`,
     },
     {
       key: "mime/types/jpeg",
       fileName: "sample.jpeg",
       mimeType: "image/jpeg",
-      source: { url: `${baseUrl}/poster.jpg` },
+      url: `${baseUrl}/poster.jpg`,
     },
     {
       key: "mime/types/png",
       fileName: "sample.png",
       mimeType: "image/png",
-      source: { url: `${baseUrl}/poster.jpg` },
+      url: `${baseUrl}/poster.jpg`,
     },
     {
       key: "mime/types/gif",
       fileName: "sample.gif",
       mimeType: "image/gif",
-      source: { url: `${baseUrl}/poster.jpg` },
+      url: `${baseUrl}/poster.jpg`,
     },
     {
       key: "mime/types/webp",
       fileName: "sample.webp",
       mimeType: "image/webp",
-      source: { url: `${baseUrl}/poster.jpg` },
+      url: `${baseUrl}/poster.jpg`,
     },
     {
       key: "mime/types/vtt",
       fileName: "sample.vtt",
       mimeType: "text/vtt",
-      source: { url: `${baseUrl}/sub.vtt` },
+      url: `${baseUrl}/sub.vtt`,
     },
     {
       key: "mime/types/srt",
       fileName: "sample.srt",
       mimeType: "application/x-subrip",
-      source: { url: `${baseUrl}/sub.vtt` },
+      url: `${baseUrl}/sub.vtt`,
     },
     {
       key: "mime/types/mp3",
       fileName: "sample.mp3",
       mimeType: "audio/mpeg",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
     {
       key: "mime/types/wav",
       fileName: "sample.wav",
       mimeType: "audio/wav",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
     {
       key: "mime/types/html",
       fileName: "sample.html",
       mimeType: "text/html",
-      source: { url: `${baseUrl}/sub.vtt` },
+      url: `${baseUrl}/sub.vtt`,
     },
     {
       key: "mime/types/txt",
       fileName: "sample.txt",
       mimeType: "text/plain",
-      source: { url: `${baseUrl}/sub.vtt` },
+      url: `${baseUrl}/sub.vtt`,
     },
     {
       key: "mime/types/json",
       fileName: "sample.json",
       mimeType: "application/json",
-      source: { url: `${baseUrl}/sub.vtt` },
+      url: `${baseUrl}/sub.vtt`,
     },
     {
       key: "mime/types/pdf",
       fileName: "sample.pdf",
       mimeType: "application/pdf",
-      source: { url: `${baseUrl}/main.mp4` },
+      url: `${baseUrl}/main.mp4`,
     },
   ];
 
@@ -721,7 +721,7 @@ export function mimeManifestStore(baseUrl: string): MediaStore {
       version: "v1",
       mimeType: a.mimeType,
       fileName: a.fileName,
-      source: a.source,
+      url: a.url,
     })),
   });
 }

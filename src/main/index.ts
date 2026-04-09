@@ -24,7 +24,6 @@ export {
   type MediaCacheStoragePath,
   type MediaKind,
   type MediaQuerySyncOptions,
-  type MediaRemoteSource,
   type PaginationInput,
   type PaginationResult,
   type ResolvedMediaAsset,

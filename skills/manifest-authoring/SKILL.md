@@ -5,8 +5,8 @@ description: >
   REST API). Using createMediaStore, store.defineIndex, and store.add
   for flat asset stores. User-defined secondary indexes for querying.
   Per-asset versioning, asset key conventions, validation rules,
-  version-driven cache busting. Embedding signed URLs and auth
-  headers in source during resolveStore.
+  version-driven cache busting. Embedding presigned URLs in asset
+  url fields during resolveStore.
 type: core
 library: electron-offline-content
 library_version: "0.4.0"
@@ -51,7 +51,7 @@ async function resolveStore() {
     store.add(["course", course.id, "video"], {
       version: course.revision,
       mimeType: "video/mp4",
-      source: { url: course.videoUrl },
+      url: course.videoUrl,
       metadata: { title: course.title, level: course.level, type: "video" },
       indexes: [level(course.level), type("video")],
     });
@@ -59,7 +59,7 @@ async function resolveStore() {
     store.add(["course", course.id, "poster"], {
       version: course.revision,
       mimeType: "image/jpeg",
-      source: { url: course.posterUrl },
+      url: course.posterUrl,
       metadata: { title: `${course.title} poster`, level: course.level, type: "poster" },
       indexes: [level(course.level), type("poster")],
     });
@@ -69,7 +69,7 @@ async function resolveStore() {
         version: course.revision,
         mimeType: "text/vtt",
         fileName: "en.vtt",
-        source: { url: course.subtitleUrl },
+        url: course.subtitleUrl,
         metadata: { title: `${course.title} subtitles`, level: course.level, type: "subtitle" },
         indexes: [level(course.level), type("subtitle")],
       });
@@ -101,7 +101,7 @@ for (const exhibit of exhibits) {
   store.add(["exhibit", exhibit.slug], {
     version: exhibit.revision,
     mimeType: exhibit.mimeType,
-    source: { url: exhibit.mediaUrl },
+    url: exhibit.mediaUrl,
     metadata: {
       title: exhibit.title,
       category: exhibit.category,
@@ -140,19 +140,19 @@ Each asset has its own `version` string. When the version changes, the asset is 
 store.add(["video", "welcome"], {
   version: apiEntry.updatedAt, // timestamp-based: "2026-03-15T08:30:00Z"
   mimeType: "video/mp4",
-  source: { url: apiEntry.videoUrl },
+  url: apiEntry.videoUrl,
 });
 
 store.add(["image", "logo"], {
   version: apiEntry.contentMd5, // content-hash: "a1b2c3d4e5f6"
   mimeType: "image/png",
-  source: { url: apiEntry.logoUrl },
+  url: apiEntry.logoUrl,
 });
 ```
 
 ### Embedding auth in resolveStore
 
-Since `resolveAssetRequest` has been removed, embed signed URLs or auth headers directly in `source` during `resolveStore()`:
+Since `resolveAssetRequest` has been removed, embed presigned (or otherwise auth-bearing) URLs in each asset’s `url` field during `resolveStore()`:
 
 ```typescript
 import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
@@ -175,25 +175,12 @@ async function resolveStore() {
     store.add(["s3", item.id], {
       version: item.revision,
       mimeType: "video/mp4",
-      source: { url: signedUrl },
+      url: signedUrl,
     });
   }
 
   return store;
 }
-```
-
-For long-lived API keys, use `source.headers` instead:
-
-```typescript
-store.add(["video", "welcome"], {
-  version: "v2",
-  mimeType: "video/mp4",
-  source: {
-    url: "https://cdn.example.com/video.mp4",
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  },
-});
 ```
 
 ### Multi-asset content
@@ -208,7 +195,7 @@ const role = store.defineIndex("role");
 store.add(["inductee", "2026", "beyonce", "ceremony"], {
   version: "3",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/beyonce-ceremony.mp4" },
+  url: "https://cdn.example.com/beyonce-ceremony.mp4",
   metadata: { inducteeId: "beyonce-2026", role: "primary", title: "Beyoncé Induction Ceremony" },
   indexes: [inductee("beyonce-2026"), role("primary")],
 });
@@ -216,7 +203,7 @@ store.add(["inductee", "2026", "beyonce", "ceremony"], {
 store.add(["inductee", "2026", "beyonce", "poster"], {
   version: "3",
   mimeType: "image/jpeg",
-  source: { url: "https://cdn.example.com/beyonce-poster.jpg" },
+  url: "https://cdn.example.com/beyonce-poster.jpg",
   metadata: { inducteeId: "beyonce-2026", role: "poster", title: "Beyoncé Poster" },
   indexes: [inductee("beyonce-2026"), role("poster")],
 });
@@ -225,7 +212,7 @@ store.add(["inductee", "2026", "beyonce", "subs-en"], {
   version: "3",
   mimeType: "text/vtt",
   fileName: "en.vtt",
-  source: { url: "https://cdn.example.com/beyonce-en.vtt" },
+  url: "https://cdn.example.com/beyonce-en.vtt",
   metadata: { inducteeId: "beyonce-2026", role: "subtitle", title: "English subtitles" },
   indexes: [inductee("beyonce-2026"), role("subtitle")],
 });
@@ -248,14 +235,14 @@ const poster = useMediaAsset(["inductee", "2026", "beyonce", "poster"]);
 
 ```typescript
 // WRONG — duplicate key (same AssetKeyInput resolves to the same storage hash)
-store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", source: { url } });
-store.add(["video", "welcome"], { version: "2", mimeType: "video/mp4", source: { url } });
+store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", url });
+store.add(["video", "welcome"], { version: "2", mimeType: "video/mp4", url });
 ```
 
 ```typescript
 // CORRECT — unique keys
-store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", source: { url } });
-store.add(["video", "welcome-v2"], { version: "2", mimeType: "video/mp4", source: { url } });
+store.add(["video", "welcome"], { version: "1", mimeType: "video/mp4", url });
+store.add(["video", "welcome-v2"], { version: "2", mimeType: "video/mp4", url });
 ```
 
 Source: store.ts; validation.ts
@@ -268,7 +255,7 @@ Source: store.ts; validation.ts
 // WRONG — missing version
 store.add(["video", "welcome"], {
   mimeType: "video/mp4",
-  source: { url },
+  url,
 });
 ```
 
@@ -277,7 +264,7 @@ store.add(["video", "welcome"], {
 store.add(["video", "welcome"], {
   version: "2026-03-15",
   mimeType: "video/mp4",
-  source: { url },
+  url,
 });
 ```
 
@@ -292,7 +279,7 @@ When `fileName` is omitted, it is derived from the URL basename. URLs ending in 
 store.add(["video", "ceremony"], {
   version: "1",
   mimeType: "video/mp4",
-  source: { url: "https://cdn.example.com/api/stream/" },
+  url: "https://cdn.example.com/api/stream/",
 });
 ```
 
@@ -302,7 +289,7 @@ store.add(["video", "ceremony"], {
   version: "1",
   mimeType: "video/mp4",
   fileName: "ceremony.mp4",
-  source: { url: "https://cdn.example.com/api/stream/" },
+  url: "https://cdn.example.com/api/stream/",
 });
 ```
 
@@ -318,7 +305,7 @@ const store = createMediaStore();
 store.add(["video", "welcome"], {
   version: "1",
   mimeType: "video/mp4",
-  source: { url },
+  url,
   metadata: { category: "lobby" },
 });
 // useMediaByIndex("category", "lobby") returns nothing
@@ -331,7 +318,7 @@ const category = store.defineIndex("category");
 store.add(["video", "welcome"], {
   version: "1",
   mimeType: "video/mp4",
-  source: { url },
+  url,
   metadata: { category: "lobby" },
   indexes: [category("lobby")],
 });
@@ -339,7 +326,7 @@ store.add(["video", "welcome"], {
 
 Source: store.ts; README
 
-### MEDIUM: Using non-HTTP asset source URLs
+### MEDIUM: Using non-HTTP asset URLs
 
 Validation enforces `http://` or `https://` schemes. `file://`, `data:`, `blob:` are rejected.
 

@@ -113,7 +113,7 @@ describe("store.add", () => {
   const validAsset = {
     version: "v1",
     mimeType: "image/jpeg",
-    source: { url: "https://cdn.example.com/photo-1.jpg" },
+    url: "https://cdn.example.com/photo-1.jpg",
   };
 
   it("accepts a valid asset with no indexes", () => {
@@ -156,7 +156,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        source: { url: "http://cdn.example.com/photo-1.jpg" },
+        url: "http://cdn.example.com/photo-1.jpg",
       }),
     ).not.toThrow();
   });
@@ -193,7 +193,7 @@ describe("store.add", () => {
     store.add("photo-1", validAsset);
     expect(() => store.add("photo-1", validAsset)).toThrow(StoreValidationError);
     expect(() =>
-      store.add("photo-1", { ...validAsset, source: { url: "https://cdn.example.com/other.jpg" } }),
+      store.add("photo-1", { ...validAsset, url: "https://cdn.example.com/other.jpg" }),
     ).toThrow(/Duplicate asset key "photo-1"/);
   });
 
@@ -223,7 +223,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        source: { url: "ftp://example.com/photo.jpg" },
+        url: "ftp://example.com/photo.jpg",
       }),
     ).toThrow(StoreValidationError);
   });
@@ -233,7 +233,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        source: { url: "file:///tmp/photo.jpg" },
+        url: "file:///tmp/photo.jpg",
       }),
     ).toThrow(StoreValidationError);
   });
@@ -243,7 +243,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        source: { url: "not a url" },
+        url: "not a url",
       }),
     ).toThrow(StoreValidationError);
   });
@@ -253,7 +253,7 @@ describe("store.add", () => {
     expect(() =>
       store.add("photo-1", {
         ...validAsset,
-        source: { url: "" },
+        url: "",
       }),
     ).toThrow(StoreValidationError);
   });
@@ -370,7 +370,7 @@ describe("store._serialize", () => {
     store.add("video-1", {
       version: "v1",
       mimeType: "video/mp4",
-      source: { url: "https://cdn.example.com/clip.mp4" },
+      url: "https://cdn.example.com/clip.mp4",
     });
     const manifest = store._serialize();
     const asset = manifest.assets[0]!;
@@ -396,7 +396,7 @@ describe("store._serialize", () => {
       store.add(key, {
         version: "v1",
         mimeType: mime,
-        source: { url: `https://cdn.example.com/${key}.bin` },
+        url: `https://cdn.example.com/${key}.bin`,
       });
     }
 
@@ -414,7 +414,7 @@ describe("store._serialize", () => {
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/media/photo-1.jpg" },
+      url: "https://cdn.example.com/media/photo-1.jpg",
     });
     const manifest = store._serialize();
     expect(manifest.assets[0]!.fileName).toBe("photo-1.jpg");
@@ -427,7 +427,7 @@ describe("store._serialize", () => {
       version: "v1",
       mimeType: "image/jpeg",
       fileName: "custom.jpg",
-      source: { url: "https://cdn.example.com/media/photo-1.jpg" },
+      url: "https://cdn.example.com/media/photo-1.jpg",
     });
     const manifest = store._serialize();
     expect(manifest.assets[0]!.fileName).toBe("custom.jpg");
@@ -441,7 +441,7 @@ describe("store._serialize", () => {
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
       indexes: [gallery("nature"), tags(["forest", "ambient"])],
     });
 
@@ -456,7 +456,7 @@ describe("store._serialize", () => {
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
       metadata: { title: "Forest", year: 2024, nested: { ok: true } },
     });
 
@@ -468,32 +468,13 @@ describe("store._serialize", () => {
     });
   });
 
-  it("preserves source details (method, headers) on serialized assets", () => {
-    const store = createMediaStore();
-    store.add("photo-1", {
-      version: "v1",
-      mimeType: "image/jpeg",
-      source: {
-        url: "https://cdn.example.com/photo-1.jpg",
-        method: "GET",
-        headers: { Authorization: "Bearer token" },
-      },
-    });
-
-    const manifest = store._serialize();
-    const source = manifest.assets[0]!.source;
-    expect(source.url).toBe("https://cdn.example.com/photo-1.jpg");
-    expect(source.method).toBe("GET");
-    expect(source.headers).toEqual({ Authorization: "Bearer token" });
-  });
-
   it("throws when a required index is missing from an asset", () => {
     const store = createMediaStore();
     store.defineIndex("category", { required: true });
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
     });
 
     expect(() => store._serialize()).toThrow(StoreValidationError);
@@ -506,7 +487,7 @@ describe("store._serialize", () => {
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
       indexes: [category("landscape")],
     });
 
@@ -518,12 +499,12 @@ describe("store._serialize", () => {
     store.add("b", {
       version: "v1",
       mimeType: "image/png",
-      source: { url: "https://cdn.example.com/b.png" },
+      url: "https://cdn.example.com/b.png",
     });
     store.add("a", {
       version: "v1",
       mimeType: "image/png",
-      source: { url: "https://cdn.example.com/a.png" },
+      url: "https://cdn.example.com/a.png",
     });
 
     const manifest = store._serialize();
@@ -536,7 +517,7 @@ describe("store._serialize", () => {
       version: "v1",
       mimeType: "image/jpeg",
       byteLength: 4096,
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
     });
 
     const manifest = store._serialize();
@@ -548,7 +529,7 @@ describe("store._serialize", () => {
     store.add("photo-1", {
       version: "v1",
       mimeType: "image/jpeg",
-      source: { url: "https://cdn.example.com/photo-1.jpg" },
+      url: "https://cdn.example.com/photo-1.jpg",
     });
 
     const manifest = store._serialize();

@@ -9,7 +9,8 @@
 - `defineManifest()`, `defineItem()`, `defineAsset()` removed. Replaced by `createMediaStore()`, `store.defineIndex()`, `store.add()`.
 - `namespacesFromEntries()`, `itemsFromEntries()`, `assetsFromEntries()` removed.
 - `resolveManifest` option replaced by `resolveStore` (returns a `MediaStore` or `Promise<MediaStore>`).
-- `resolveAssetRequest` option removed entirely; embed signed URLs or auth headers in `source` during `resolveStore()`.
+- `resolveAssetRequest` option removed entirely; embed presigned (or otherwise auth-bearing) URLs in each asset’s flat `url` field during `resolveStore()`.
+- **`source: { url, method?, headers? }` → flat `url: string`:** The nested `source` object is removed. `MediaAssetInput` and `FlatManifestAsset` require a top-level **`url: string`**. **`MediaRemoteSource` is removed.** Use `store.add(key, { url: "https://..." })` instead of `store.add(key, { source: { url: "https://..." } })`. Custom HTTP methods and per-request headers are not supported; use presigned URLs (or URLs that encode credentials in the query string).
 - Hierarchical `namespace/item/asset` model replaced by flat `assetKey` model with user-defined secondary indexes.
 - Per-asset versioning: each asset has its own `version` string (no longer inherited from parent item).
 - Asset keys are hashed for storage identity (SHA-256, first 16 hex characters). `store.add()`, `getAsset()`, and `useMediaAsset()` accept `string | readonly string[]` (the `AssetKeyInput` type). There is no validation of key characters or shape beyond non-empty strings or non-empty string segments.
@@ -34,7 +35,7 @@
 
 **Types:**
 
-- Removed: `MediaCacheManifest`, `MediaNamespaceValue`, `MediaItemValue`, `MediaAssetValue`, `ResolvedMediaContentItem`
+- Removed: `MediaCacheManifest`, `MediaNamespaceValue`, `MediaItemValue`, `MediaAssetValue`, `ResolvedMediaContentItem`, `MediaRemoteSource`
 - New: `MediaAssetInput`, `FlatManifest`, `FlatManifestAsset`, `IndexDefinition`
 - `ResolvedMediaAsset` now has: `key` (hash), `displayKey` (original key), `version`, `kind: MediaKind`, `mimeType`, `indexes: Record<string, string>`, `metadata: Record<string, unknown>`
 - `FileStemMatch` now has `asset: ResolvedMediaAsset` instead of `item: ResolvedMediaContentItem`
@@ -98,7 +99,7 @@ for (const v of data.videos) {
   store.add(["video", v.slug], {
     version: v.updatedAt,
     mimeType: "video/mp4",
-    source: { url: v.videoUrl },
+    url: v.videoUrl,
     metadata: { title: v.title, category: "videos" },
     indexes: [category("videos")],
   });
@@ -129,7 +130,7 @@ const mediaCache = createMediaCache({
       store.add(["items", item.id], {
         version: item.updatedAt,
         mimeType: item.mimeType,
-        source: { url: item.url },
+        url: item.url,
         metadata: item.metadata,
         indexes: [category("catalog")],
       });
@@ -155,7 +156,7 @@ const videos = useMediaByIndex("category", "videos", { limit: 20 });
 // videos.data?.items.map(...)
 ```
 
-**Auth (resolveAssetRequest → inline in resolveStore)**
+**Auth (resolveAssetRequest → presigned `url` in resolveStore)**
 
 ```ts
 // Before — resolveAssetRequest callback signed each download
@@ -169,7 +170,7 @@ const mediaCache = createMediaCache({
   resolveManifest: async () => fetchManifest(),
 });
 
-// After — embed signed URLs in source during resolveStore()
+// After — embed signed URLs in each asset’s flat url during resolveStore()
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   resolveStore: async () => {
@@ -183,7 +184,7 @@ const mediaCache = createMediaCache({
       store.add(["assets", item.id], {
         version: item.revision,
         mimeType: "video/mp4",
-        source: { url: signedUrl },
+        url: signedUrl,
       });
     }
     return store;
