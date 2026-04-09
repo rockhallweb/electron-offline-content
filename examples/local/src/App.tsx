@@ -53,9 +53,10 @@ export function App() {
   );
 
   useEffect(() => {
+    if (videos.length === 0) return;
     const keyExists = videos.some((a) => selectionMatchesAsset(selectedKey, a));
-    if (!keyExists && videos[0]) {
-      setSelectedKey(videos[0].key);
+    if (!keyExists) {
+      setSelectedKey(videos[0]!.key);
     }
   }, [selectedKey, videos]);
 

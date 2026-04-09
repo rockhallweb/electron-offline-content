@@ -99,7 +99,7 @@ interface MediaCacheReadyState {
   ready: boolean;
   syncing: boolean;
   phase: "idle" | "syncing" | "ready" | "error";
-  activeGenerationId: string | null;
+  activeGenerationId: number | null;
   syncError: Error | null;
 }
 ```
@@ -109,7 +109,7 @@ interface MediaCacheReadyState {
 | `ready`              | `true` once at least one successful sync has completed and content is available. |
 | `syncing`            | `true` while a sync operation is in progress.                                    |
 | `phase`              | Current sync lifecycle phase.                                                    |
-| `activeGenerationId` | ID of the current content generation, or `null` before first sync.               |
+| `activeGenerationId` | Numeric SQLite generation id, or `null` before the first successful sync.        |
 | `syncError`          | Error from the most recent sync attempt, or `null`.                              |
 
 ```tsx
@@ -142,7 +142,7 @@ function useMediaCacheStatus(): UseMediaCacheStatusResult;
 interface MediaCacheStatus {
   phase: "idle" | "syncing" | "ready" | "error";
   storageRoot: string;
-  activeGenerationId: string | null;
+  activeGenerationId: number | null;
   progress: SyncProgress | null;
   lastRun: string | null;
   error: string | null;
@@ -168,7 +168,7 @@ interface SyncProgress {
 | -------------------- | ---------------------------------------------------------------- |
 | `phase`              | Current sync lifecycle phase.                                    |
 | `storageRoot`        | Absolute path to the local cache directory.                      |
-| `activeGenerationId` | ID of the content generation being served.                       |
+| `activeGenerationId` | Numeric id of the content generation being served.               |
 | `progress`           | Asset-level progress during `"syncing"` phase; `null` otherwise. |
 | `lastRun`            | ISO timestamp of the last completed sync, or `null`.             |
 | `error`              | Error message string from the last sync failure, or `null`.      |
@@ -425,7 +425,7 @@ interface MediaCacheReadyState {
   ready: boolean;
   syncing: boolean;
   phase: "idle" | "syncing" | "ready" | "error";
-  activeGenerationId: string | null;
+  activeGenerationId: number | null;
   syncError: Error | null;
 }
 ```

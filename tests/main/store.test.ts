@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashKey } from "../../src/internal/asset-key.js";
+import { mediaKindFromMime } from "../../src/internal/media-kind.js";
 import { createMediaStore, MediaStore } from "../../src/main/store.js";
 import { StoreValidationError } from "../../src/shared/errors.js";
 import { IndexTag } from "../../src/shared/types.js";
@@ -100,6 +101,36 @@ describe("store.defineIndex", () => {
     expect(a.indexName).toBe("alpha");
     expect(b.indexName).toBe("beta");
   });
+
+  it("rejects invalid cardinality option at runtime", () => {
+    const store = createMediaStore();
+    expect(() => store.defineIndex("test", { cardinality: "many" as "single" | "multi" })).toThrow(
+      StoreValidationError,
+    );
+    expect(() => store.defineIndex("test", { cardinality: "many" as "single" | "multi" })).toThrow(
+      /cardinality must be "single" or "multi"/,
+    );
+  });
+
+  it("rejects non-boolean required option at runtime (string)", () => {
+    const store = createMediaStore();
+    expect(() => store.defineIndex("test", { required: "yes" as unknown as boolean })).toThrow(
+      StoreValidationError,
+    );
+    expect(() => store.defineIndex("test", { required: "yes" as unknown as boolean })).toThrow(
+      /required must be a boolean/,
+    );
+  });
+
+  it("rejects non-boolean required option at runtime (number)", () => {
+    const store = createMediaStore();
+    expect(() => store.defineIndex("test", { required: 1 as unknown as boolean })).toThrow(
+      StoreValidationError,
+    );
+    expect(() => store.defineIndex("test", { required: 1 as unknown as boolean })).toThrow(
+      /required must be a boolean/,
+    );
+  });
 });
 
 describe("store.add", () => {
@@ -119,6 +150,57 @@ describe("store.add", () => {
   it("accepts a valid asset with no indexes", () => {
     const { store } = makeStore();
     expect(() => store.add("photo-1", validAsset)).not.toThrow();
+  });
+
+  it("accepts compound array asset keys", () => {
+    const { store } = makeStore();
+    expect(() => store.add(["section", "subsection", "asset"], validAsset)).not.toThrow();
+    const manifest = store._serialize();
+    expect(manifest.assets[0]!.displayKey).toBe("section/subsection/asset");
+    expect(manifest.assets[0]!.key).toBe(hashKey(["section", "subsection", "asset"]));
+  });
+
+  it("rejects negative byteLength", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        byteLength: -100,
+      }),
+    ).toThrow(StoreValidationError);
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        byteLength: -100,
+      }),
+    ).toThrow(/byteLength must be a non-negative finite number/);
+  });
+
+  it("rejects NaN byteLength", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        byteLength: Number.NaN,
+      }),
+    ).toThrow(StoreValidationError);
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        byteLength: Number.NaN,
+      }),
+    ).toThrow(/byteLength must be a non-negative finite number/);
+  });
+
+  it("accepts fractional byteLength (spec: non-negative finite, not integer-only)", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        byteLength: 1024.5,
+      }),
+    ).not.toThrow();
+    expect(store._serialize().assets[0]!.byteLength).toBe(1024.5);
   });
 
   it("accepts a valid asset with single-cardinality index", () => {
@@ -402,7 +484,8 @@ describe("store._serialize", () => {
       ["bin", "application/octet-stream", "binary"],
     ];
 
-    for (const [key, mime, _expectedKind] of cases) {
+    for (const [key, mime, expectedKind] of cases) {
+      expect(mediaKindFromMime(mime)).toBe(expectedKind);
       store.add(key, {
         version: "v1",
         mimeType: mime,
