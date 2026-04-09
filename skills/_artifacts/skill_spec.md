@@ -39,15 +39,15 @@ are expected.
 
 ### store-authoring (7 failure modes)
 
-| #   | Mistake                                     | Priority | Source                      | Cross-skill? |
-| --- | ------------------------------------------- | -------- | --------------------------- | ------------ |
-| 1   | Duplicate asset keys in store.add calls     | HIGH     | store.ts; validation.ts     | —            |
-| 2   | Omitting required asset version             | HIGH     | normalize.ts; validation.ts | —            |
-| 3   | Asset URL without filename in path          | HIGH     | internal/asset-file-name.ts | —            |
-| 4   | Forgetting to defineIndex before querying   | HIGH     | store.ts; README            | —            |
-| 5   | Using non-HTTP asset source URLs            | MEDIUM   | validation.ts               | —            |
-| 6   | Index function returning inconsistent types | MEDIUM   | store.ts                    | —            |
-| 7   | Too many fine-grained indexes               | MEDIUM   | Maintainer interview        | —            |
+| #   | Mistake                                   | Priority | Source                      | Cross-skill? |
+| --- | ----------------------------------------- | -------- | --------------------------- | ------------ |
+| 1   | Duplicate asset keys in store.add calls   | HIGH     | store.ts; validation.ts     | —            |
+| 2   | Omitting required asset version           | HIGH     | normalize.ts; validation.ts | —            |
+| 3   | Asset URL without filename in path        | HIGH     | internal/asset-file-name.ts | —            |
+| 4   | Forgetting to defineIndex before querying | HIGH     | store.ts; README            | —            |
+| 5   | Using non-HTTP asset source URLs          | MEDIUM   | validation.ts               | —            |
+| 6   | Index value cardinality mismatch          | MEDIUM   | store.ts                    | —            |
+| 7   | Too many fine-grained indexes             | MEDIUM   | Maintainer interview        | —            |
 
 ### cache-configuration (5 failure modes)
 

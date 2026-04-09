@@ -448,9 +448,12 @@ export class MediaCacheDatabase {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`UPDATE generations SET is_active = 0 WHERE is_active = 1`).run();
-      this.db
+      const result = this.db
         .prepare(`UPDATE generations SET is_active = 1, committed_at_ms = ? WHERE id = ?`)
         .run(now, generationId);
+      if (result.changes !== 1) {
+        throw new Error(`Cannot activate missing generation ${generationId}`);
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");

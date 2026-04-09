@@ -185,7 +185,7 @@ Looks up a single asset by its unique key.
 function useMediaAsset(
   key: string,
   options?: { refetchOnSyncComplete?: boolean },
-): AsyncState<ResolvedMediaAsset>;
+): AsyncState<ResolvedMediaAsset | null>;
 ```
 
 | Parameter | Type     | Description                                                  |
@@ -193,7 +193,7 @@ function useMediaAsset(
 | `key`     | `string` | The asset key (as passed to `store.add()` in `resolveStore`) |
 | `options` | `object` | Optional. `refetchOnSyncComplete` re-fetches after sync.     |
 
-**Returns:** `AsyncState<ResolvedMediaAsset>`
+**Returns:** `AsyncState<ResolvedMediaAsset | null>`
 
 ```tsx
 import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
@@ -237,7 +237,7 @@ function useMediaByIndex(
 | ----------------------- | --------- | ------- | ------------------------------ |
 | `limit`                 | `number`  | —       | Maximum results per page.      |
 | `cursor`                | `string`  | —       | Opaque cursor for next page.   |
-| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch after sync completes. |
+| `refetchOnSyncComplete` | `boolean` | `true`  | Re-fetch after sync completes. |
 
 **Returns:** `AsyncState<PaginationResult<ResolvedMediaAsset>>`
 
@@ -288,7 +288,7 @@ function useFileStemMatch(
 | ----------------------- | --------- | ------- | ------------------------------ |
 | `limit`                 | `number`  | —       | Maximum matches per page.      |
 | `cursor`                | `string`  | —       | Opaque cursor for next page.   |
-| `refetchOnSyncComplete` | `boolean` | `false` | Re-fetch after sync completes. |
+| `refetchOnSyncComplete` | `boolean` | `true`  | Re-fetch after sync completes. |
 
 **Returns:** `AsyncState<PaginationResult<FileStemMatch>>`
 
@@ -370,21 +370,23 @@ interface ResolvedMediaAsset {
   version: string;
   kind: MediaKind;
   mimeType: string;
+  byteLength?: number;
   url: string;
-  indexes: Record<string, string>;
-  metadata: Record<string, unknown>;
+  indexes: Record<string, string | string[]>;
+  metadata: Record<string, JsonValue>;
 }
 ```
 
-| Field      | Description                                                                    |
-| ---------- | ------------------------------------------------------------------------------ |
-| `key`      | Unique asset key (as defined in `store.add()`).                                |
-| `version`  | Content version string from the store.                                         |
-| `kind`     | Media kind enum value (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).    |
-| `mimeType` | MIME type (e.g. `"video/mp4"`).                                                |
-| `url`      | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode. |
-| `indexes`  | Key-value map of index names to their computed values for this asset.          |
-| `metadata` | Arbitrary metadata from `store.add()`.                                         |
+| Field        | Description                                                                    |
+| ------------ | ------------------------------------------------------------------------------ |
+| `key`        | Unique asset key (as defined in `store.add()`).                                |
+| `version`    | Content version string from the store.                                         |
+| `kind`       | Media kind enum value (e.g. `"video"`, `"image"`, `"audio"`, `"document"`).    |
+| `mimeType`   | MIME type (e.g. `"video/mp4"`).                                                |
+| `byteLength` | Size in bytes when known from the store.                                       |
+| `url`        | Ready-to-render URL. `media://` in offline mode, HTTPS in devPassthrough mode. |
+| `indexes`    | Index names to their values; arrays for multi-cardinality indexes.             |
+| `metadata`   | Arbitrary JSON metadata from `store.add()`.                                    |
 
 ### FileStemMatch
 

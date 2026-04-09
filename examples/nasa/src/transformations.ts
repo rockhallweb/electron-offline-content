@@ -105,6 +105,7 @@ function addItemAssets(
   assetCollections: Record<string, string[]>,
 ): void {
   const data = item.data[0];
+  if (!data) return;
   const dataResult = NasaSearchItemDataLike.safeParse(data);
   if (!dataResult.success) {
     throw new Error(`Invalid NASA search item data: ${JSON.stringify(data)}`);
@@ -182,5 +183,9 @@ function addItemAssets(
 
 /** Picks the best asset URL from a list of URLs and preferred suffixes */
 function pickAssetUrl(assetUrls: string[], preferredSuffixes: string[]): string | null {
-  return assetUrls.find((url) => preferredSuffixes.some((suffix) => url.endsWith(suffix))) ?? null;
+  for (const suffix of preferredSuffixes) {
+    const match = assetUrls.find((url) => url.endsWith(suffix));
+    if (match) return match;
+  }
+  return null;
 }
