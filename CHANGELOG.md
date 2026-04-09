@@ -360,7 +360,7 @@ createMediaCache({
 
 ### Added
 
-- AI agent skill specifications in `skills/_artifacts/` — domain map, skill spec, and skill tree covering getting-started, manifest-authoring, cache-configuration, react-rendering, authenticated-downloads, and production-checklist workflows.
+- AI agent skill specifications in `skills/_artifacts/` — domain map, skill spec, and skill tree covering getting-started, store-authoring, cache-configuration, react-rendering, authenticated-downloads, and production-checklist workflows.
 - `@tanstack/intent` dev dependency for skill tooling.
 
 ### Changed

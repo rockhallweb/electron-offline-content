@@ -223,7 +223,7 @@ function WelcomeVideo() {
 
 ### useMediaByIndex
 
-Queries assets by a secondary index defined in `resolveStore`.
+Queries assets by secondary index: any name passed to `store.defineIndex()` in `resolveStore`, plus the built-in indexes `mimeType` and `mediaKind` that the store adds for every asset.
 
 ```typescript
 function useMediaByIndex(

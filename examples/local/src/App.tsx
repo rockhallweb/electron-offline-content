@@ -193,6 +193,7 @@ export function App() {
             return (
               <button
                 key={asset.key}
+                aria-pressed={isActive}
                 className={
                   isActive
                     ? "cursor-pointer rounded-[20px] border border-accent/50 bg-[linear-gradient(180deg,rgba(19,34,49,0.92),rgba(10,17,26,0.92))] p-3 text-left text-inherit transition duration-150 hover:-translate-y-0.5 hover:border-line-strong"

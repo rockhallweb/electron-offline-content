@@ -1,5 +1,5 @@
 export { createMediaCache, type MediaCacheMain } from "./media-cache.js";
-export { createMediaStore, MediaStore, type MediaIndex } from "./store.js";
+export { createMediaStore, MediaStore, type MediaIndex, type MediaStoreOptions } from "./store.js";
 export { mediaKindFromMime } from "../internal/media-kind.js";
 export {
   IndexTag,
@@ -17,6 +17,7 @@ export {
   type MediaCacheLogFormat,
   type MediaCacheLogHandler,
   type MediaCacheLogLevel,
+  type MediaCacheLoggingOptions,
   type MediaCacheOptions,
   type MediaCachePhase,
   type MediaCacheReadyState,

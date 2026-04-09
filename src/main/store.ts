@@ -190,6 +190,11 @@ export class MediaStore {
     const fileName = input.fileName ?? deriveAssetFileName(input.url);
 
     const assetIndexes: Record<string, string | string[]> = Object.create(null);
+    if (input.indexes !== undefined && !Array.isArray(input.indexes)) {
+      throw new StoreValidationError(
+        `Asset "${display}": indexes must be an array of IndexTag entries produced by calling a defineIndex handle.`,
+      );
+    }
     if (input.indexes) {
       for (const tag of input.indexes) {
         if (!(tag instanceof IndexTag)) {
@@ -205,7 +210,7 @@ export class MediaStore {
             `Asset "${display}": index "${indexName}" has not been defined. Call store.defineIndex("${indexName}") first.`,
           );
         }
-        if (indexName in assetIndexes) {
+        if (Object.hasOwn(assetIndexes, indexName)) {
           throw new StoreValidationError(
             `Asset "${display}": duplicate index "${indexName}" in indexes array.`,
           );
@@ -238,10 +243,12 @@ export class MediaStore {
               );
             }
           }
-          assetIndexes[indexName] = values;
+          assetIndexes[indexName] = [...new Set(values)];
         }
       }
     }
+
+    const metadataSnapshot = input.metadata === undefined ? {} : structuredClone(input.metadata);
 
     this.assets.set(hashedKey, {
       key: hashedKey,
@@ -251,7 +258,7 @@ export class MediaStore {
       url: input.url,
       fileName,
       byteLength: input.byteLength,
-      metadata: input.metadata ?? {},
+      metadata: metadataSnapshot,
       indexes: assetIndexes,
     });
   }

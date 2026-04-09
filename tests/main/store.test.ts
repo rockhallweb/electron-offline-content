@@ -258,6 +258,16 @@ describe("store.add", () => {
     ).toThrow(StoreValidationError);
   });
 
+  it("rejects non-array indexes", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.add("photo-1", {
+        ...validAsset,
+        indexes: {} as never,
+      }),
+    ).toThrow(/indexes must be an array of IndexTag/);
+  });
+
   it("rejects unknown index reference", () => {
     const { store } = makeStore();
     const unknownTag = new IndexTag("unknown", "value");

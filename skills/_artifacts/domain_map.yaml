@@ -176,8 +176,8 @@ skills:
         priority: MEDIUM
         status: active
 
-  - name: "Manifest Authoring"
-    slug: "manifest-authoring"
+  - name: "Store Authoring"
+    slug: "store-authoring"
     domain: "content-sync"
     description: >
       Writing resolveStore functions against any remote source (CMS, S3, API),
@@ -713,7 +713,7 @@ tensions:
       sync failure resilience.
 
   - name: "Store shape flexibility vs validation strictness"
-    skills: ["manifest-authoring", "getting-started"]
+    skills: ["store-authoring", "getting-started"]
     description: >
       resolveStore returns a MediaStore you build imperatively, but validation
       is strict on uniqueness constraints, required fields like version, and
@@ -734,7 +734,7 @@ tensions:
       a visible error in some kiosk contexts.
 
   - name: "Presigned URL TTL vs catalog sync duration"
-    skills: ["authenticated-downloads", "manifest-authoring"]
+    skills: ["authenticated-downloads", "store-authoring"]
     description: >
       Pre-signed URLs embedded in resolveStore are simple but have a TTL
       ceiling: the expiration must cover the entire download queue. There is
@@ -745,7 +745,7 @@ tensions:
 
 cross_references:
   - from: "getting-started"
-    to: "manifest-authoring"
+    to: "store-authoring"
     reason: "resolveStore and createMediaStore patterns; getting-started needs store basics."
   - from: "getting-started"
     to: "cache-configuration"
@@ -757,7 +757,7 @@ cross_references:
     to: "getting-started"
     reason: "Rendering requires full main → preload → renderer wiring."
   - from: "authenticated-downloads"
-    to: "manifest-authoring"
+    to: "store-authoring"
     reason: "Presigned URLs are assigned while building the MediaStore in resolveStore."
   - from: "authenticated-downloads"
     to: "cache-configuration"
@@ -765,7 +765,7 @@ cross_references:
   - from: "production-checklist"
     to: "cache-configuration"
     reason: "Checklist items are configuration changes."
-  - from: "manifest-authoring"
+  - from: "store-authoring"
     to: "react-rendering"
     reason: "Index tags and asset keys in resolveStore determine how hooks query content."
 
@@ -789,7 +789,7 @@ gaps:
       hooks provide error aggregation but no guidance on kiosk-specific
       error display patterns.
     status: open
-  - skill: "manifest-authoring"
+  - skill: "store-authoring"
     question: >
       Is there a recommended pattern for S3-compatible bucket integration?
     context: >

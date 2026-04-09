@@ -9,7 +9,7 @@ type: core
 library: electron-offline-content
 library_version: "0.4.0"
 requires:
-  - manifest-authoring
+  - store-authoring
 sources:
   - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
   - "rockhallweb/electron-offline-content:src/main/store.ts"
@@ -17,7 +17,7 @@ sources:
   - "rockhallweb/electron-offline-content:README.md"
 ---
 
-> **Dependency:** This skill builds on manifest-authoring. Read it first for resolveStore and createMediaStore patterns.
+> **Dependency:** This skill builds on store-authoring. Read it first for resolveStore and createMediaStore patterns.
 
 ## Setup
 
@@ -188,7 +188,7 @@ Cross-skill: cache-configuration/SKILL.md § Common Mistakes
 
 Pre-signed URLs embedded at store build time are simple but have a TTL ceiling: expiration must cover the entire download queue. For large catalogs, evaluate expected sync duration and set TTLs accordingly. Use store `expiresAt` for fail-fast behavior.
 
-See also: manifest-authoring/SKILL.md § Common Mistakes
+See also: store-authoring/SKILL.md § Common Mistakes
 
 ### HIGH Tension: Dev passthrough simplicity vs production correctness
 
@@ -198,6 +198,6 @@ See also: cache-configuration/SKILL.md § Common Mistakes
 
 ---
 
-See also: manifest-authoring/SKILL.md — Asset URL definition and resolveStore
+See also: store-authoring/SKILL.md — Asset URL definition and resolveStore
 See also: cache-configuration/SKILL.md — devPassthrough mode bypasses downloads
 See also: production-checklist/SKILL.md — Verify auth works in offline mode before deploy

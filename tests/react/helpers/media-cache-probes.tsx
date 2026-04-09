@@ -10,17 +10,23 @@ import {
 
 export function MediaAssetProbe({ assetKey }: { assetKey: string }) {
   const asset = useMediaAsset(assetKey);
-  return <div data-testid="asset-key">{asset.data?.key ?? "loading"}</div>;
+  return (
+    <div data-testid="asset-key">{asset.loading ? "loading" : (asset.data?.key ?? "none")}</div>
+  );
 }
 
 export function MediaVersionProbe({ refetchOnSyncComplete }: { refetchOnSyncComplete?: boolean }) {
   const asset = useMediaAsset("forest", { refetchOnSyncComplete });
-  return <div data-testid="asset-version">{asset.data?.version ?? "loading"}</div>;
+  return (
+    <div data-testid="asset-version">
+      {asset.loading ? "loading" : (asset.data?.version ?? "none")}
+    </div>
+  );
 }
 
 export function MediaByIndexProbe({ indexName, value }: { indexName: string; value: string }) {
   const assets = useMediaByIndex(indexName, value);
-  return <div>{assets.data?.items[0]?.key ?? "loading"}</div>;
+  return <div>{assets.loading ? "loading" : (assets.data?.items[0]?.key ?? "none")}</div>;
 }
 
 export function StatusProbe() {
@@ -35,10 +41,11 @@ export function MediaCacheStatusPhaseProbe() {
 
 export function MediaAndBridgePhaseProbe() {
   const _asset = useMediaAsset("forest");
+  const status = useMediaCacheStatus();
   const bridge = useMediaBridge();
   return (
     <div>
-      <div data-testid="media-phase">{bridge.phase}</div>
+      <div data-testid="media-phase">{status.phase}</div>
       <div data-testid="bridge-phase">{bridge.phase}</div>
     </div>
   );
@@ -52,7 +59,9 @@ export function ReadyAndErrorProbe() {
   return (
     <div>
       <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
-      <div data-testid="media-status-phase">{ready.data?.phase ?? "loading"}</div>
+      <div data-testid="media-status-phase">
+        {ready.loading ? "loading" : (ready.data?.phase ?? "unknown")}
+      </div>
       <div data-testid="error-flag">{String(errors.hasError)}</div>
       <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
       <div data-testid="primary-error-message">{errors.primaryError?.message ?? "none"}</div>

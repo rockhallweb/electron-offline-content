@@ -43,11 +43,11 @@ skills:
     subsystems: []
     references: []
 
-  - name: "Manifest Authoring"
-    slug: "manifest-authoring"
+  - name: "Store Authoring"
+    slug: "store-authoring"
     type: "core"
     domain: "content-sync"
-    path: "skills/manifest-authoring/SKILL.md"
+    path: "skills/store-authoring/SKILL.md"
     description: >
       Writing resolveStore functions against any remote source (CMS, S3,
       REST API). Using createMediaStore, store.defineIndex, and store.add
@@ -124,7 +124,7 @@ skills:
       expiration vs catalog sync duration tradeoff; dev passthrough vs
       offline download testing.
     requires:
-      - "manifest-authoring"
+      - "store-authoring"
     sources:
       - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
       - "rockhallweb/electron-offline-content:src/main/store.ts"
