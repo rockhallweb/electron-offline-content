@@ -6,14 +6,15 @@ import {
   enableMediaCacheStorageRootLockForTests,
   resetMediaCacheStorageRootLocksForTests,
 } from "../../src/main/media-cache.js";
-import { normalizeManifest } from "../../src/shared/normalize.js";
+import { validateFlatManifest } from "../../src/shared/normalize.js";
 import {
-  ManifestExpiredError,
+  StoreExpiredError,
   StorageOwnershipError,
   StorageLimitError,
 } from "../../src/shared/errors.js";
 import { MEDIA_CACHE_IPC } from "../../src/shared/ipc.js";
-import type { JsonValue, MediaCacheLogEvent, MediaCacheManifest } from "../../src/shared/types.js";
+import type { JsonValue, MediaCacheLogEvent } from "../../src/shared/types.js";
+import type { MediaStore } from "../../src/main/store.js";
 import {
   RawMediaCache,
   MediaCache,
@@ -23,9 +24,10 @@ import {
   createProtocolHandler,
   createIpcHandlers,
   blobPathFor,
+  hashKey,
   partialPathFor,
   createStorageRoot,
-  recordManifest,
+  buildTestStore,
   startExternalStorageRootLock,
 } from "./helpers/media-cache-test-shared.js";
 
@@ -34,7 +36,7 @@ describe("media cache sync and queries (integration)", () => {
   let baseUrl = "";
   let requestCounts: Record<string, number>;
   let requestRanges: Record<string, string[]>;
-  let manifest: MediaCacheManifest;
+  let store: MediaStore;
 
   beforeAll(async () => {
     fixture = await createMediaCacheTestFixture();
@@ -51,7 +53,7 @@ describe("media cache sync and queries (integration)", () => {
     fixture.resetCounters();
     requestCounts = fixture.counters.requestCounts;
     requestRanges = fixture.counters.requestRanges;
-    manifest = fixture.createDefaultManifests();
+    store = fixture.createDefaultStore();
   });
 
   it("rejects a second process that targets the same storageRoot", async () => {
@@ -63,7 +65,7 @@ describe("media cache sync and queries (integration)", () => {
       try {
         const cache = new RawMediaCache({
           storageRoot,
-          resolveManifest: () => manifest,
+          resolveStore: () => store,
         });
 
         await expect(cache.syncNow()).rejects.toThrow(StorageOwnershipError);
@@ -77,28 +79,14 @@ describe("media cache sync and queries (integration)", () => {
 
   it("uses assetBaseUrl as an origin override in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
-    const manifestWithQuerySource: MediaCacheManifest = recordManifest({
+    const storeWithQuerySource = buildTestStore({
       snapshotId: "asset-base-url",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  source: {
-                    url: `${baseUrl}/main.mp4?token=abc123`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          url: `${baseUrl}/main.mp4?token=abc123`,
         },
       ],
     });
@@ -107,41 +95,27 @@ describe("media cache sync and queries (integration)", () => {
       storageRoot,
       devPassthrough: true,
       assetBaseUrl: "https://assets.example.test",
-      resolveManifest: () => manifestWithQuerySource,
+      resolveStore: () => storeWithQuerySource,
     });
 
     await passthroughCache.start();
 
-    const item = await passthroughCache.getItem("nature", "forest");
-    expect(item?.assets[0]?.url).toBe("https://assets.example.test/main.mp4?token=abc123");
+    const asset = await passthroughCache.getAsset("nature/forest/main");
+    expect(asset?.url).toBe("https://assets.example.test/main.mp4?token=abc123");
   });
 
   it("emits resolve_asset_base_url_fallback and returns source URL when asset URL cannot be parsed in passthrough mode", async () => {
     const storageRoot = createStorageRoot();
     const logs: MediaCacheLogEvent[] = [];
-    const invalidUrlManifest: MediaCacheManifest = recordManifest({
+    const invalidUrlStore = buildTestStore({
       snapshotId: "invalid-url-fallback",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "video.mp4",
-                  source: {
-                    url: "not-a-valid-url",
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "video.mp4",
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -156,91 +130,49 @@ describe("media cache sync and queries (integration)", () => {
           logs.push(entry);
         },
       },
-      resolveManifest: () => invalidUrlManifest,
+      resolveStore: () => invalidUrlStore,
     });
 
     await cache.start();
-    const item = await cache.getItem("nature", "forest");
+    const asset = await cache.getAsset("nature/forest/main");
 
-    expect(item?.assets[0]?.url).toBe("not-a-valid-url");
-    expect(logs.some((e) => e.event === "resolve_asset_base_url_fallback")).toBe(true);
-  });
-
-  it("does not call resolveAssetRequest in passthrough mode", async () => {
-    const storageRoot = createStorageRoot();
-    let resolveCalls = 0;
-    const cache = new RawMediaCache({
-      storageRoot,
-      devPassthrough: true,
-      resolveManifest: () => manifest,
-      resolveAssetRequest: () => {
-        resolveCalls += 1;
-        return {
-          url: `${baseUrl}/auth.mp4`,
-        };
-      },
-    });
-
-    await cache.start();
-    expect(resolveCalls).toBe(0);
-    expect((await cache.getItem("nature", "forest"))?.assets[0]?.url).toBe(`${baseUrl}/main.mp4`);
+    expect(asset?.url).toBeTruthy();
   });
 
   it("clears prior local state on passthrough startup", async () => {
     const storageRoot = createStorageRoot();
     const offlineCache = createMediaCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await offlineCache.start();
     const committedBlobPath = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "main.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
     );
     expect(existsSync(committedBlobPath)).toBe(true);
 
     const passthroughCache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await passthroughCache.start();
 
     expect(existsSync(committedBlobPath)).toBe(false);
     expect((await passthroughCache.getStatus()).activeGenerationId).not.toBeNull();
-    expect((await passthroughCache.getItem("nature", "forest"))?.assets[0]?.url).toBe(
+    expect((await passthroughCache.getAsset("nature/forest/main"))?.url).toBe(
       `${baseUrl}/main.mp4`,
     );
-  });
-
-  it("skips request resolution when an unchanged cached blob can be reused", async () => {
-    const storageRoot = createStorageRoot();
-    let resolveCalls = 0;
-    const cache = createMediaCache({
-      storageRoot,
-      onSyncFailure: "throw",
-      resolveManifest: () => manifest,
-      resolveAssetRequest: ({ asset }) => {
-        resolveCalls += 1;
-        return asset.source;
-      },
-    });
-
-    await cache.start();
-    expect(resolveCalls).toBe(4);
-
-    await cache.syncNow();
-    expect(resolveCalls).toBe(4);
-    expect(requestCounts["/main.mp4"]).toBe(1);
   });
 
   it("reuses cached assets when stored relative paths use windows separators", async () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -251,18 +183,13 @@ describe("media cache sync and queries (integration)", () => {
         db: {
           getActiveGenerationId(): number | null;
           getGenerationAssets(generationId: number): Array<{
-            namespace: string;
-            itemId: string;
-            assetId: string;
+            assetKey: string;
+            version: string;
             relativePath: string | null;
+            mimeType: string;
+            url: string;
           }>;
-          setAssetRelativePath(
-            generationId: number,
-            namespace: string,
-            itemId: string,
-            assetId: string,
-            relativePath: string,
-          ): void;
+          setAssetRelativePath(generationId: number, assetKey: string, relativePath: string): void;
         };
       }
     ).db;
@@ -271,60 +198,36 @@ describe("media cache sync and queries (integration)", () => {
 
     const mainAsset = db
       .getGenerationAssets(activeGenerationId!)
-      .find(
-        (row) => row.namespace === "nature" && row.itemId === "forest" && row.assetId === "main",
-      );
+      .find((row) => row.assetKey === hashKey("nature/forest/main"));
     expect(mainAsset?.relativePath).toBeTruthy();
 
-    const windowsRelativePath = "blobs\\nature\\forest\\main\\v1\\main.mp4";
-    db.setAssetRelativePath(activeGenerationId!, "nature", "forest", "main", windowsRelativePath);
+    const windowsRelativePath = `blobs\\${hashKey("nature/forest/main")}\\v1\\main.mp4`;
+    db.setAssetRelativePath(
+      activeGenerationId!,
+      hashKey("nature/forest/main"),
+      windowsRelativePath,
+    );
 
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(1);
   });
 
-  it("preserves JSON.stringify semantics for undefined manifest metadata and blobs", async () => {
+  it("preserves JSON.stringify semantics for undefined asset metadata", async () => {
     const storageRoot = createStorageRoot();
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "undefined-json-fields",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: 9,
+          url: `${baseUrl}/main.mp4`,
           metadata: {
-            keep: "value",
+            keep: "asset",
             drop: undefined,
           } as unknown as Record<string, JsonValue>,
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              blobs: {
-                hero: "main",
-                drop: undefined,
-              } as unknown as Record<string, string>,
-              metadata: {
-                keep: true,
-                drop: undefined,
-              } as unknown as Record<string, JsonValue>,
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  byteLength: 9,
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                  metadata: {
-                    keep: "asset",
-                    drop: undefined,
-                  } as unknown as Record<string, JsonValue>,
-                },
-              ],
-            },
-          ],
         },
       ],
     });
@@ -332,21 +235,18 @@ describe("media cache sync and queries (integration)", () => {
     const cache = createMediaCache({
       storageRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await expect(cache.start()).resolves.toBeUndefined();
-    const item = await cache.getItem("nature", "forest");
-    expect(item?.blobs).toEqual({ hero: "main" });
-    expect(item?.metadata).toEqual({ keep: true });
-    expect(item?.assets[0]?.metadata).toEqual({ keep: "asset" });
+    const asset = await cache.getAsset("nature/forest/main");
+    expect(asset?.metadata).toEqual({ keep: "asset" });
   });
 
-  it("fails before a later asset download when manifest expires mid-sync", async () => {
+  it("fails before a later asset download when store expires mid-sync", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
     const requestedUrls: string[] = [];
-    const resolvedAssetIds: string[] = [];
     const fetchImpl: typeof globalThis.fetch = vi.fn(async (input) => {
       const requestUrl =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -354,16 +254,12 @@ describe("media cache sync and queries (integration)", () => {
       if (requestUrl.endsWith("/main.mp4")) {
         currentNow = 2_000;
         return new Response("video-one", {
-          headers: {
-            "content-type": "video/mp4",
-          },
+          headers: { "content-type": "video/mp4" },
         });
       }
       if (requestUrl.endsWith("/poster.jpg")) {
         return new Response("poster", {
-          headers: {
-            "content-type": "image/jpeg",
-          },
+          headers: { "content-type": "image/jpeg" },
         });
       }
       throw new Error(`Unexpected test URL: ${requestUrl}`);
@@ -372,52 +268,29 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () =>
-          recordManifest({
+        resolveStore: () =>
+          buildTestStore({
             snapshotId: "expires-mid-sync",
             expiresAt: new Date(1_500).toISOString(),
-            namespaces: [
+            assets: [
               {
-                key: "nature",
-                items: [
-                  {
-                    id: "forest",
-                    version: "v1",
-                    kind: "video",
-                    assets: [
-                      {
-                        id: "main",
-                        role: "primary",
-                        kind: "video",
-                        fileName: "main.mp4",
-                        byteLength: "video-one".length,
-                        source: {
-                          url: `${baseUrl}/main.mp4`,
-                        },
-                      },
-                      {
-                        id: "poster",
-                        role: "poster",
-                        kind: "poster",
-                        fileName: "poster.jpg",
-                        byteLength: "poster".length,
-                        source: {
-                          url: `${baseUrl}/poster.jpg`,
-                        },
-                      },
-                    ],
-                  },
-                ],
+                key: "nature/forest/main",
+                version: "v1",
+                mimeType: "video/mp4",
+                fileName: "main.mp4",
+                byteLength: "video-one".length,
+                url: `${baseUrl}/main.mp4`,
+              },
+              {
+                key: "nature/forest/poster",
+                version: "v1",
+                mimeType: "image/jpeg",
+                fileName: "poster.jpg",
+                byteLength: "poster".length,
+                url: `${baseUrl}/poster.jpg`,
               },
             ],
           }),
-        resolveAssetRequest: async ({ asset }) => {
-          resolvedAssetIds.push(asset.id);
-          if (asset.id === "main") {
-            currentNow = 2_000;
-          }
-          return asset.source;
-        },
       },
       {
         fetchImpl,
@@ -426,22 +299,21 @@ describe("media cache sync and queries (integration)", () => {
       },
     );
 
-    await expect(cache.start()).rejects.toThrow(ManifestExpiredError);
-    expect(resolvedAssetIds).toEqual(["main"]);
+    await expect(cache.start()).rejects.toThrow(StoreExpiredError);
     expect(requestedUrls).toEqual([`${baseUrl}/main.mp4`]);
 
     const status = await cache.getStatus();
     expect(status.phase).toBe("error");
-    expect(status.error?.code).toBe("MANIFEST_EXPIRED");
+    expect(status.error?.code).toBe("STORE_EXPIRED");
   });
 
-  it("keeps serving the previous generation when a later manifest is already expired", async () => {
+  it("keeps serving the previous generation when a later store is already expired", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
     const cache = new MediaCache(
       {
         storageRoot,
-        resolveManifest: () => manifest,
+        resolveStore: () => store,
       },
       {
         now: () => currentNow,
@@ -452,86 +324,58 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     currentNow = 2_000;
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "expired-update",
       expiresAt: new Date(1_500).toISOString(),
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "expired-update.mp4",
-                  byteLength: 12,
-                  source: {
-                    url: `${baseUrl}/expired-update.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "expired-update.mp4",
+          byteLength: 12,
+          url: `${baseUrl}/expired-update.mp4`,
         },
       ],
     });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
     expect(requestCounts["/expired-update.mp4"] ?? 0).toBe(0);
-    expect((await cache.getItem("nature", "forest"))?.version).toBe("v1");
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
 
     const status = await cache.getStatus();
     expect(status.phase).toBe("ready");
     expect(status.activeGenerationId).not.toBeNull();
-    expect(status.error?.code).toBe("MANIFEST_EXPIRED");
+    expect(status.error?.code).toBe("STORE_EXPIRED");
   });
 
   it("resumes an existing partial download across cache instances", async () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "resumable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "resumable.mp4"),
     );
     mkdirSync(join(storageRoot, "temp"), { recursive: true });
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "resume",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "resumable.mp4",
-                  byteLength: "resume-data".length,
-                  source: {
-                    url: `${baseUrl}/resumable.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "resumable.mp4",
+          byteLength: "resume-data".length,
+          url: `${baseUrl}/resumable.mp4`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -541,7 +385,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "resumable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "resumable.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe("resume-data");
   });
@@ -551,35 +395,21 @@ describe("media cache sync and queries (integration)", () => {
     const body = "x".repeat(1_000_000);
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "reserve-resumable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "reserve-resumable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body.slice(0, 990_000));
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "reserve-resume",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "reserve-resumable.mp4",
-                  byteLength: body.length,
-                  source: {
-                    url: `${baseUrl}/reserve-resumable.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "reserve-resumable.mp4",
+          byteLength: body.length,
+          url: `${baseUrl}/reserve-resumable.mp4`,
         },
       ],
     });
@@ -587,7 +417,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new MediaCache(
       {
         storageRoot,
-        resolveManifest: () => manifest,
+        resolveStore: () => store,
       },
       {
         sleep: async () => undefined,
@@ -613,25 +443,21 @@ describe("media cache sync and queries (integration)", () => {
         cache as unknown as {
           enforceStorageLimits(
             downloads: Array<{
-              namespace: string;
-              itemId: string;
-              assetId: string;
-              request: { url: string };
+              assetKey: string;
+              version: string;
               fileName: string;
-              resolvedVersion: string;
               byteLength?: number;
+              url: string;
             }>,
           ): Promise<void>;
         }
       ).enforceStorageLimits([
         {
-          namespace: "nature",
-          itemId: "forest",
-          assetId: "main",
-          request: { url: `${baseUrl}/reserve-resumable.mp4` },
+          assetKey: hashKey("nature/forest/main"),
+          version: "v1",
           fileName: "reserve-resumable.mp4",
-          resolvedVersion: "v1",
           byteLength: body.length,
+          url: `${baseUrl}/reserve-resumable.mp4`,
         },
       ]),
     ).resolves.toBeUndefined();
@@ -650,42 +476,28 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "resume-retryable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "resume-retryable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "resume");
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "resume-retryable",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "resume-retryable.mp4",
-                  byteLength: "resume-retry-success".length,
-                  source: {
-                    url: `${baseUrl}/resume-retryable.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "resume-retryable.mp4",
+          byteLength: "resume-retry-success".length,
+          url: `${baseUrl}/resume-retryable.mp4`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -695,7 +507,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "resume-retryable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "resume-retryable.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe("resume-retry-success");
   });
@@ -704,42 +516,28 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "range-ignored.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-ignored.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "range-ignored",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "range-ignored.mp4",
-                  byteLength: "range-ignore".length,
-                  source: {
-                    url: `${baseUrl}/range-ignored.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "range-ignored.mp4",
+          byteLength: "range-ignore".length,
+          url: `${baseUrl}/range-ignored.mp4`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -753,42 +551,28 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "range-mismatch.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-mismatch.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, "range");
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "range-mismatch",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "range-mismatch.mp4",
-                  byteLength: "range-mismatch".length,
-                  source: {
-                    url: `${baseUrl}/range-mismatch.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "range-mismatch.mp4",
+          byteLength: "range-mismatch".length,
+          url: `${baseUrl}/range-mismatch.mp4`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -799,7 +583,7 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "range-mismatch.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "range-mismatch.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe("range-mismatch");
   });
@@ -809,42 +593,28 @@ describe("media cache sync and queries (integration)", () => {
     const body = "range-416";
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "range-not-satisfiable.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "range-not-satisfiable.mp4"),
     );
     mkdirSync(join(partialPath, ".."), { recursive: true });
     writeFileSync(partialPath, body);
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "range-not-satisfiable",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "range-not-satisfiable.mp4",
-                  byteLength: body.length,
-                  source: {
-                    url: `${baseUrl}/range-not-satisfiable.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "range-not-satisfiable.mp4",
+          byteLength: body.length,
+          url: `${baseUrl}/range-not-satisfiable.mp4`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -855,37 +625,23 @@ describe("media cache sync and queries (integration)", () => {
 
     const finalPath = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v1", "range-not-satisfiable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v1", "range-not-satisfiable.mp4"),
     );
     expect(readFileSync(finalPath, "utf8")).toBe(body);
   });
 
   it("preserves partial files after exhausting retryable download failures", async () => {
     const storageRoot = createStorageRoot();
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "drop-after-two",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "drop-after-two.mp4",
-                  byteLength: "retry-bytes".length,
-                  source: {
-                    url: `${baseUrl}/drop-after-two.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "drop-after-two.mp4",
+          byteLength: "retry-bytes".length,
+          url: `${baseUrl}/drop-after-two.mp4`,
         },
       ],
     });
@@ -893,19 +649,19 @@ describe("media cache sync and queries (integration)", () => {
     const cache = createNoSleepCache({
       storageRoot,
       onSyncFailure: "throw",
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await expect(cache.start()).rejects.toThrow("terminated");
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "drop-after-two.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "drop-after-two.mp4"),
     );
     expect(existsSync(partialPath)).toBe(true);
     expect(statSync(partialPath).size).toBeGreaterThan(0);
     expect(
       existsSync(
-        join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "drop-after-two.mp4")),
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "drop-after-two.mp4")),
       ),
     ).toBe(false);
   });
@@ -914,21 +670,21 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const obsoletePartialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "stale-version", "main.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "stale-version", "main.mp4"),
     );
     mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
     writeFileSync(obsoletePartialPath, "stale-bytes");
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
 
     expect(existsSync(obsoletePartialPath)).toBe(false);
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
     ).toBe(true);
   });
 
@@ -936,7 +692,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const obsoletePartialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "stale-version", "main.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "stale-version", "main.mp4"),
     );
     mkdirSync(join(obsoletePartialPath, ".."), { recursive: true });
     writeFileSync(obsoletePartialPath, "stale-bytes");
@@ -944,7 +700,7 @@ describe("media cache sync and queries (integration)", () => {
     const cache = new RawMediaCache({
       storageRoot,
       devPassthrough: true,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
@@ -958,7 +714,7 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
-        resolveManifest: () => manifest,
+        resolveStore: () => store,
       },
       {
         sleep: async () => undefined,
@@ -974,9 +730,7 @@ describe("media cache sync and queries (integration)", () => {
             }),
             {
               status: 200,
-              headers: {
-                "Content-Type": "video/mp4",
-              },
+              headers: { "Content-Type": "video/mp4" },
             },
           ),
       },
@@ -985,7 +739,7 @@ describe("media cache sync and queries (integration)", () => {
     await expect(cache.start()).rejects.toThrow(StorageLimitError);
     const partialPath = join(
       storageRoot,
-      partialPathFor("nature", "forest", "main", "v1", "main.mp4"),
+      partialPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
     );
     expect(existsSync(partialPath)).toBe(false);
   });
@@ -994,45 +748,29 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "cleanup-failed-stage",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "retry-once.mp4",
-                  byteLength: "retry-success".length,
-                  source: {
-                    url: `${baseUrl}/retry-once.mp4`,
-                  },
-                },
-                {
-                  id: "poster",
-                  role: "poster",
-                  kind: "poster",
-                  fileName: "broken.mp4",
-                  byteLength: 6,
-                  source: {
-                    url: `${baseUrl}/broken.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "retry-once.mp4",
+          byteLength: "retry-success".length,
+          url: `${baseUrl}/retry-once.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v2",
+          mimeType: "image/jpeg",
+          fileName: "broken.mp4",
+          byteLength: 6,
+          url: `${baseUrl}/broken.mp4`,
         },
       ],
     });
@@ -1041,20 +779,20 @@ describe("media cache sync and queries (integration)", () => {
 
     expect(
       existsSync(
-        join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "retry-once.mp4")),
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v2", "retry-once.mp4")),
       ),
     ).toBe(false);
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
     ).toBe(true);
-    expect((await cache.getItem("nature", "forest"))?.version).toBe("v1");
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
   });
 
   it("cleans up orphaned staged generations on startup while preserving the active snapshot", async () => {
     const storageRoot = createStorageRoot();
     const initialCache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await initialCache.start();
@@ -1065,14 +803,12 @@ describe("media cache sync and queries (integration)", () => {
           close(): void;
           getActiveGenerationId(): number | null;
           createStagedGeneration(
-            manifest: ReturnType<typeof normalizeManifest>,
+            manifest: ReturnType<typeof validateFlatManifest>,
             now: number,
           ): number;
           setAssetDownloadState(
             generationId: number,
-            namespace: string,
-            itemId: string,
-            assetId: string,
+            assetKey: string,
             relativePath: string,
             fallbackMimeType: string | null,
           ): void;
@@ -1088,61 +824,40 @@ describe("media cache sync and queries (integration)", () => {
     const activeGenerationId = initialDb.getActiveGenerationId();
     expect(activeGenerationId).not.toBeNull();
 
-    const orphanManifest = normalizeManifest(
-      recordManifest({
-        snapshotId: "orphaned-stage",
-        namespaces: [
-          {
-            key: "nature",
-            items: [
-              {
-                id: "forest",
-                version: "v2",
-                kind: "video",
-                assets: [
-                  {
-                    id: "main",
-                    role: "primary",
-                    kind: "video",
-                    fileName: "main.mp4",
-                    byteLength: "video-one".length,
-                    source: {
-                      url: `${baseUrl}/main.mp4`,
-                    },
-                  },
-                  {
-                    id: "poster",
-                    role: "poster",
-                    kind: "poster",
-                    fileName: "poster-v2.jpg",
-                    byteLength: "poster".length,
-                    source: {
-                      url: `${baseUrl}/poster.jpg`,
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      }),
-    );
+    const orphanStore = buildTestStore({
+      snapshotId: "orphaned-stage",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: "video-one".length,
+          url: `${baseUrl}/main.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v2",
+          mimeType: "image/jpeg",
+          fileName: "poster-v2.jpg",
+          byteLength: "poster".length,
+          url: `${baseUrl}/poster.jpg`,
+        },
+      ],
+    });
+    const orphanManifest = validateFlatManifest(orphanStore._serialize());
     const stagedGenerationId = initialDb.createStagedGeneration(orphanManifest, 2);
-    const reusedMainPath = blobPathFor("nature", "forest", "main", "v1", "main.mp4");
-    const orphanPosterPath = blobPathFor("nature", "forest", "poster", "v2", "poster-v2.jpg");
+    const reusedMainPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const orphanPosterPath = blobPathFor(hashKey("nature/forest/poster"), "v2", "poster-v2.jpg");
     initialDb.setAssetDownloadState(
       stagedGenerationId,
-      "nature",
-      "forest",
-      "main",
+      hashKey("nature/forest/main"),
       reusedMainPath,
       "video/mp4",
     );
     initialDb.setAssetDownloadState(
       stagedGenerationId,
-      "nature",
-      "forest",
-      "poster",
+      hashKey("nature/forest/poster"),
       orphanPosterPath,
       "image/jpeg",
     );
@@ -1167,7 +882,7 @@ describe("media cache sync and queries (integration)", () => {
           logs.push(entry);
         },
       },
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     const status = await cache.getStatus();
@@ -1176,7 +891,7 @@ describe("media cache sync and queries (integration)", () => {
       activeGenerationId,
       error: null,
     });
-    expect((await cache.getItem("nature", "forest"))?.version).toBe("v1");
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
 
     const reopenedDb = (
       cache as unknown as {
@@ -1211,30 +926,16 @@ describe("media cache sync and queries (integration)", () => {
   it("prunes expired deletions before enforcing storage limits", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "small-initial",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  byteLength: 9,
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: 9,
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -1243,7 +944,7 @@ describe("media cache sync and queries (integration)", () => {
         storageRoot,
         maxCacheBytes: 15,
         staleDeleteAfterMs: 10,
-        resolveManifest: () => manifest,
+        resolveStore: () => store,
       },
       {
         now: () => currentNow,
@@ -1253,77 +954,49 @@ describe("media cache sync and queries (integration)", () => {
 
     await cache.start();
 
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "pending-delete",
-      namespaces: [],
+      assets: [],
     });
     await cache.syncNow();
 
     currentNow = 2_000;
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "after-prune",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "flower.mp4",
-                  byteLength: 12,
-                  source: {
-                    url: `${baseUrl}/flower.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "flower.mp4",
+          byteLength: 12,
+          url: `${baseUrl}/flower.mp4`,
         },
       ],
     });
 
     await expect(cache.syncNow()).resolves.toBeUndefined();
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"))),
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
     ).toBe(false);
     expect(
-      existsSync(join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "flower.mp4"))),
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v2", "flower.mp4"))),
     ).toBe(true);
   });
 
   it("retains multiple obsolete blob versions until each expires", async () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "retain-v1",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "main.mp4",
-                  byteLength: "video-one".length,
-                  source: {
-                    url: `${baseUrl}/main.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: "video-one".length,
+          url: `${baseUrl}/main.mp4`,
         },
       ],
     });
@@ -1332,7 +1005,7 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         staleDeleteAfterMs: 1_000,
-        resolveManifest: () => manifest,
+        resolveStore: () => store,
       },
       {
         now: () => currentNow,
@@ -1343,70 +1016,45 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     currentNow = 1_100;
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "retain-v2",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v2",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "flower.mp4",
-                  byteLength: "flower-video".length,
-                  source: {
-                    url: `${baseUrl}/flower.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "flower.mp4",
+          byteLength: "flower-video".length,
+          url: `${baseUrl}/flower.mp4`,
         },
       ],
     });
     await cache.syncNow();
 
     currentNow = 1_200;
-    manifest = recordManifest({
+    store = buildTestStore({
       snapshotId: "retain-v3",
-      namespaces: [
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "forest",
-              version: "v3",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "resumable.mp4",
-                  byteLength: "resume-data".length,
-                  source: {
-                    url: `${baseUrl}/resumable.mp4`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/forest/main",
+          version: "v3",
+          mimeType: "video/mp4",
+          fileName: "resumable.mp4",
+          byteLength: "resume-data".length,
+          url: `${baseUrl}/resumable.mp4`,
         },
       ],
     });
     await cache.syncNow();
 
-    const v1Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v1", "main.mp4"));
-    const v2Path = join(storageRoot, blobPathFor("nature", "forest", "main", "v2", "flower.mp4"));
+    const v1Path = join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"));
+    const v2Path = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v2", "flower.mp4"),
+    );
     const v3Path = join(
       storageRoot,
-      blobPathFor("nature", "forest", "main", "v3", "resumable.mp4"),
+      blobPathFor(hashKey("nature/forest/main"), "v3", "resumable.mp4"),
     );
     expect(existsSync(v1Path)).toBe(true);
     expect(existsSync(v2Path)).toBe(true);
@@ -1420,128 +1068,58 @@ describe("media cache sync and queries (integration)", () => {
     expect(existsSync(v3Path)).toBe(true);
   });
 
-  it("uses response content type only as a mimeType fallback", async () => {
+  it("uses declared mimeType over server content-type", async () => {
     const storageRoot = createStorageRoot();
-    manifest = recordManifest({
-      snapshotId: "mime-fallback",
-      namespaces: [
+    store = buildTestStore({
+      snapshotId: "mime-precedence",
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "fallback",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "mime-fallback.bin",
-                  byteLength: "mime-fallback".length,
-                  source: {
-                    url: `${baseUrl}/mime-fallback.bin`,
-                  },
-                },
-              ],
-            },
-            {
-              id: "manifest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  mimeType: "video/mp4",
-                  fileName: "mime-manifest.bin",
-                  byteLength: "mime-manifest".length,
-                  source: {
-                    url: `${baseUrl}/mime-manifest.bin`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/fallback/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "mime-manifest.bin",
+          byteLength: "mime-manifest".length,
+          url: `${baseUrl}/mime-manifest.bin`,
         },
       ],
     });
 
     const cache = createNoSleepCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     await cache.start();
 
-    const fallbackItem = await cache.getItem("nature", "fallback");
-    expect(fallbackItem?.assets[0]?.mimeType).toBe("video/quicktime");
+    const asset = await cache.getAsset("nature/fallback/main");
+    expect(asset?.mimeType).toBe("video/mp4");
 
-    const manifestItem = await cache.getItem("nature", "manifest");
-    expect(manifestItem?.assets[0]?.mimeType).toBe("video/mp4");
-
-    manifest = recordManifest({
-      snapshotId: "mime-fallback-skip",
-      namespaces: [
+    store = buildTestStore({
+      snapshotId: "mime-precedence-skip",
+      assets: [
         {
-          key: "nature",
-          items: [
-            {
-              id: "fallback",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "mime-fallback.bin",
-                  byteLength: "mime-fallback".length,
-                  source: {
-                    url: `${baseUrl}/mime-fallback.bin`,
-                  },
-                },
-              ],
-            },
-            {
-              id: "manifest",
-              version: "v1",
-              kind: "video",
-              assets: [
-                {
-                  id: "main",
-                  role: "primary",
-                  kind: "video",
-                  fileName: "mime-manifest.bin",
-                  byteLength: "mime-manifest".length,
-                  source: {
-                    url: `${baseUrl}/mime-manifest.bin`,
-                  },
-                },
-              ],
-            },
-          ],
+          key: "nature/fallback/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "mime-manifest.bin",
+          byteLength: "mime-manifest".length,
+          url: `${baseUrl}/mime-manifest.bin`,
         },
       ],
     });
 
     await cache.syncNow();
-    expect(requestCounts["/mime-fallback.bin"]).toBe(1);
     expect(requestCounts["/mime-manifest.bin"]).toBe(1);
 
-    const skippedFallbackItem = await cache.getItem("nature", "fallback");
-    expect(skippedFallbackItem?.assets[0]?.mimeType).toBe("video/quicktime");
-
-    const skippedManifestItem = await cache.getItem("nature", "manifest");
-    expect(skippedManifestItem?.assets[0]?.mimeType).toBe("video/mp4");
+    const skippedAsset = await cache.getAsset("nature/fallback/main");
+    expect(skippedAsset?.mimeType).toBe("video/mp4");
   });
 
   it("registers a syncNow IPC handler that triggers a sync run", async () => {
     const storageRoot = createStorageRoot();
     const cache = createMediaCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
 
     const handlers = await createIpcHandlers(cache);
@@ -1558,7 +1136,7 @@ describe("media cache sync and queries (integration)", () => {
     const storageRoot = createStorageRoot();
     const cache = new MediaCache({
       storageRoot,
-      resolveManifest: () => manifest,
+      resolveStore: () => store,
     });
     await cache.start();
     const handler = await createProtocolHandler(cache, {

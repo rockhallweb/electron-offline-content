@@ -1,5 +1,197 @@
 # Changelog
 
+## 0.4.0
+
+### Breaking changes
+
+**Store API (replaces Manifest API)**
+
+- `defineManifest()`, `defineItem()`, `defineAsset()` removed. Replaced by `createMediaStore()`, `store.defineIndex()`, `store.add()`.
+- `namespacesFromEntries()`, `itemsFromEntries()`, `assetsFromEntries()` removed.
+- `resolveManifest` option replaced by `resolveStore` (returns a `MediaStore` or `Promise<MediaStore>`).
+- `resolveAssetRequest` option removed entirely; embed presigned (or otherwise auth-bearing) URLs in each asset’s flat `url` field during `resolveStore()`.
+- **`source: { url, method?, headers? }` → flat `url: string`:** The nested `source` object is removed. `MediaAssetInput` and `FlatManifestAsset` require a top-level **`url: string`**. **`MediaRemoteSource` is removed.** Use `store.add(key, { url: "https://..." })` instead of `store.add(key, { source: { url: "https://..." } })`. Custom HTTP methods and per-request headers are not supported; use presigned URLs (or URLs that encode credentials in the query string).
+- Hierarchical `namespace/item/asset` model replaced by flat `assetKey` model with user-defined secondary indexes.
+- Per-asset versioning: each asset has its own `version` string (no longer inherited from parent item).
+- Asset keys are hashed for storage identity (SHA-256, first 16 hex characters). `store.add()`, `getAsset()`, and `useMediaAsset()` accept `string | readonly string[]` (the `AssetKeyInput` type). There is no validation of key characters or shape beyond non-empty strings or non-empty string segments.
+- `ResolvedMediaAsset.key` is the stable hash; the original human-readable key is available as `displayKey`.
+
+**Error renames:**
+
+- `ManifestValidationError` → `StoreValidationError` (code: `STORE_VALIDATION_ERROR`)
+- `ManifestExpiredError` → `StoreExpiredError` (code: `STORE_EXPIRED`)
+
+**Main process API:**
+
+- `getItem(namespace, id)` → `getAsset(key)`
+- `listNamespace(namespace, pagination?)` → `listByIndex(indexName, value, pagination?)`
+- `listNamespaceTree(prefix, pagination?)` → removed (use indexes instead)
+
+**React hooks:**
+
+- `useMedia({ kind: "item", ... })` and `useMedia({ kind: "list", ... })` → removed
+- New hooks: `useMediaAsset(key)`, `useMediaByIndex(indexName, value, options?)`
+- `useFileStemMatch` no longer accepts a `namespace` option
+
+**Types:**
+
+- Removed: `MediaCacheManifest`, `MediaNamespaceValue`, `MediaItemValue`, `MediaAssetValue`, `ResolvedMediaContentItem`, `MediaRemoteSource`
+- New: `MediaAssetInput`, `FlatManifest`, `FlatManifestAsset`, `IndexDefinition`
+- `ResolvedMediaAsset` now has: `key` (hash), `displayKey` (original key), `version`, `kind: MediaKind`, `mimeType`, `indexes: Record<string, string>`, `metadata: Record<string, unknown>`
+- `FileStemMatch` now has `asset: ResolvedMediaAsset` instead of `item: ResolvedMediaContentItem`
+- `SyncProgress.phase` includes `"resolving-store"` instead of `"resolving-manifest"`
+
+**New exports:**
+
+- `createMediaStore`, `MediaStore`, `MediaIndex`, `mediaKindFromMime`
+- Types: `AssetKeyInput`, `IndexTag`
+
+**Protocol URL:**
+
+- Old: `media://{namespace}/{itemId}/{assetId}`
+- New: `media://asset/{encodedAssetKey}`
+
+**IPC channels:**
+
+- `getItem`, `listNamespace`, `listNamespaceTree` → `getAsset`, `listByIndex`
+
+### Migration
+
+**Store creation**
+
+```ts
+// Before — hierarchical manifest with defineManifest / defineItem / defineAsset
+import {
+  defineAsset,
+  defineItem,
+  defineManifest,
+  itemsFromEntries,
+} from "@rockhallweb/electron-offline-content/main";
+
+const manifest = defineManifest({
+  namespaces: {
+    videos: {
+      items: itemsFromEntries(data.videos, (v) => [
+        v.slug,
+        defineItem({
+          version: v.updatedAt,
+          kind: "video",
+          assets: {
+            main: defineAsset({
+              role: "primary",
+              kind: "video",
+              source: { url: v.videoUrl },
+            }),
+          },
+        }),
+      ]),
+    },
+  },
+});
+
+// After — flat store with createMediaStore / defineIndex / store.add
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+
+const store = createMediaStore();
+const category = store.defineIndex("category");
+
+for (const v of data.videos) {
+  store.add(["video", v.slug], {
+    version: v.updatedAt,
+    mimeType: "video/mp4",
+    url: v.videoUrl,
+    metadata: { title: v.title, category: "videos" },
+    indexes: [category("videos")],
+  });
+}
+```
+
+**Main process wiring**
+
+```ts
+// Before
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveManifest: async () => {
+    const res = await fetch("https://cms.example.com/api/content");
+    return res.json();
+  },
+});
+
+// After
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveStore: async () => {
+    const res = await fetch("https://cms.example.com/api/content");
+    const data = await res.json();
+    const store = createMediaStore();
+    const category = store.defineIndex("category");
+    for (const item of data.items) {
+      store.add(["items", item.id], {
+        version: item.updatedAt,
+        mimeType: item.mimeType,
+        url: item.url,
+        metadata: item.metadata,
+        indexes: [category("catalog")],
+      });
+    }
+    return store;
+  },
+});
+```
+
+**React hooks**
+
+```tsx
+// Before — useMedia with kind discriminator
+const item = useMedia({ kind: "item", namespace: "videos", id: "welcome" });
+const list = useMedia({ kind: "list", namespace: "videos", limit: 20 });
+// item.data.assetsByRole.primary?.url
+// list.data.items.map(...)
+
+// After — useMediaAsset / useMediaByIndex (key may be a string or string[]; must match resolveStore)
+const asset = useMediaAsset(["video", "welcome"]);
+const videos = useMediaByIndex("category", "videos", { limit: 20 });
+// asset.data?.url
+// videos.data?.items.map(...)
+```
+
+**Auth (resolveAssetRequest → presigned `url` in resolveStore)**
+
+```ts
+// Before — resolveAssetRequest callback signed each download
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveAssetRequest: async (ctx) => ({
+    url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: ctx.asset.source.url }), {
+      expiresIn: 3600,
+    }),
+  }),
+  resolveManifest: async () => fetchManifest(),
+});
+
+// After — embed signed URLs in each asset’s flat url during resolveStore()
+const mediaCache = createMediaCache({
+  storagePath: { appPath: "userData", segments: ["offline-media"] },
+  resolveStore: async () => {
+    const store = createMediaStore();
+    for (const item of await fetchCatalog()) {
+      const signedUrl = await getSignedUrl(
+        s3,
+        new GetObjectCommand({ Bucket: "b", Key: item.key }),
+        { expiresIn: 3600 },
+      );
+      store.add(["assets", item.id], {
+        version: item.revision,
+        mimeType: "video/mp4",
+        url: signedUrl,
+      });
+    }
+    return store;
+  },
+});
+```
+
 ## 0.3.0
 
 ### Breaking changes
@@ -168,7 +360,7 @@ createMediaCache({
 
 ### Added
 
-- AI agent skill specifications in `skills/_artifacts/` — domain map, skill spec, and skill tree covering getting-started, manifest-authoring, cache-configuration, react-rendering, authenticated-downloads, and production-checklist workflows.
+- AI agent skill specifications in `skills/_artifacts/` — domain map, skill spec, and skill tree covering getting-started, store-authoring, cache-configuration, react-rendering, authenticated-downloads, and production-checklist workflows.
 - `@tanstack/intent` dev dependency for skill tooling.
 
 ### Changed

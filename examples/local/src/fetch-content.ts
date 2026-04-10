@@ -1,20 +1,19 @@
 /**
- * Example manifest for `createMediaCache({ resolveManifest })`. Replace with your own
- * fetch or file read; shape must match `MediaCacheManifest` from the package.
+ * Example store for `createMediaCache({ resolveStore })`. Replace with your own
+ * fetch or file read; build a `MediaStore` using the flat key-value API.
  */
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MediaCacheManifest } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore, type MediaStore } from "@rockhallweb/electron-offline-content/main";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
-// Resolve fixtures relative to this module, not process.cwd(), so packaged runs still work.
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "local");
 
 export interface ExampleContext {
   clientConfig: ExampleClientConfig;
-  resolveManifest: () => Promise<MediaCacheManifest>;
+  resolveStore: () => Promise<MediaStore>;
   dispose: () => Promise<void>;
 }
 
@@ -22,90 +21,87 @@ export async function createExampleContext(): Promise<ExampleContext> {
   const server = await startFixtureServer();
   return {
     clientConfig: exampleClientConfig,
-    resolveManifest: async () => localManifest(server.baseUrl),
+    resolveStore: async () => buildStore(server.baseUrl),
     dispose: () => server.close(),
   };
 }
 
-function localManifest(baseUrl: string): MediaCacheManifest {
-  return {
+function buildStore(baseUrl: string): MediaStore {
+  const store = createMediaStore({
     snapshotId: "local-fixtures-v1",
     retrievedAt: new Date().toISOString(),
-    namespaces: {
-      nature: {
-        label: "Nature Queue",
-        items: {
-          "forest-loop": {
-            version: "2026-03-forest-v1",
-            kind: "video",
-            title: "Forest Loop",
-            description: "Local fixture video with a paired poster image.",
-            summary: "Fixture item used for exact namespace lookup.",
-            blobs: {
-              curatorNote: "Fixture-driven kiosk content for local demo.",
-            },
-            assets: {
-              main: {
-                role: "primary",
-                kind: "video",
-                byteLength: 14638,
-                source: {
-                  url: `${baseUrl}/forest-loop.mp4`,
-                },
-              },
-              poster: {
-                role: "poster",
-                kind: "poster",
-                byteLength: 3284,
-                source: {
-                  url: `${baseUrl}/forest-poster.jpg`,
-                },
-              },
-            },
-          },
-        },
-      },
-      "nature.flowerVideos": {
-        label: "Flower Videos",
-        items: {
-          "rose-cut": {
-            version: "2026-03-rose-v1",
-            kind: "video",
-            title: "Rose Cut",
-            description: "Subtree fixture item with a subtitle track.",
-            summary: "Used for subtree and file stem lookup in the example app.",
-            blobs: {
-              captionExcerpt: "A quiet looping cut for namespace-tree validation.",
-            },
-            assets: {
-              main: {
-                role: "primary",
-                kind: "video",
-                byteLength: 14600,
-                source: {
-                  url: `${baseUrl}/rose-cut.mp4`,
-                },
-              },
-              subtitles: {
-                role: "subtitle",
-                kind: "subtitle",
-                byteLength: 97,
-                source: {
-                  url: `${baseUrl}/rose-cut.vtt`,
-                },
-              },
-            },
-          },
-        },
-      },
+  });
+
+  const collection = store.defineIndex("collection");
+  const role = store.defineIndex("role");
+
+  store.add(["nature", "forest-loop", "main"], {
+    version: "2026-03-forest-v1",
+    mimeType: "video/mp4",
+    byteLength: 14638,
+    url: `${baseUrl}/forest-loop.mp4`,
+    metadata: {
+      title: "Forest Loop",
+      description: "Local fixture video with a paired poster image.",
+      summary: "Fixture item used for exact namespace lookup.",
+      curatorNote: "Fixture-driven kiosk content for local demo.",
     },
-  };
+    indexes: [collection("nature"), role("primary")],
+  });
+
+  store.add(["nature", "forest-loop", "poster"], {
+    version: "2026-03-forest-v1",
+    mimeType: "image/jpeg",
+    byteLength: 3284,
+    url: `${baseUrl}/forest-poster.jpg`,
+    metadata: {
+      title: "Forest Loop – Poster",
+      parentKey: "nature/forest-loop/main",
+    },
+    indexes: [collection("nature"), role("poster")],
+  });
+
+  store.add(["nature", "rose-cut", "main"], {
+    version: "2026-03-rose-v1",
+    mimeType: "video/mp4",
+    byteLength: 14600,
+    url: `${baseUrl}/rose-cut.mp4`,
+    metadata: {
+      title: "Rose Cut",
+      description: "Subtree fixture item with a subtitle track.",
+      summary: "Used for subtree and file stem lookup in the example app.",
+      captionExcerpt: "A quiet looping cut for namespace-tree validation.",
+    },
+    indexes: [collection("nature"), role("primary")],
+  });
+
+  store.add(["nature", "rose-cut", "subtitles"], {
+    version: "2026-03-rose-v1",
+    mimeType: "text/vtt",
+    byteLength: 97,
+    url: `${baseUrl}/rose-cut.vtt`,
+    metadata: {
+      title: "Rose Cut – Subtitles",
+      parentKey: "nature/rose-cut/main",
+    },
+    indexes: [collection("nature"), role("subtitle")],
+  });
+
+  return store;
 }
 
 async function startFixtureServer() {
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-    const filePath = join(fixturesDir, pathname === "/" ? "forest-loop.mp4" : pathname.slice(1));
+    const relativePath = pathname === "/" ? "forest-loop.mp4" : pathname.slice(1);
+    const filePath = resolve(fixturesDir, relativePath);
+    const fixturesRoot = resolve(fixturesDir) + sep;
+
+    if (!filePath.startsWith(fixturesRoot)) {
+      response.writeHead(403);
+      response.end("forbidden");
+      return;
+    }
 
     try {
       const payload = await readFile(filePath);

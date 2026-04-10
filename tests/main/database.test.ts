@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { hashKey } from "../../src/internal/asset-key.js";
 import { MediaCacheDatabase } from "../../src/main/database.js";
+import { createMediaStore } from "../../src/main/store.js";
+import { validateFlatManifest } from "../../src/shared/normalize.js";
 
 describe("MediaCacheDatabase", () => {
   it("creates all tables with correct schema on first init", () => {
@@ -13,7 +16,6 @@ describe("MediaCacheDatabase", () => {
         assetBaseUrlOrigin: null,
       });
 
-      // Verify sync_runs table works
       const id = db.createSyncRun(1000);
       db.completeSyncRun(id, "success", 1001, {
         totalAssets: 0,
@@ -23,25 +25,68 @@ describe("MediaCacheDatabase", () => {
       });
       expect(db.getSyncRun(id)).not.toBeNull();
 
-      // Verify key tables and columns exist via PRAGMA
       const dbInternal = (
         db as unknown as {
           db: { prepare: (sql: string) => { all: () => Array<{ name: string }> } };
         }
       ).db;
-      const expectedTables = ["generations", "assets", "sync_runs", "pending_deletions"];
+      const expectedTables = [
+        "generations",
+        "assets",
+        "asset_indexes",
+        "index_definitions",
+        "sync_runs",
+        "pending_deletions",
+      ];
       for (const table of expectedTables) {
         const columns = dbInternal.prepare(`PRAGMA table_info(${table})`).all();
         expect(columns.length).toBeGreaterThan(0);
       }
       const assetColumns = dbInternal.prepare("PRAGMA table_info(assets)").all();
-      expect(assetColumns.map((c) => c.name)).toContain("source_json");
-      expect(assetColumns.map((c) => c.name)).toContain("resolved_request_json");
+      expect(assetColumns.map((c) => c.name)).toContain("asset_key");
+      expect(assetColumns.map((c) => c.name)).toContain("url");
+      expect(assetColumns.map((c) => c.name)).toContain("indexes_json");
+      expect(assetColumns.map((c) => c.name)).toContain("media_kind");
+      expect(assetColumns.map((c) => c.name)).toContain("file_stem");
 
       const pendingColumns = dbInternal.prepare("PRAGMA table_info(pending_deletions)").all();
       expect(pendingColumns.map((c) => c.name)).toContain("deletion_key");
+      expect(pendingColumns.map((c) => c.name)).toContain("asset_key");
 
       db.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("listByIndex matches each value of a multi-cardinality index via flattened rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "media-cache-multi-idx-"));
+    try {
+      const db = new MediaCacheDatabase(root, {
+        devPassthrough: false,
+        assetBaseUrlOrigin: null,
+      });
+
+      const store = createMediaStore();
+      const tags = store.defineIndex("tags", { cardinality: "multi" });
+      store.add(["a", "v", "1"], {
+        version: "v1",
+        mimeType: "video/mp4",
+        url: "https://example.com/v.mp4",
+        indexes: [tags(["forest", "ambient"])],
+      });
+      const manifest = validateFlatManifest(store._serialize());
+      const genId = db.createStagedGeneration(manifest, 1);
+      db.activateGeneration(genId, 2);
+
+      const forest = db.listByIndex("tags", "forest");
+      expect(forest.items).toHaveLength(1);
+      expect(forest.items[0]?.displayKey).toBe("a/v/1");
+
+      const ambient = db.listByIndex("tags", "ambient");
+      expect(ambient.items).toHaveLength(1);
+      expect(ambient.items[0]?.key).toBe(hashKey(["a", "v", "1"]));
+      expect(ambient.items[0]?.key).toBe(forest.items[0]?.key);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -73,7 +118,6 @@ describe("pruneSyncHistory", () => {
 
       db.pruneSyncHistory(2);
 
-      // Runs 4 and 5 (most recent) should remain; runs 1, 2, 3 should be deleted
       expect(db.getSyncRun(runIds[0])).toBeNull();
       expect(db.getSyncRun(runIds[1])).toBeNull();
       expect(db.getSyncRun(runIds[2])).toBeNull();

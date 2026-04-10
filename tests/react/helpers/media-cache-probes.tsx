@@ -1,30 +1,32 @@
 import {
   useFileStemMatch,
-  useMedia,
+  useMediaAsset,
   useMediaBridge,
+  useMediaByIndex,
   useMediaCacheErrors,
   useMediaCacheReady,
   useMediaCacheStatus,
 } from "../../../src/react/index.js";
 
-export function MediaItemProbe({ itemId }: { itemId: string }) {
-  const item = useMedia({ kind: "item", namespace: "nature", id: itemId });
-  return <div data-testid="item-id">{item.data?.id ?? "loading"}</div>;
+export function MediaAssetProbe({ assetKey }: { assetKey: string }) {
+  const asset = useMediaAsset(assetKey);
+  return (
+    <div data-testid="asset-key">{asset.loading ? "loading" : (asset.data?.key ?? "none")}</div>
+  );
 }
 
 export function MediaVersionProbe({ refetchOnSyncComplete }: { refetchOnSyncComplete?: boolean }) {
-  const item = useMedia({
-    kind: "item",
-    namespace: "nature",
-    id: "forest",
-    refetchOnSyncComplete,
-  });
-  return <div data-testid="item-version">{item.data?.version ?? "loading"}</div>;
+  const asset = useMediaAsset("forest", { refetchOnSyncComplete });
+  return (
+    <div data-testid="asset-version">
+      {asset.loading ? "loading" : (asset.data?.version ?? "none")}
+    </div>
+  );
 }
 
-export function MediaListProbe({ recursive }: { recursive: boolean }) {
-  const items = useMedia({ kind: "list", namespace: "nature", recursive });
-  return <div>{items.data?.items[0]?.id ?? "loading"}</div>;
+export function MediaByIndexProbe({ indexName, value }: { indexName: string; value: string }) {
+  const assets = useMediaByIndex(indexName, value);
+  return <div>{assets.loading ? "loading" : (assets.data?.items[0]?.key ?? "none")}</div>;
 }
 
 export function StatusProbe() {
@@ -38,11 +40,12 @@ export function MediaCacheStatusPhaseProbe() {
 }
 
 export function MediaAndBridgePhaseProbe() {
-  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const _asset = useMediaAsset("forest");
+  const status = useMediaCacheStatus();
   const bridge = useMediaBridge();
   return (
     <div>
-      <div data-testid="media-phase">{media.phase}</div>
+      <div data-testid="media-phase">{status.phase}</div>
       <div data-testid="bridge-phase">{bridge.phase}</div>
     </div>
   );
@@ -50,13 +53,15 @@ export function MediaAndBridgePhaseProbe() {
 
 export function ReadyAndErrorProbe() {
   const ready = useMediaCacheReady();
-  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const _asset = useMediaAsset("forest");
   const errors = useMediaCacheErrors();
 
   return (
     <div>
       <div data-testid="ready-flag">{String(ready.data?.ready ?? false)}</div>
-      <div data-testid="media-status-phase">{media.phase}</div>
+      <div data-testid="media-status-phase">
+        {ready.loading ? "loading" : (ready.data?.phase ?? "unknown")}
+      </div>
       <div data-testid="error-flag">{String(errors.hasError)}</div>
       <div data-testid="sync-error-code">{errors.syncError?.code ?? "none"}</div>
       <div data-testid="primary-error-message">{errors.primaryError?.message ?? "none"}</div>
@@ -66,7 +71,7 @@ export function ReadyAndErrorProbe() {
 }
 
 export function GlobalErrorsProbe() {
-  useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  useMediaAsset("forest");
   useFileStemMatch("forest");
   const errors = useMediaCacheErrors();
 
@@ -79,7 +84,7 @@ export function GlobalErrorsProbe() {
 }
 
 export function BridgeProbe() {
-  useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  useMediaAsset("forest");
   const { syncNow, phase, errors } = useMediaBridge();
 
   return (
@@ -95,10 +100,14 @@ export function BridgeProbe() {
 }
 
 export function ProviderRuntimeProbe() {
-  const media = useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  const asset = useMediaAsset("forest");
   const errors = useMediaCacheErrors();
 
-  return <div data-testid="provider-runtime-phase">{errors.hasError ? "error" : media.phase}</div>;
+  return (
+    <div data-testid="provider-runtime-phase">
+      {errors.hasError ? "error" : asset.loading ? "loading" : "ready"}
+    </div>
+  );
 }
 
 export function SyncPrimaryErrorProbe() {

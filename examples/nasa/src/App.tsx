@@ -1,12 +1,14 @@
 import { useState } from "react";
 import {
   useFileStemMatch,
-  useMedia,
+  useMediaAsset,
+  useMediaByIndex,
   useMediaCacheStatus,
   useMediaBridge,
+  type ResolvedMediaAsset,
 } from "@rockhallweb/electron-offline-content/react";
 import { cn } from "./cn";
-import { formatBytes, mediaKindFromNamespace } from "./util";
+import { formatBytes } from "./util";
 
 type SyncDownloadControlsProps = {
   onStartDownload: () => Promise<void>;
@@ -23,7 +25,6 @@ export function App() {
   const [isStartingDownload, setIsStartingDownload] = useState(false);
   const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
 
-  // Example of starting a sync imperatively
   const startDownload = async () => {
     setDownloadStartError(null);
     setIsStartingDownload(true);
@@ -230,68 +231,78 @@ function DownloadingView({ onStartDownload, isStartingDownload }: SyncDownloadCo
   );
 }
 
+function selectionMatchesAsset(
+  selected: string | readonly string[],
+  asset: ResolvedMediaAsset,
+): boolean {
+  return typeof selected === "string"
+    ? asset.key === selected
+    : asset.displayKey === selected.join("/");
+}
+
+function posterForPrimary(
+  primary: ResolvedMediaAsset | undefined,
+  posters: ResolvedMediaAsset[],
+): ResolvedMediaAsset | undefined {
+  if (!primary) return undefined;
+  const collection = primary.indexes.collection;
+  const nasaId = primary.metadata.nasaId;
+  if (typeof collection !== "string" || nasaId == null) return undefined;
+  const nasaIdStr = String(nasaId);
+  return posters.find(
+    (p) =>
+      p.indexes.role === "poster" &&
+      p.indexes.collection === collection &&
+      String(p.metadata.nasaId) === nasaIdStr,
+  );
+}
+
 function ArchiveView() {
   const status = useMediaCacheStatus();
-  const rootNamespace = useMedia({
-    kind: "list",
-    namespace: "space",
-    limit: 20,
-  });
-  const tree = useMedia({
-    kind: "list",
-    namespace: "space",
-    recursive: true,
-    limit: 40,
-  });
-  const fileStemMatches = useFileStemMatch("mars-large-organics", {
-    limit: 10,
-  });
-  const [selectedIntent, setSelectedIntent] = useState<{
-    namespace: string;
-    itemId: string;
-  }>({
-    namespace: "space.images",
-    itemId: "SSC-20110203-S00095H",
-  });
+  const primaryAssets = useMediaByIndex("role", "primary", { limit: 40 });
+  const posterAssets = useMediaByIndex("role", "poster", { limit: 200 });
+  const fileStemMatches = useFileStemMatch("mars-large-organics", { limit: 10 });
+
+  const [selectedKey, setSelectedKey] = useState<string | readonly string[]>([
+    "space.images",
+    "SSC-20110203-S00095H",
+    "primary",
+  ]);
   const [filter, setFilter] = useState<"all" | "image" | "video">("all");
   const { phase } = status;
   const generation = String(status.data?.activeGenerationId ?? "none");
-  const queue = (tree.data?.items ?? []).map((item) => ({
-    namespace: item.namespace,
-    itemId: item.id,
-    title: item.title ?? item.id,
-    description: item.description ?? item.summary ?? "Cached and ready for offline playback.",
-    posterUrl: item.assetsByRole.poster?.url ?? null,
-    leadKind: item.assetsByRole.primary?.kind ?? item.assets[0]?.kind ?? "asset",
-  }));
+
+  const queue = primaryAssets.data?.items ?? [];
+  const posterQueue = posterAssets.data?.items ?? [];
   const filteredQueue =
     filter === "all"
       ? queue
-      : queue.filter((item) => mediaKindFromNamespace(item.namespace) === filter);
-  const selectedExists = filteredQueue.some(
-    (item) => item.namespace === selectedIntent.namespace && item.itemId === selectedIntent.itemId,
+      : queue.filter((asset) => {
+          const mt = asset.indexes.mediaType;
+          return typeof mt === "string" && mt === filter;
+        });
+
+  const selectedExists = filteredQueue.some((asset) => selectionMatchesAsset(selectedKey, asset));
+  const effectiveKey = selectedExists
+    ? selectedKey
+    : (filteredQueue[0]?.key ?? queue[0]?.key ?? selectedKey);
+
+  const currentAsset = useMediaAsset(effectiveKey);
+  const resolvedPoster = posterForPrimary(currentAsset.data ?? undefined, posterQueue);
+
+  const title = String(
+    currentAsset.data?.metadata.title ??
+      currentAsset.data?.displayKey ??
+      (typeof effectiveKey === "string" ? effectiveKey : effectiveKey.join("/")),
   );
-  const selected = selectedExists
-    ? selectedIntent
-    : filteredQueue[0]
-      ? { namespace: filteredQueue[0].namespace, itemId: filteredQueue[0].itemId }
-      : queue[0]
-        ? { namespace: queue[0].namespace, itemId: queue[0].itemId }
-        : selectedIntent;
-  const currentItem = useMedia({
-    kind: "item",
-    namespace: selected.namespace,
-    id: selected.itemId,
-  });
-  const title = currentItem.data?.title ?? selected.itemId;
-  const description =
-    currentItem.data?.description ??
-    "Metadata will appear here after the cache exposes the current item.";
-  const leadAsset = currentItem.data?.assetsByRole.primary ?? currentItem.data?.assets[0] ?? null;
-  const posterAssetUrl = currentItem.data?.assetsByRole.poster?.url ?? null;
-  const imageAssetUrl =
-    leadAsset?.kind === "image" && leadAsset.url ? leadAsset.url : posterAssetUrl;
-  const subtitleAssetUrl = currentItem.data?.assetsByRole.subtitle?.url ?? null;
+  const description = String(
+    currentAsset.data?.metadata.description ??
+      "Metadata will appear here after the cache exposes the current asset.",
+  );
+  const isPrimaryVideo = currentAsset.data?.kind === "video";
+  const primaryUrl = currentAsset.data?.url ?? null;
+  const posterUrl = resolvedPoster?.url ?? null;
+  const imageUrl = !isPrimaryVideo && primaryUrl ? primaryUrl : posterUrl;
 
   return (
     <section className="min-h-screen border-x border-border bg-surface">
@@ -336,86 +347,34 @@ function ArchiveView() {
               "min-[1081px]:min-h-0 min-[1081px]:flex-col min-[1081px]:snap-y min-[1081px]:overflow-x-hidden min-[1081px]:overflow-y-auto",
             ])}
           >
-            {filteredQueue.map((item) => {
-              const isActive =
-                item.namespace === selected.namespace && item.itemId === selected.itemId;
-              const cardKind = mediaKindFromNamespace(item.namespace);
-              return (
-                <button
-                  key={`${item.namespace}/${item.itemId}`}
-                  className={cn([
-                    "shrink-0 snap-start border bg-surface-alt p-1.5 text-left text-inherit",
-                    "transition-colors duration-150 hover:border-border-focus hover:bg-[#1a1a1e]",
-                    "w-[180px] min-[1081px]:w-full",
-                    isActive
-                      ? "border-l-2 border-l-accent border-border-focus bg-[#1a1a1e]"
-                      : "border-border",
-                  ])}
-                  type="button"
-                  onClick={() =>
-                    setSelectedIntent({
-                      namespace: item.namespace,
-                      itemId: item.itemId,
-                    })
-                  }
-                >
-                  <div className="relative aspect-video overflow-hidden border border-border bg-black">
-                    {item.posterUrl ? (
-                      <img
-                        className="block h-full w-full object-cover"
-                        src={item.posterUrl}
-                        alt={item.title}
-                      />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center">
-                        <span className="text-tech text-[10px] tracking-[0.18em] text-text-dim">
-                          {item.leadKind}
-                        </span>
-                      </div>
-                    )}
-                    <span
-                      className={cn([
-                        "absolute bottom-1 right-1 px-1.5 py-0.5 font-tech text-[8px] uppercase tracking-[0.14em]",
-                        cardKind === "video" ? "bg-accent/90 text-white" : "bg-white/80 text-black",
-                      ])}
-                    >
-                      {cardKind}
-                    </span>
-                  </div>
-                  <div className="grid gap-1 px-1 pb-0.5 pt-2">
-                    <p className="text-tech text-[9px] tracking-[0.16em] text-text-dim">
-                      {item.namespace}
-                    </p>
-                    <strong className="font-display text-sm leading-[1.15] text-[#e4e4e7]">
-                      {item.title}
-                    </strong>
-                  </div>
-                </button>
-              );
-            })}
+            {filteredQueue.map((asset) => (
+              <QueueCard
+                key={asset.key}
+                asset={asset}
+                isActive={selectionMatchesAsset(effectiveKey, asset)}
+                posterUrl={posterForPrimary(asset, posterQueue)?.url ?? null}
+                onSelect={() => setSelectedKey(asset.key)}
+              />
+            ))}
           </div>
         </nav>
 
         <div className="grid content-start gap-4 p-4 min-[860px]:p-5">
           <figure className="relative aspect-video w-full overflow-hidden border border-border bg-black">
-            {leadAsset?.kind === "video" ? (
+            {isPrimaryVideo ? (
               <video
-                key={leadAsset.url}
+                key={primaryUrl}
                 className="block h-full w-full bg-black object-contain transition-opacity duration-300"
-                src={leadAsset.url}
+                src={primaryUrl ?? undefined}
                 autoPlay
                 controls
                 playsInline
-                poster={posterAssetUrl ?? undefined}
-              >
-                {subtitleAssetUrl ? (
-                  <track kind="subtitles" src={subtitleAssetUrl} default label="Captions" />
-                ) : null}
-              </video>
-            ) : imageAssetUrl ? (
+                poster={posterUrl ?? undefined}
+              />
+            ) : imageUrl ? (
               <img
                 className="block h-full w-full bg-black object-contain transition-opacity duration-300"
-                src={imageAssetUrl}
+                src={imageUrl}
                 alt={title}
               />
             ) : (
@@ -425,25 +384,22 @@ function ArchiveView() {
                 </p>
               </div>
             )}
-            {leadAsset?.kind !== "video" ? (
+            {!isPrimaryVideo ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-black via-black/25 to-transparent" />
             ) : null}
           </figure>
 
           <div className="grid content-start gap-3 border-l-2 border-accent bg-surface-alt p-4 min-[860px]:p-5">
             <p className="text-tech text-[10px] tracking-[0.2em] text-text-dim">
-              {selected.namespace}
+              {String(currentAsset.data?.indexes.collection ?? "")}
             </p>
             <h2 className="font-display text-[clamp(1.4rem,2vw,2rem)] leading-[1.05] text-[#e4e4e7]">
               {title}
             </h2>
             <p className="font-body text-[1rem] leading-[1.55] text-[#a1a1aa]">{description}</p>
             <dl className="mt-1 grid gap-2">
-              <FactRow label="Primary URL" value={leadAsset?.url ?? "pending"} />
-              <FactRow
-                label="Root namespace"
-                value={`space (${rootNamespace.data?.items.length ?? 0})`}
-              />
+              <FactRow label="Primary URL" value={currentAsset.data?.url ?? "pending"} />
+              <FactRow label="Primary assets" value={String(queue.length)} />
               <FactRow
                 label="Stem matches"
                 value={String(fileStemMatches.data?.items.length ?? 0)}
@@ -453,6 +409,60 @@ function ArchiveView() {
         </div>
       </div>
     </section>
+  );
+}
+
+function QueueCard({
+  asset,
+  isActive,
+  onSelect,
+  posterUrl,
+}: {
+  asset: ResolvedMediaAsset;
+  isActive: boolean;
+  onSelect: () => void;
+  posterUrl: string | null;
+}) {
+  const cardMediaType =
+    typeof asset.indexes.mediaType === "string" ? asset.indexes.mediaType : "asset";
+  const assetTitle = String(asset.metadata.title ?? asset.displayKey);
+  const collection = String(asset.indexes.collection ?? "");
+
+  return (
+    <button
+      className={cn([
+        "shrink-0 snap-start border bg-surface-alt p-1.5 text-left text-inherit",
+        "transition-colors duration-150 hover:border-border-focus hover:bg-[#1a1a1e]",
+        "w-[180px] min-[1081px]:w-full",
+        isActive ? "border-l-2 border-l-accent border-border-focus bg-[#1a1a1e]" : "border-border",
+      ])}
+      type="button"
+      onClick={onSelect}
+    >
+      <div className="relative aspect-video overflow-hidden border border-border bg-black">
+        {posterUrl ? (
+          <img className="block h-full w-full object-cover" src={posterUrl} alt={assetTitle} />
+        ) : (
+          <div className="grid h-full w-full place-items-center">
+            <span className="text-tech text-[10px] tracking-[0.18em] text-text-dim">
+              {cardMediaType}
+            </span>
+          </div>
+        )}
+        <span
+          className={cn([
+            "absolute bottom-1 right-1 px-1.5 py-0.5 font-tech text-[8px] uppercase tracking-[0.14em]",
+            cardMediaType === "video" ? "bg-accent/90 text-white" : "bg-white/80 text-black",
+          ])}
+        >
+          {cardMediaType}
+        </span>
+      </div>
+      <div className="grid gap-1 px-1 pb-0.5 pt-2">
+        <p className="text-tech text-[9px] tracking-[0.16em] text-text-dim">{collection}</p>
+        <strong className="font-display text-sm leading-[1.15] text-[#e4e4e7]">{assetTitle}</strong>
+      </div>
+    </button>
   );
 }
 

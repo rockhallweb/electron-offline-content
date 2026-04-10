@@ -1,15 +1,14 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MediaCacheProvider, useMedia, useMediaBridge } from "../../src/react/index.js";
+import { MediaCacheProvider, useMediaAsset, useMediaBridge } from "../../src/react/index.js";
 import { buildStatus, createBridge } from "./helpers/media-cache-fixtures.js";
 
 afterEach(() => {
   cleanup();
 });
 
-/** Narrow probe: useMedia with a non-throwing item plus useMediaBridge (avoids error/retry churn with waitFor). */
 function BridgeSyncActionProbe() {
-  useMedia({ kind: "item", namespace: "nature", id: "forest" });
+  useMediaAsset("forest");
   const { syncNow, phase } = useMediaBridge();
 
   return (
@@ -30,7 +29,7 @@ describe("react hooks (bridge actions)", () => {
       syncNow: async () => {
         syncNowCalls += 1;
       },
-      getItem: async () => null,
+      getAsset: async () => null,
     });
 
     render(

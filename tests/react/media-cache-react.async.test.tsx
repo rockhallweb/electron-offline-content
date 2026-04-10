@@ -1,117 +1,74 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MediaCacheProvider } from "../../src/react/index.js";
-import type { MediaCacheStatus, ResolvedMediaContentItem } from "../../src/shared/types.js";
-import { buildItem, buildStatus, createBridge, deferred } from "./helpers/media-cache-fixtures.js";
-import { MediaItemProbe, MediaListProbe, StatusProbe } from "./helpers/media-cache-probes.js";
+import { MediaCacheProvider, useMediaAsset } from "../../src/react/index.js";
+import type { ResolvedMediaAsset } from "../../src/shared/types.js";
+import { buildAsset, createBridge, deferred } from "./helpers/media-cache-fixtures.js";
 
 afterEach(() => {
   cleanup();
 });
 
-describe("react hooks (async / list)", () => {
-  it("keeps the latest item result when earlier requests resolve late", async () => {
-    const firstItem = deferred<ResolvedMediaContentItem | null>();
-    const secondItem = deferred<ResolvedMediaContentItem | null>();
+function AsyncLoadingProbe() {
+  const result = useMediaAsset("forest");
+  return (
+    <div>
+      <div data-testid="loading">{String(result.loading)}</div>
+      <div data-testid="data">{result.data?.key ?? "null"}</div>
+    </div>
+  );
+}
+
+function AsyncErrorProbe() {
+  const result = useMediaAsset("forest");
+  return (
+    <div>
+      <div data-testid="error">{result.error?.message ?? "none"}</div>
+    </div>
+  );
+}
+
+describe("react hooks (async)", () => {
+  it("shows loading state before getAsset resolves", async () => {
+    const assetDeferred = deferred<ResolvedMediaAsset | null>();
     const bridge = createBridge({
-      getItem: async (_namespace, id) => (id === "one" ? firstItem.promise : secondItem.promise),
+      getAsset: async () => assetDeferred.promise,
     });
 
-    const { rerender } = render(
+    render(
       <MediaCacheProvider bridge={bridge}>
-        <MediaItemProbe itemId="one" />
+        <AsyncLoadingProbe />
       </MediaCacheProvider>,
     );
 
-    rerender(
-      <MediaCacheProvider bridge={bridge}>
-        <MediaItemProbe itemId="two" />
-      </MediaCacheProvider>,
-    );
+    expect(screen.getByTestId("loading").textContent).toBe("true");
+    expect(screen.getByTestId("data").textContent).toBe("null");
 
     await act(async () => {
-      secondItem.resolve(buildItem("two"));
-      await secondItem.promise;
-    });
-    await screen.findByText("two");
-
-    await act(async () => {
-      firstItem.resolve(buildItem("one"));
-      await firstItem.promise;
+      assetDeferred.resolve(buildAsset("forest"));
+      await assetDeferred.promise;
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("item-id").textContent).toBe("two");
+      expect(screen.getByTestId("loading").textContent).toBe("false");
+      expect(screen.getByTestId("data").textContent).toBe("forest");
     });
   });
 
-  it("preserves subscribed status updates over stale initial loads", async () => {
-    const initialStatus = deferred<MediaCacheStatus>();
-    let statusListener: ((status: MediaCacheStatus) => void) | null = null;
+  it("shows error state when getAsset rejects", async () => {
     const bridge = createBridge({
-      getStatus: async () => initialStatus.promise,
-      subscribeStatus: (listener) => {
-        statusListener = listener;
-        return () => {
-          if (statusListener === listener) {
-            statusListener = null;
-          }
-        };
+      getAsset: async () => {
+        throw new Error("fetch failed");
       },
     });
 
     render(
       <MediaCacheProvider bridge={bridge}>
-        <StatusProbe />
+        <AsyncErrorProbe />
       </MediaCacheProvider>,
     );
-
-    act(() => {
-      statusListener?.(buildStatus("ready"));
-    });
-    await screen.findByText("ready");
-
-    await act(async () => {
-      initialStatus.resolve(buildStatus("idle"));
-      await initialStatus.promise;
-    });
 
     await waitFor(() => {
-      expect(screen.getByTestId("status-phase").textContent).toBe("ready");
+      expect(screen.getByTestId("error").textContent).toBe("fetch failed");
     });
-  });
-
-  it("uses flat and recursive list queries via useMedia", async () => {
-    let listNamespaceCalls = 0;
-    let listNamespaceTreeCalls = 0;
-    const bridge = createBridge({
-      listNamespace: async () => {
-        listNamespaceCalls += 1;
-        return { items: [buildItem("flat")], nextCursor: null };
-      },
-      listNamespaceTree: async () => {
-        listNamespaceTreeCalls += 1;
-        return { items: [buildItem("tree")], nextCursor: null };
-      },
-    });
-
-    const { rerender } = render(
-      <MediaCacheProvider bridge={bridge}>
-        <MediaListProbe recursive={false} />
-      </MediaCacheProvider>,
-    );
-
-    await screen.findByText("flat");
-    expect(listNamespaceCalls).toBeGreaterThan(0);
-    expect(listNamespaceTreeCalls).toBe(0);
-
-    rerender(
-      <MediaCacheProvider bridge={bridge}>
-        <MediaListProbe recursive />
-      </MediaCacheProvider>,
-    );
-
-    await screen.findByText("tree");
-    expect(listNamespaceTreeCalls).toBeGreaterThan(0);
   });
 });

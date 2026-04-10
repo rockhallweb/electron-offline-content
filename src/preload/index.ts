@@ -4,19 +4,16 @@ import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "..
 
 /**
  * Builds a {@link import("../shared/types.js").MediaCacheBridge} that invokes main-process handlers via `ipcRenderer`.
- * Does not call `contextBridge`; use {@link exposeMediaCacheBridge} from an isolated preload to put the API on `window`.
  */
 export function createMediaCacheBridge(): MediaCacheBridge {
   return {
     getStatus: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.getStatus),
     syncNow: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.syncNow),
-    getItem: (namespace, id) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getItem, namespace, id),
-    listNamespace: (namespace, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.listNamespace, namespace, pagination),
-    listNamespaceTree: (prefix, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.listNamespaceTree, prefix, pagination),
-    findByFileStem: (stem, options) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.findByFileStem, stem, options),
+    getAsset: (key) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getAsset, key),
+    listByIndex: (indexName, value, pagination?: PaginationInput) =>
+      ipcRenderer.invoke(MEDIA_CACHE_IPC.listByIndex, indexName, value, pagination),
+    findByFileStem: (stem, pagination?: PaginationInput) =>
+      ipcRenderer.invoke(MEDIA_CACHE_IPC.findByFileStem, stem, pagination),
     subscribeStatus: (listener) => {
       const wrapped = (
         _event: Electron.IpcRendererEvent,
@@ -32,7 +29,6 @@ export function createMediaCacheBridge(): MediaCacheBridge {
 
 /**
  * Exposes the bridge on the renderer's `window` under `options.key` (default `mediaCache`) using `contextBridge.exposeInMainWorld`.
- * Returns the same bridge instance for convenience.
  */
 export function exposeMediaCacheBridge(options?: PreloadExposeOptions): MediaCacheBridge {
   const bridge = createMediaCacheBridge();

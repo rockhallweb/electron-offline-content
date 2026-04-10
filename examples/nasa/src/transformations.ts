@@ -1,23 +1,18 @@
 /**
- * NASA Images API → Offline Manifest Transformations
+ * NASA Images API → Flat Asset Store Transformations
  *
- * This file turns raw NASA Images search results into the manifest format
- * expected by `electron-offline-content`. It handles:
+ * This file turns raw NASA Images search results into flat assets for the
+ * MediaStore. It handles:
  *
  * - Validating the NASA search response with Zod schemas
  * - Resolving the best available asset URL (video or image) from each
  *   item's collection, preferring higher-quality variants first
- * - Attaching a poster/thumbnail asset for each item
- * - Producing fully-formed manifest items ready for offline caching
+ * - Adding a primary and poster asset for each item with metadata
+ * - Tagging assets with collection, mediaType, and role indexes
  *
- * Used by the NASA example app's content producer.
+ * Used by the NASA example app's offline-media store builder.
  */
-import {
-  defineAsset,
-  defineItem,
-  itemsFromEntries,
-  type MediaItemValue,
-} from "@rockhallweb/electron-offline-content/main";
+import type { MediaIndex, MediaStore } from "@rockhallweb/electron-offline-content/main";
 import { z } from "zod";
 
 const NasaSearchItemDataLike = z.object({
@@ -61,95 +56,136 @@ export const NasaContentSchema = z.object({
 });
 export type NasaContentSchema = z.infer<typeof NasaContentSchema>;
 
-/** Transforms a NASA search item into a manifest item [id, value] entry */
-function toManifestItemEntry(
+interface StoreIndexes {
+  collection: MediaIndex;
+  mediaType: MediaIndex;
+  role: MediaIndex;
+}
+
+/** Populates a MediaStore with assets derived from NASA search results. */
+export function populateStore(
+  store: MediaStore,
+  indexes: StoreIndexes,
+  content: NasaContentSchema,
+): void {
+  addSearchItems(
+    store,
+    indexes,
+    "space.images",
+    content.searches.image.collection.items,
+    content.assetCollections,
+  );
+  addSearchItems(
+    store,
+    indexes,
+    "space.videos",
+    content.searches.video.collection.items,
+    content.assetCollections,
+  );
+}
+
+function addSearchItems(
+  store: MediaStore,
+  indexes: StoreIndexes,
+  collectionName: string,
+  items: NasaSearchItemLike[],
+  assetCollections: Record<string, string[]>,
+): void {
+  for (const item of items) {
+    if (item === null) continue;
+    addItemAssets(store, indexes, collectionName, item, assetCollections);
+  }
+}
+
+function addItemAssets(
+  store: MediaStore,
+  indexes: StoreIndexes,
+  collectionName: string,
   item: NasaSearchItemLike,
   assetCollections: Record<string, string[]>,
-): [string, MediaItemValue] {
-  // NASA search payload gives metadata; collection.json gives concrete downloadable asset URLs.
+): void {
   const data = item.data[0];
+  if (!data) return;
   const dataResult = NasaSearchItemDataLike.safeParse(data);
   if (!dataResult.success) {
     throw new Error(`Invalid NASA search item data: ${JSON.stringify(data)}`);
   }
 
   const collectionAssets = assetCollections[item.href] ?? [];
-  let primaryAssetUrl: string | null;
+  let primaryUrl: string | null;
   if (data.media_type === "video") {
-    primaryAssetUrl = pickAssetUrl(collectionAssets, [
+    primaryUrl = pickAssetUrl(collectionAssets, [
       "~orig.mp4",
       "~large.mp4",
       "~medium.mp4",
       "~mobile.mp4",
     ]);
   } else {
-    primaryAssetUrl = pickAssetUrl(collectionAssets, ["~orig.jpg", "~large.jpg", "~medium.jpg"]);
+    primaryUrl = pickAssetUrl(collectionAssets, ["~orig.jpg", "~large.jpg", "~medium.jpg"]);
   }
 
-  if (primaryAssetUrl == null) {
+  if (primaryUrl == null) {
     throw new Error(`No primary asset URL found for NASA search item: ${JSON.stringify(data)}`);
   }
 
-  let posterAssetUrl = pickAssetUrl(collectionAssets, [
+  let posterUrl = pickAssetUrl(collectionAssets, [
     "~thumb.jpg",
     "~small.jpg",
     "~medium.jpg",
     "~large.jpg",
   ]);
-  if (posterAssetUrl == null) {
+  if (posterUrl == null) {
     const posterLink = item.links.find((link) => link.render === "image");
     if (posterLink == null) {
       throw new Error(`No poster link found for NASA search item: ${JSON.stringify(data)}`);
     }
-    posterAssetUrl = posterLink.href;
+    posterUrl = posterLink.href;
   }
 
-  const assets = {
-    main: defineAsset({
-      role: "primary",
-      kind: data.media_type,
-      source: { url: primaryAssetUrl },
-    }),
-    poster: defineAsset({
-      role: "poster",
-      kind: "poster",
-      source: { url: posterAssetUrl },
-    }),
+  const metadata = {
+    title: data.title,
+    description: data.description,
+    summary: `From NASA Images API item ${data.nasa_id} (${data.center}).`,
+    center: data.center,
+    dateCreated: data.date_created,
+    keywords: data.keywords ?? [],
+    nasaId: data.nasa_id,
+    sourceItem: item.href,
   };
 
-  return [
-    data.nasa_id,
-    defineItem({
-      version: `${data.nasa_id}-${data.date_created.slice(0, 10)}`,
-      kind: data.media_type,
-      title: data.title,
-      description: data.description,
-      summary: `From NASA Images API item ${data.nasa_id} (${data.center}).`,
-      blobs: {
-        sourceItem: item.href,
-      },
-      metadata: {
-        center: data.center,
-        dateCreated: data.date_created,
-        keywords: data.keywords ?? [],
-      },
-      assets,
-    }),
-  ];
+  const version = `${data.nasa_id}-${data.date_created.slice(0, 10)}`;
+  const primaryMime = data.media_type === "video" ? "video/mp4" : "image/jpeg";
+
+  store.add([collectionName, data.nasa_id, "primary"], {
+    version,
+    mimeType: primaryMime,
+    url: primaryUrl,
+    metadata,
+    indexes: [
+      indexes.collection(collectionName),
+      indexes.mediaType(data.media_type),
+      indexes.role("primary"),
+    ],
+  });
+
+  store.add([collectionName, data.nasa_id, "poster"], {
+    version,
+    mimeType: "image/jpeg",
+    url: posterUrl,
+    metadata,
+    indexes: [
+      indexes.collection(collectionName),
+      indexes.mediaType(data.media_type),
+      indexes.role("poster"),
+    ],
+  });
 }
 
 /** Picks the best asset URL from a list of URLs and preferred suffixes */
 function pickAssetUrl(assetUrls: string[], preferredSuffixes: string[]): string | null {
-  return assetUrls.find((url) => preferredSuffixes.some((suffix) => url.endsWith(suffix))) ?? null;
-}
-
-/** Transforms NASA search items into a manifest `items` record */
-export function getManifestItems(
-  assetCollections: NasaContentSchema["assetCollections"],
-  items: NasaSearchItemLike[],
-) {
-  return itemsFromEntries(
-    items.filter((item) => item !== null),
-    (item) => toManifestItemEntry(item, assetCollections),
-  );
+  for (const suffix of preferredSuffixes) {
+    const match = assetUrls.find((url) => url.endsWith(suffix));
+    if (match) return match;
+  }
+  return null;
 }

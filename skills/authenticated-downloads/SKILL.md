@@ -1,33 +1,30 @@
 ---
 name: authenticated-downloads
 description: >
-  Adding authentication to asset downloads: resolveAssetRequest callback
-  for per-asset signed URL generation and bearer token injection,
-  ResolveAssetRequestContext and DownloadRequest types,
-  MediaRemoteSource.headers for static auth at manifest build time.
-  Choosing between manifest-time pre-signed URLs (simple, TTL-limited)
-  and download-time signing via resolveAssetRequest (robust, not
-  available in devPassthrough). Pre-signed URL expiration vs catalog
-  sync duration tradeoff.
+  Adding authentication to asset downloads in the flat store model by
+  embedding presigned (or otherwise signed) URLs in each asset’s top-level
+  url field during resolveStore. Pre-signed URL expiration vs catalog sync
+  duration tradeoff.
 type: core
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.4.0"
 requires:
-  - manifest-authoring
+  - store-authoring
 sources:
   - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
+  - "rockhallweb/electron-offline-content:src/main/store.ts"
   - "rockhallweb/electron-offline-content:src/shared/types.ts"
   - "rockhallweb/electron-offline-content:README.md"
 ---
 
-> **Dependency:** This skill builds on manifest-authoring. Read it first for resolveManifest and define helpers.
+> **Dependency:** This skill builds on store-authoring. Read it first for resolveStore and createMediaStore patterns.
 
 ## Setup
 
-A `createMediaCache` with `resolveAssetRequest` that generates S3 pre-signed URLs at download time:
+A `resolveStore` function that embeds S3 pre-signed URLs at store build time:
 
 ```typescript
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -35,229 +32,172 @@ const s3 = new S3Client({ region: "us-east-1" });
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(
-      s3,
-      new GetObjectCommand({
-        Bucket: "my-content-bucket",
-        Key: ctx.asset.source.url.replace("https://my-content-bucket.s3.amazonaws.com/", ""),
-      }),
-      { expiresIn: 3600 },
-    ),
-  }),
-  resolveManifest: async () => fetchManifest(),
+  resolveStore: async () => {
+    const store = createMediaStore();
+    const catalog = await fetchCatalog();
+
+    for (const item of catalog) {
+      const signedUrl = await getSignedUrl(
+        s3,
+        new GetObjectCommand({
+          Bucket: "my-content-bucket",
+          Key: item.objectKey,
+        }),
+        { expiresIn: 3600 },
+      );
+
+      store.add(["assets", item.id], {
+        version: item.revision,
+        mimeType: "video/mp4",
+        url: signedUrl,
+        metadata: item.metadata,
+      });
+    }
+
+    return store;
+  },
 });
 ```
 
 ## Core Patterns
 
-### Download-time signing with resolveAssetRequest
+### Embedding presigned URLs in resolveStore
 
-Called per-asset per-sync. Returns a `DownloadRequest` with a signed URL and/or custom headers. Best for short-lived credentials or large catalogs where manifest-time URLs may expire before all downloads complete.
+All authentication is handled during `resolveStore()`. The download pipeline fetches each asset using only its `url` string. Put signing parameters, tokens, or credentials into that URL (for example an S3 presigned URL) before calling `store.add`.
 
 ```typescript
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
-import type {
-  ResolveAssetRequestContext,
-  DownloadRequest,
-} from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-async function signAssetRequest(ctx: ResolveAssetRequestContext): Promise<DownloadRequest> {
-  const token = await fetchShortLivedToken();
-  return {
-    url: ctx.asset.source.url,
-    headers: { Authorization: `Bearer ${token}` },
-  };
+const s3 = new S3Client({ region: "us-east-1" });
+
+async function resolveStore() {
+  const store = createMediaStore();
+  const catalog = await fetchCatalog();
+
+  for (const item of catalog) {
+    const signedUrl = await getSignedUrl(
+      s3,
+      new GetObjectCommand({ Bucket: "my-content-bucket", Key: item.objectKey }),
+      { expiresIn: 3600 },
+    );
+
+    store.add(["assets", item.id], {
+      version: item.revision,
+      mimeType: "video/mp4",
+      url: signedUrl,
+    });
+  }
+
+  return store;
 }
-
-const mediaCache = createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveAssetRequest: signAssetRequest,
-  resolveManifest: async () => fetchManifest(),
-});
 ```
 
-### Static headers on asset sources
+### OAuth or rotating credentials
 
-For long-lived API keys or bearer tokens known at manifest build time, set `headers` directly on each asset's `source`. Simpler than `resolveAssetRequest` — no per-download callback.
+If you use short-lived tokens, exchange them for presigned download URLs (or a backend-issued URL that already includes auth) inside `resolveStore` before calling `store.add`. The library does not accept separate auth configuration per asset—only the final URL string.
 
-```typescript
-import { defineAsset } from "@rockhallweb/electron-offline-content/main";
+### TTL and catalog size
 
-defineAsset({
-  role: "primary",
-  kind: "video",
-  source: {
-    url: "https://cdn.example.com/video.mp4",
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  },
-});
-```
-
-### Choosing between strategies
-
-| Credential type            | Catalog size         | Recommended approach                              |
-| -------------------------- | -------------------- | ------------------------------------------------- |
-| Long-lived API key/token   | Any                  | `source.headers` on each asset                    |
-| Short-lived pre-signed URL | Small (< 100 assets) | Pre-sign at manifest build time with generous TTL |
-| Short-lived pre-signed URL | Large (100+ assets)  | `resolveAssetRequest` for download-time signing   |
-| OAuth / rotating token     | Any                  | `resolveAssetRequest` with token refresh          |
+| Scenario            | Recommendation                                                                   |
+| ------------------- | -------------------------------------------------------------------------------- |
+| Any protected asset | Presign (or otherwise embed auth in) the `url` before `store.add`.               |
+| Small catalog       | Presign in `resolveStore` with a TTL that comfortably exceeds full sync time.    |
+| Large catalog       | Use a long TTL and set store `expiresAt` to match for fail-fast `STORE_EXPIRED`. |
 
 ## Common Mistakes
 
-### HIGH: Expecting resolveAssetRequest to work in devPassthrough
+### HIGH: Pre-signed URL expiration too short for full catalog sync
 
-In dev passthrough mode, `resolveAssetRequest` is **never called**. Passthrough uses manifest source URLs directly. Assets requiring auth will fail silently — broken images and video with no error in application logs.
+When embedding pre-signed URLs in `resolveStore`, the TTL must exceed total download time for **all** assets. Assets late in the queue fail with opaque HTTP 403 when URLs expire mid-sync.
 
-Wrong:
+Set `expiresAt` on the store to the earliest shared expiration timestamp so the cache can fail fast with `STORE_EXPIRED` before a later asset is fetched with a stale URL.
+
+Wrong — short TTL on a large catalog:
+
+```typescript
+async function resolveStore() {
+  const store = createMediaStore();
+  for (const item of await fetchCatalog()) {
+    const signedUrl = await getSignedUrl(
+      s3,
+      new GetObjectCommand({ Bucket: "b", Key: item.key }),
+      { expiresIn: 300 }, // 5 minutes — too short for 500 assets
+    );
+    store.add(["assets", item.id], { version: item.rev, mimeType: "video/mp4", url: signedUrl });
+  }
+  return store;
+}
+```
+
+Correct — generous TTL with `expiresAt`:
+
+```typescript
+async function resolveStore() {
+  const ttlSeconds = 3600;
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  const store = createMediaStore({ expiresAt });
+
+  for (const item of await fetchCatalog()) {
+    const signedUrl = await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: item.key }), {
+      expiresIn: ttlSeconds,
+    });
+    store.add(["assets", item.id], {
+      version: item.rev,
+      mimeType: "video/mp4",
+      url: signedUrl,
+    });
+  }
+
+  return store;
+}
+```
+
+Source: Maintainer interview
+
+### HIGH: Auth not tested in offline mode
+
+In dev passthrough mode, assets load from their original remote URLs directly in the renderer. Auth issues only surface when `devPassthrough` is `false` and the main process downloads assets using the URLs from `resolveStore`.
+
+Wrong — testing only in dev passthrough:
 
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: "k" }), {
-      expiresIn: 3600,
-    }),
-  }),
-  resolveManifest: async () => fetchManifest(),
+  resolveStore: async () => buildAuthenticatedStore(),
 });
+// "It works!" — but auth URLs are never actually used for downloads
 ```
 
-Correct — disable passthrough when using `resolveAssetRequest` for auth:
+Correct — test with `devPassthrough: false` to verify auth:
 
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: "b", Key: "k" }), {
-      expiresIn: 3600,
-    }),
-  }),
-  resolveManifest: async () => fetchManifest(),
+  resolveStore: async () => buildAuthenticatedStore(),
 });
 ```
 
 Source: README
 Cross-skill: cache-configuration/SKILL.md § Common Mistakes
 
-### HIGH: Pre-signed URL expiration too short for full catalog sync
+### HIGH Tension: Pre-signed URL TTL vs catalog size
 
-When using manifest-time pre-signed URLs, the TTL must exceed total download time for **all** assets. Assets late in the queue fail with opaque HTTP 403 when URLs expire mid-sync.
+Pre-signed URLs embedded at store build time are simple but have a TTL ceiling: expiration must cover the entire download queue. For large catalogs, evaluate expected sync duration and set TTLs accordingly. Use store `expiresAt` for fail-fast behavior.
 
-If you must ship pre-signed URLs in the manifest, set top-level `expiresAt` to the earliest shared expiration timestamp so the cache can fail fast with `MANIFEST_EXPIRED` before a later asset request is resolved or fetched with a stale URL.
-
-Wrong — embedding short-lived pre-signed URLs in the manifest for a large catalog: late assets hit HTTP 403 when URLs expire before download.
-
-Prefer **generous shared TTL + `manifest.expiresAt`**, or **`resolveAssetRequest`** to sign at download time (per-asset TTL). Build the manifest with **`defineManifest`**, record-shaped **`namespaces` / `items` / `assets`**, and **`itemsFromEntries`** when mapping from arrays (see manifest-authoring skill).
-
-Source: Maintainer interview
-
-### MEDIUM: Confusing resolveAssetRequest with resolveManifest
-
-`resolveManifest` produces the full content catalog. `resolveAssetRequest` customizes individual download requests. Putting auth logic in the wrong callback breaks either manifest fetching or asset downloading.
-
-Wrong — signing inside `resolveManifest` when URLs expire before the download queue finishes (use plain keys in manifest + `resolveAssetRequest` instead).
-
-Correct — manifest returns plain HTTPS object keys; `resolveAssetRequest` signs at download time:
-
-```typescript
-import {
-  createMediaCache,
-  defineItem,
-  defineManifest,
-  itemsFromEntries,
-} from "@rockhallweb/electron-offline-content/main";
-
-const mediaCache = createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => {
-    const items = await fetchCatalog();
-    return defineManifest({
-      namespaces: {
-        videos: {
-          items: itemsFromEntries(items, (item) => [
-            item.id,
-            defineItem({
-              version: item.revision,
-              kind: "video",
-              assets: {
-                main: {
-                  role: "primary",
-                  kind: "video",
-                  source: { url: `https://my-content-bucket.s3.amazonaws.com/${item.key}` },
-                },
-              },
-            }),
-          ]),
-        },
-      },
-    });
-  },
-  resolveAssetRequest: async (ctx) => ({
-    url: await getSignedUrl(
-      s3,
-      new GetObjectCommand({
-        Bucket: "my-content-bucket",
-        Key: ctx.asset.source.url.replace("https://my-content-bucket.s3.amazonaws.com/", ""),
-      }),
-      { expiresIn: 3600 },
-    ),
-  }),
-});
-```
-
-Source: types.ts; README
-
-### MEDIUM: Using resolveAssetRequest for long-lived static tokens
-
-`resolveAssetRequest` is called per-asset per-sync. If the token is long-lived, `source.headers` is simpler and avoids unnecessary callback overhead.
-
-Wrong:
-
-```typescript
-const mediaCache = createMediaCache({
-  storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveAssetRequest: async (ctx) => ({
-    url: ctx.asset.source.url,
-    headers: { Authorization: `Bearer ${STATIC_API_KEY}` },
-  }),
-  resolveManifest: async () => fetchManifest(),
-});
-```
-
-Correct — set headers on asset sources in the manifest:
-
-```typescript
-import { defineAsset } from "@rockhallweb/electron-offline-content/main";
-
-defineAsset({
-  role: "primary",
-  kind: "video",
-  source: {
-    url: "https://cdn.example.com/video.mp4",
-    headers: { Authorization: `Bearer ${STATIC_API_KEY}` },
-  },
-});
-```
-
-Source: README
-
-### HIGH Tension: Manifest-time auth vs download-time auth
-
-Pre-signed URLs at manifest build time are simple but have a TTL ceiling: expiration must cover the entire download queue. `resolveAssetRequest` signs at download time (no expiration risk) but adds per-asset callback overhead and does not work in `devPassthrough` mode. Evaluate catalog size and expected sync duration.
-
-See also: manifest-authoring/SKILL.md § Common Mistakes
+See also: store-authoring/SKILL.md § Common Mistakes
 
 ### HIGH Tension: Dev passthrough simplicity vs production correctness
 
-`devPassthrough` bypasses `resolveAssetRequest` entirely. Code that works in dev (where auth isn't needed for public URLs) may fail in production when assets require signed downloads.
+`devPassthrough` bypasses downloads entirely. Code that works in dev (where auth isn't needed for public URLs) may fail in production when assets require signed downloads.
 
 See also: cache-configuration/SKILL.md § Common Mistakes
 
 ---
 
-See also: manifest-authoring/SKILL.md — Asset source definition and headers
-See also: cache-configuration/SKILL.md — devPassthrough mode disables resolveAssetRequest
+See also: store-authoring/SKILL.md — Asset URL definition and resolveStore
+See also: cache-configuration/SKILL.md — devPassthrough mode bypasses downloads
 See also: production-checklist/SKILL.md — Verify auth works in offline mode before deploy

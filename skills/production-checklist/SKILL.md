@@ -10,7 +10,7 @@ description: >
   full catalog download.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.1.1"
+library_version: "0.4.0"
 requires:
   - cache-configuration
 sources:
@@ -36,7 +36,7 @@ import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -53,7 +53,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
   onSyncFailure: "serve-last-snapshot",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -64,7 +64,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
   onSyncFailure: "throw",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -87,7 +87,7 @@ if (!app.requestSingleInstanceLock()) {
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -107,7 +107,7 @@ const mediaCache = createMediaCache({
   devPassthrough: false,
   maxCacheBytes: 10 * 1024 * 1024 * 1024,
   reserveFreeBytes: 5 * 1024 * 1024 * 1024,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -144,7 +144,7 @@ const mediaCache = createMediaCache({
       logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
     },
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -156,7 +156,7 @@ const mediaCache = createMediaCache({
 
 ### Check: Package used only for read-only presentation assets
 
-**Expected:** Cache serves media for display — video, images, audio, documents. Content flows one direction: CMS → manifest → download → local storage → renderer display.
+**Expected:** Cache serves media for display — video, images, audio, documents. Content flows one direction: CMS → store → download → local storage → renderer display.
 
 **Fail condition:** Package misused for user-generated content (webcam captures, user uploads, form attachments) or runtime data storage. No write operations are exposed to the renderer. The cache is read-only by design.
 
@@ -179,11 +179,11 @@ const mediaCache = createMediaCache({
 
 ### Check: Full catalog download tested for disk space
 
-**Expected:** Download the full manifest to verify it fits on the target device. Monitor disk usage during and after sync completes.
+**Expected:** Download the full store to verify it fits on the target device. Monitor disk usage during and after sync completes.
 
 **Fail condition:** Catalog exceeds available disk space on kiosk hardware. Downloads stall or fail when `maxCacheBytes` or `reserveFreeBytes` limits are hit. Partial sync leaves kiosk with incomplete content.
 
-**Fix:** For smoke tests, scope down the manifest to a subset. For production validation, verify the device has capacity for the full catalog plus `reserveFreeBytes` headroom. Calculate: total manifest size + reserve + OS needs < device disk capacity.
+**Fix:** For smoke tests, scope down the store to a subset. For production validation, verify the device has capacity for the full catalog plus `reserveFreeBytes` headroom. Calculate: total store size + reserve + OS needs < device disk capacity.
 
 ## Common Mistakes
 
@@ -196,7 +196,7 @@ Wrong — relying on `NODE_ENV`:
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -206,7 +206,7 @@ Correct — explicit:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -219,7 +219,7 @@ Cross-skill: also in cache-configuration/SKILL.md § Common Mistakes
 
 - `media://` protocol URLs may be blocked by CSP or DOM security in certain Electron configurations.
 - Disk space for the full catalog is untested.
-- `resolveAssetRequest` is never called — authenticated downloads are untested.
+- Authenticated download URLs embedded in `resolveStore` are untested.
 - `onSyncFailure: "serve-last-snapshot"` is overridden to `"throw"` — resilience logic is untested.
 
 Wrong — testing only in dev mode:
@@ -228,7 +228,7 @@ Wrong — testing only in dev mode:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: true,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 // "It works!" — but only because assets load from remote URLs
 ```
@@ -240,7 +240,7 @@ const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
   onSyncFailure: "serve-last-snapshot",
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 // Build, run, verify media:// URLs render, verify sync completes
 ```
@@ -249,7 +249,7 @@ Source: Maintainer interview
 
 ### HIGH: No soft cap on cache size (`maxCacheBytes`)
 
-Without `maxCacheBytes`, the cache can grow to the full manifest size subject only to disk space and the default **1 GiB** `reserveFreeBytes` headroom. On kiosk SSDs (often 64–256 GB), a growing catalog can still consume almost all disk space. Set `maxCacheBytes` explicitly for a hard ceiling.
+Without `maxCacheBytes`, the cache can grow to the full store size subject only to disk space and the default **1 GiB** `reserveFreeBytes` headroom. On kiosk SSDs (often 64–256 GB), a growing catalog can still consume almost all disk space. Set `maxCacheBytes` explicitly for a hard ceiling.
 
 Wrong:
 
@@ -257,7 +257,7 @@ Wrong:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -269,7 +269,7 @@ const mediaCache = createMediaCache({
   devPassthrough: false,
   maxCacheBytes: 10 * 1024 * 1024 * 1024,
   reserveFreeBytes: 1 * 1024 * 1024 * 1024,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -286,18 +286,18 @@ Wrong — disabling passthrough without checking space:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => fullProductionManifest,
+  resolveStore: async () => fullProductionStore,
 });
 ```
 
-Correct — scope down manifest for local testing:
+Correct — scope down store for local testing:
 
 ```typescript
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
   maxCacheBytes: 2 * 1024 * 1024 * 1024,
-  resolveManifest: async () => scopedTestManifest,
+  resolveStore: async () => scopedTestStore,
 });
 ```
 
@@ -313,7 +313,7 @@ Wrong:
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
   devPassthrough: false,
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -333,7 +333,7 @@ const mediaCache = createMediaCache({
       logger[entry.level === "debug" ? "debug" : entry.level](entry, entry.event);
     },
   },
-  resolveManifest: async () => manifest,
+  resolveStore: async () => store,
 });
 ```
 
@@ -368,7 +368,7 @@ Source: Maintainer interview
 
 ### HIGH Tension: Dev passthrough simplicity vs production correctness
 
-`devPassthrough` makes development fast but changes behavior: `resolveAssetRequest` is ignored, `onSyncFailure` is overridden to `"throw"`, URLs are remote. Code working in dev may break in production offline mode — especially authenticated downloads and sync failure resilience.
+`devPassthrough` makes development fast but changes behavior: downloads are skipped, `onSyncFailure` is overridden to `"throw"`, URLs are remote. Code working in dev may break in production offline mode — especially authenticated downloads and sync failure resilience.
 
 See also: cache-configuration/SKILL.md § Common Mistakes
 

@@ -4,18 +4,19 @@ import { join } from "node:path";
 import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
 import type {
   FileStemMatch,
+  FlatManifest,
   MediaCacheStatus,
+  MediaKind,
   PaginationInput,
   PaginationResult,
-  ResolvedMediaContentItem,
+  ResolvedMediaAsset,
   SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
-import type { NormalizedManifest } from "../shared/normalize.js";
 import {
   activeAssetRowSchema,
   activeGenerationRowSchema,
-  fileStemRowSchema,
+  generationAssetRowSchema,
   generationIdRowSchema,
   jsonObjectSchema,
   mediaCacheStatusSchema,
@@ -24,39 +25,37 @@ import {
   pendingDeletionSchema,
   protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
-  stringRecordSchema,
   stringifyWithSchema,
   syncRunIdRowSchema,
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
-import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 export interface ActiveAssetRow {
   generationId: number;
-  namespace: string;
-  namespaceOrder: number;
-  itemId: string;
-  itemVersion: string;
-  itemKind: string;
-  itemTitle: string | null;
-  itemDescription: string | null;
-  itemSummary: string | null;
-  itemBlobsJson: string;
-  itemMetadataJson: string;
-  itemOrder: number;
-  assetId: string;
-  assetRole: string;
-  assetKind: string;
-  mimeType: string | null;
+  assetKey: string;
+  displayKey: string;
+  version: string;
+  mimeType: string;
+  mediaKind: MediaKind;
   byteLength: number | null;
-  assetMetadataJson: string;
+  metadata: string;
+  indexesJson: string;
   relativePath: string | null;
-  sourceJson: string;
+  url: string;
   fileStem: string;
+  orderIndex: number;
+}
+
+export interface GenerationAssetRow {
+  assetKey: string;
+  version: string;
+  relativePath: string | null;
+  mimeType: string;
+  url: string;
 }
 
 export interface PendingDeletion {
@@ -80,7 +79,7 @@ export class MediaCacheDatabase {
       assetBaseUrlOrigin: string | null;
       /**
        * Invoked only when dev passthrough origin override fails (fallback to stored URL).
-       * Not called for invalid `source_json` (parse error or missing url) — those throw.
+       * Not called for invalid `url` (parse error) — those throw.
        */
       onWarn?: (contextLabel: string, err: unknown) => void;
     },
@@ -113,10 +112,9 @@ export class MediaCacheDatabase {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM pending_deletions`).run();
-      this.db.prepare(`DELETE FROM active_generation`).run();
+      this.db.prepare(`DELETE FROM asset_indexes`).run();
       this.db.prepare(`DELETE FROM assets`).run();
-      this.db.prepare(`DELETE FROM items`).run();
-      this.db.prepare(`DELETE FROM generation_namespaces`).run();
+      this.db.prepare(`DELETE FROM index_definitions`).run();
       this.db.prepare(`DELETE FROM generations`).run();
       this.db.prepare(`DELETE FROM sync_runs`).run();
       this.db.prepare(`DELETE FROM status_snapshot`).run();
@@ -273,9 +271,9 @@ export class MediaCacheDatabase {
     this.assertNotClosed();
     const row = this.db
       .prepare(
-        `SELECT generation_id
-         FROM active_generation
-         WHERE scope_type = 'global' AND scope_key = '*'`,
+        `SELECT id AS generation_id
+         FROM generations
+         WHERE is_active = 1`,
       )
       .get();
     return row
@@ -291,7 +289,7 @@ export class MediaCacheDatabase {
         .prepare(
           `SELECT id
            FROM generations
-           WHERE status = 'staged'
+           WHERE is_active = 0
            ORDER BY id ASC`,
         )
         .all(),
@@ -300,119 +298,75 @@ export class MediaCacheDatabase {
     return rows.map((row) => row.id);
   }
 
-  createStagedGeneration(manifest: NormalizedManifest, now: number): number {
+  createStagedGeneration(manifest: FlatManifest, now: number): number {
     this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
       const generationInsert = this.db
         .prepare(
-          `INSERT INTO generations (
-            scope_type, scope_key, snapshot_id, retrieved_at, status, created_at_ms,
-            namespace_count, item_count, asset_count
-          ) VALUES ('global', '*', ?, ?, 'staged', ?, ?, ?, ?)`,
+          `INSERT INTO generations (snapshot_id, retrieved_at, expires_at, committed_at_ms, is_active)
+           VALUES (?, ?, ?, ?, 0)`,
         )
         .run(
           manifest.snapshotId ?? null,
           manifest.retrievedAt ?? null,
+          manifest.expiresAt ?? null,
           now,
-          manifest.namespaces.length,
-          manifest.namespaces.reduce((count, namespace) => count + namespace.items.length, 0),
-          manifest.namespaces.reduce(
-            (count, namespace) =>
-              count +
-              namespace.items.reduce((assetCount, item) => assetCount + item.assets.length, 0),
-            0,
-          ),
         );
 
       const generationId = Number(generationInsert.lastInsertRowid);
-      const namespaceStmt = this.db.prepare(
-        `INSERT INTO generation_namespaces (
-          generation_id, namespace_key, label, metadata_json, order_index
-        ) VALUES (?, ?, ?, ?, ?)`,
+
+      const indexDefStmt = this.db.prepare(
+        `INSERT INTO index_definitions (generation_id, name, cardinality, required, builtin)
+         VALUES (?, ?, ?, ?, ?)`,
       );
-      const itemStmt = this.db.prepare(
-        `INSERT INTO items (
-          generation_id, namespace_key, item_id, version, kind, title, description,
-          summary, blobs_json, metadata_json, order_index
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
+      for (const def of manifest.indexDefinitions) {
+        indexDefStmt.run(
+          generationId,
+          def.name,
+          def.cardinality,
+          def.required ? 1 : 0,
+          def.builtin ? 1 : 0,
+        );
+      }
+
       const assetStmt = this.db.prepare(
         `INSERT INTO assets (
-          generation_id, namespace_key, item_id, asset_id, role, kind, resolved_version,
-          asset_version, manifest_mime_type, manifest_file_name, mime_type, file_name,
-          file_stem, byte_length, source_json, resolved_request_json, metadata_json,
-          order_index, has_precise_manifest_fields, relative_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          generation_id, asset_key, display_key, version, mime_type, media_kind, file_name, file_stem,
+          byte_length, url, metadata_json, indexes_json, order_index, relative_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      );
+      const indexStmt = this.db.prepare(
+        `INSERT INTO asset_indexes (generation_id, asset_key, index_name, index_value)
+         VALUES (?, ?, ?, ?)`,
       );
 
-      manifest.namespaces.forEach((namespace, namespaceOrder) => {
-        namespaceStmt.run(
+      manifest.assets.forEach((asset, assetOrder) => {
+        assetStmt.run(
           generationId,
-          namespace.key,
-          namespace.label ?? null,
-          stringifyWithSchema(
-            namespace.metadata,
-            jsonObjectSchema,
-            `metadata for namespace "${namespace.key}"`,
-          ),
-          namespaceOrder,
+          asset.key,
+          asset.displayKey,
+          asset.version,
+          asset.mimeType,
+          asset.mediaKind,
+          asset.fileName,
+          asset.fileStem,
+          asset.byteLength ?? null,
+          asset.url,
+          JSON.stringify(asset.metadata),
+          JSON.stringify(asset.indexes),
+          assetOrder,
         );
 
-        namespace.items.forEach((item, itemOrder) => {
-          itemStmt.run(
-            generationId,
-            namespace.key,
-            item.id,
-            item.version,
-            item.kind,
-            item.title ?? null,
-            item.description ?? null,
-            item.summary ?? null,
-            stringifyWithSchema(
-              item.blobs,
-              stringRecordSchema,
-              `blobs for item "${namespace.key}/${item.id}"`,
-            ),
-            stringifyWithSchema(
-              item.metadata,
-              jsonObjectSchema,
-              `metadata for item "${namespace.key}/${item.id}"`,
-            ),
-            itemOrder,
-          );
-
-          item.assets.forEach((asset, assetOrder) => {
-            assetStmt.run(
-              generationId,
-              namespace.key,
-              item.id,
-              asset.id,
-              asset.role,
-              asset.kind,
-              asset.resolvedVersion,
-              asset.version ?? null,
-              asset.mimeType ?? null, // manifest_mime_type: preserve original manifest value
-              asset.fileName ?? null,
-              asset.mimeType ?? null, // mime_type: effective value, may be overridden after download
-              asset.normalizedFileName,
-              asset.normalizedFileStem,
-              asset.byteLength ?? null,
-              JSON.stringify(asset.source),
-              // resolved_request_json is initialised to source_json; reserved for a future
-              // feature that will persist the resolveAssetRequest() result for reuse across
-              // sync generations without re-invoking the callback.
-              JSON.stringify(asset.source),
-              stringifyWithSchema(
-                asset.metadata ?? {},
-                jsonObjectSchema,
-                `metadata for asset "${namespace.key}/${item.id}/${asset.id}"`,
-              ),
-              assetOrder,
-              1,
-            );
-          });
-        });
+        for (const [indexName, indexValue] of Object.entries(asset.indexes)) {
+          if (Array.isArray(indexValue)) {
+            for (const v of new Set(indexValue)) {
+              indexStmt.run(generationId, asset.key, indexName, v);
+            }
+          } else {
+            indexStmt.run(generationId, asset.key, indexName, indexValue);
+          }
+        }
       });
 
       this.db.exec("COMMIT");
@@ -427,11 +381,9 @@ export class MediaCacheDatabase {
     this.assertNotClosed();
     this.db.exec("BEGIN");
     try {
+      this.db.prepare(`DELETE FROM asset_indexes WHERE generation_id = ?`).run(generationId);
       this.db.prepare(`DELETE FROM assets WHERE generation_id = ?`).run(generationId);
-      this.db.prepare(`DELETE FROM items WHERE generation_id = ?`).run(generationId);
-      this.db
-        .prepare(`DELETE FROM generation_namespaces WHERE generation_id = ?`)
-        .run(generationId);
+      this.db.prepare(`DELETE FROM index_definitions WHERE generation_id = ?`).run(generationId);
       this.db.prepare(`DELETE FROM generations WHERE id = ?`).run(generationId);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -440,28 +392,20 @@ export class MediaCacheDatabase {
     }
   }
 
-  setAssetRelativePath(
-    generationId: number,
-    namespace: string,
-    itemId: string,
-    assetId: string,
-    relativePath: string,
-  ): void {
+  setAssetRelativePath(generationId: number, assetKey: string, relativePath: string): void {
     this.assertNotClosed();
     this.db
       .prepare(
         `UPDATE assets
          SET relative_path = ?
-         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
+         WHERE generation_id = ? AND asset_key = ?`,
       )
-      .run(relativePath, generationId, namespace, itemId, assetId);
+      .run(relativePath, generationId, assetKey);
   }
 
   setAssetDownloadState(
     generationId: number,
-    namespace: string,
-    itemId: string,
-    assetId: string,
+    assetKey: string,
     relativePath: string,
     fallbackMimeType: string | null,
   ): void {
@@ -472,49 +416,26 @@ export class MediaCacheDatabase {
          SET
            relative_path = ?,
            mime_type = COALESCE(mime_type, ?)
-         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
+         WHERE generation_id = ? AND asset_key = ?`,
       )
-      .run(relativePath, fallbackMimeType, generationId, namespace, itemId, assetId);
+      .run(relativePath, fallbackMimeType, generationId, assetKey);
   }
 
-  getGenerationAssets(generationId: number): ActiveAssetRow[] {
+  getGenerationAssets(generationId: number): GenerationAssetRow[] {
     this.assertNotClosed();
     return parseWithSchema(
-      activeAssetRowSchema.array(),
+      generationAssetRowSchema.array(),
       this.db
         .prepare(
           `SELECT
-             assets.generation_id AS generationId,
-             assets.namespace_key AS namespace,
-             generation_namespaces.order_index AS namespaceOrder,
-             items.item_id AS itemId,
-             items.version AS itemVersion,
-             items.kind AS itemKind,
-             items.title AS itemTitle,
-             items.description AS itemDescription,
-             items.summary AS itemSummary,
-             items.blobs_json AS itemBlobsJson,
-             items.metadata_json AS itemMetadataJson,
-             items.order_index AS itemOrder,
-             assets.asset_id AS assetId,
-             assets.role AS assetRole,
-             assets.kind AS assetKind,
-             assets.mime_type AS mimeType,
-             assets.byte_length AS byteLength,
-             assets.metadata_json AS assetMetadataJson,
-             assets.relative_path AS relativePath,
-             assets.source_json AS sourceJson,
-             assets.file_stem AS fileStem
+             asset_key AS assetKey,
+             version,
+             relative_path AS relativePath,
+             mime_type AS mimeType,
+             url
            FROM assets
-           INNER JOIN items
-             ON items.generation_id = assets.generation_id
-            AND items.namespace_key = assets.namespace_key
-            AND items.item_id = assets.item_id
-           INNER JOIN generation_namespaces
-             ON generation_namespaces.generation_id = assets.generation_id
-            AND generation_namespaces.namespace_key = assets.namespace_key
-           WHERE assets.generation_id = ?
-           ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+           WHERE generation_id = ?
+           ORDER BY order_index`,
         )
         .all(generationId),
       `generation ${generationId} asset rows`,
@@ -527,21 +448,13 @@ export class MediaCacheDatabase {
 
     this.db.exec("BEGIN");
     try {
-      this.db
-        .prepare(`UPDATE generations SET status = 'committed', committed_at_ms = ? WHERE id = ?`)
+      this.db.prepare(`UPDATE generations SET is_active = 0 WHERE is_active = 1`).run();
+      const result = this.db
+        .prepare(`UPDATE generations SET is_active = 1, committed_at_ms = ? WHERE id = ?`)
         .run(now, generationId);
-      this.db
-        .prepare(
-          `DELETE FROM active_generation
-           WHERE scope_type = 'global' AND scope_key = '*'`,
-        )
-        .run();
-      this.db
-        .prepare(
-          `INSERT INTO active_generation (scope_type, scope_key, generation_id)
-           VALUES ('global', '*', ?)`,
-        )
-        .run(generationId);
+      if (result.changes !== 1) {
+        throw new Error(`Cannot activate missing generation ${generationId}`);
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -560,33 +473,30 @@ export class MediaCacheDatabase {
   }
 
   markPendingDeletion(
-    logicalKey: string,
-    namespace: string,
-    itemId: string,
-    assetId: string,
+    assetKey: string,
     relativePath: string,
     generationId: number,
+    deletionKey: string,
     deleteAfterMs: number,
   ): void {
     this.assertNotClosed();
     this.db
       .prepare(
         `INSERT INTO pending_deletions (
-          deletion_key, logical_key, namespace_key, item_id, asset_id, relative_path, generation_id, delete_after_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          deletion_key, logical_key, asset_key, relative_path, generation_id, delete_after_ms
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(deletion_key)
         DO UPDATE SET
           logical_key = excluded.logical_key,
+          asset_key = excluded.asset_key,
           relative_path = excluded.relative_path,
           generation_id = excluded.generation_id,
           delete_after_ms = excluded.delete_after_ms`,
       )
       .run(
-        createPendingDeletionKey(logicalKey, relativePath),
-        logicalKey,
-        namespace,
-        itemId,
-        assetId,
+        deletionKey,
+        this.logicalKey(assetKey),
+        assetKey,
         relativePath,
         generationId,
         deleteAfterMs,
@@ -632,11 +542,7 @@ export class MediaCacheDatabase {
       .run(...relativePaths);
   }
 
-  getProtocolAssetTarget(
-    namespace: string,
-    itemId: string,
-    assetId: string,
-  ): ProtocolAssetTarget | null {
+  getProtocolAssetTarget(assetKey: string): ProtocolAssetTarget | null {
     this.assertNotClosed();
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
@@ -647,9 +553,9 @@ export class MediaCacheDatabase {
       .prepare(
         `SELECT relative_path
          FROM assets
-         WHERE generation_id = ? AND namespace_key = ? AND item_id = ? AND asset_id = ?`,
+         WHERE generation_id = ? AND asset_key = ?`,
       )
-      .get(activeGeneration, namespace, itemId, assetId);
+      .get(activeGeneration, assetKey);
 
     if (!row) {
       return null;
@@ -663,38 +569,47 @@ export class MediaCacheDatabase {
     };
   }
 
-  listNamespace(
-    namespace: string,
-    pagination?: PaginationInput,
-  ): PaginationResult<ResolvedMediaContentItem> {
+  getAsset(assetKey: string): ResolvedMediaAsset | null {
     this.assertNotClosed();
-    resolvePaginationWindow(pagination);
-    const rows = this.getResolvedRows("exact", namespace);
-    return paginateArray(this.buildResolvedItems(rows), pagination);
+    const activeGeneration = this.getActiveGenerationId();
+    if (!activeGeneration) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `SELECT
+           generation_id AS generationId,
+           asset_key AS assetKey,
+           display_key AS displayKey,
+           version,
+           mime_type AS mimeType,
+           media_kind AS mediaKind,
+           byte_length AS byteLength,
+           metadata_json AS metadata,
+           indexes_json AS indexesJson,
+           relative_path AS relativePath,
+           url,
+           file_stem AS fileStem,
+           order_index AS orderIndex
+         FROM assets
+         WHERE generation_id = ? AND asset_key = ?`,
+      )
+      .get(activeGeneration, assetKey);
+
+    if (!row) {
+      return null;
+    }
+
+    const validatedRow = parseWithSchema(activeAssetRowSchema, row, `asset "${assetKey}"`);
+    return this.buildResolvedAsset(validatedRow);
   }
 
-  listNamespaceTree(
-    prefix: string,
+  listByIndex(
+    indexName: string,
+    value: string,
     pagination?: PaginationInput,
-  ): PaginationResult<ResolvedMediaContentItem> {
-    this.assertNotClosed();
-    resolvePaginationWindow(pagination);
-    const rows = this.getResolvedRows("tree", prefix);
-    return paginateArray(this.buildResolvedItems(rows), pagination);
-  }
-
-  getItem(namespace: string, id: string): ResolvedMediaContentItem | null {
-    this.assertNotClosed();
-    const rows = this.getResolvedRows("item", namespace, id);
-    const items = this.buildResolvedItems(rows);
-    return items[0] ?? null;
-  }
-
-  findByFileStem(
-    stem: string,
-    namespace: string | undefined,
-    pagination?: PaginationInput,
-  ): PaginationResult<FileStemMatch> {
+  ): PaginationResult<ResolvedMediaAsset> {
     this.assertNotClosed();
     resolvePaginationWindow(pagination);
 
@@ -703,283 +618,186 @@ export class MediaCacheDatabase {
       return { items: [], nextCursor: null };
     }
 
-    const sql = `
-      SELECT
-        assets.namespace_key AS namespace,
-        items.item_id AS itemId,
-        assets.asset_id AS assetId
-      FROM assets
-      INNER JOIN items
-        ON items.generation_id = assets.generation_id
-       AND items.namespace_key = assets.namespace_key
-       AND items.item_id = assets.item_id
-      INNER JOIN generation_namespaces
-        ON generation_namespaces.generation_id = assets.generation_id
-       AND generation_namespaces.namespace_key = assets.namespace_key
-      WHERE assets.generation_id = ?
-        AND assets.file_stem = ?
-        ${namespace ? "AND assets.namespace_key = ?" : ""}
-      ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index
-    `;
-
-    const matchRows = parseWithSchema(
-      fileStemRowSchema.array(),
-      namespace
-        ? this.db.prepare(sql).all(activeGeneration, stem, namespace)
-        : this.db.prepare(sql).all(activeGeneration, stem),
-      "file stem match rows",
-    );
-
-    const uniqueItemKeys = new Map<string, string[]>();
-    for (const row of matchRows) {
-      const key = createLogicalKey(row.namespace, row.itemId);
-      const existing = uniqueItemKeys.get(key);
-      if (existing) {
-        existing.push(row.assetId);
-      } else {
-        uniqueItemKeys.set(key, [row.assetId]);
-      }
-    }
-
-    const matches: FileStemMatch[] = [];
-    for (const [key, matchedAssetIds] of uniqueItemKeys.entries()) {
-      const [namespaceKey, itemId] = parseLogicalItemKey(key);
-      const item = this.getItem(namespaceKey, itemId);
-      if (item) {
-        matches.push({
-          item,
-          matchedAssetIds,
-        });
-      }
-    }
-
-    return paginateArray(matches, pagination);
-  }
-
-  private getResolvedRows(
-    mode: "exact" | "tree" | "item",
-    namespace: string,
-    itemId?: string,
-  ): ActiveAssetRow[] {
-    const activeGeneration = this.getActiveGenerationId();
-    if (!activeGeneration) {
-      return [];
-    }
-
-    const baseSql = `
-      SELECT
-        assets.generation_id AS generationId,
-        assets.namespace_key AS namespace,
-        generation_namespaces.order_index AS namespaceOrder,
-        items.item_id AS itemId,
-        items.version AS itemVersion,
-        items.kind AS itemKind,
-        items.title AS itemTitle,
-        items.description AS itemDescription,
-        items.summary AS itemSummary,
-        items.blobs_json AS itemBlobsJson,
-        items.metadata_json AS itemMetadataJson,
-        items.order_index AS itemOrder,
-        assets.asset_id AS assetId,
-        assets.role AS assetRole,
-        assets.kind AS assetKind,
-        assets.mime_type AS mimeType,
-        assets.byte_length AS byteLength,
-        assets.metadata_json AS assetMetadataJson,
-        assets.relative_path AS relativePath,
-        assets.source_json AS sourceJson,
-        assets.file_stem AS fileStem
-      FROM assets
-      INNER JOIN items
-        ON items.generation_id = assets.generation_id
-       AND items.namespace_key = assets.namespace_key
-       AND items.item_id = assets.item_id
-      INNER JOIN generation_namespaces
-        ON generation_namespaces.generation_id = assets.generation_id
-       AND generation_namespaces.namespace_key = assets.namespace_key
-      WHERE assets.generation_id = ?
-    `;
-
-    if (mode === "exact") {
-      return parseWithSchema(
-        activeAssetRowSchema.array(),
-        this.db
-          .prepare(
-            `${baseSql} AND assets.namespace_key = ? ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-          )
-          .all(activeGeneration, namespace),
-        `resolved asset rows for namespace "${namespace}"`,
-      );
-    }
-
-    if (mode === "tree") {
-      return parseWithSchema(
-        activeAssetRowSchema.array(),
-        this.db
-          .prepare(
-            `${baseSql}
-             AND (assets.namespace_key = ? OR assets.namespace_key LIKE ?)
-             ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
-          )
-          .all(activeGeneration, namespace, `${namespace}.%`),
-        `resolved asset rows for namespace tree "${namespace}"`,
-      );
-    }
-
-    if (!itemId) {
-      return [];
-    }
-
-    return parseWithSchema(
+    const rows = parseWithSchema(
       activeAssetRowSchema.array(),
       this.db
         .prepare(
-          `${baseSql}
-           AND assets.namespace_key = ?
-           AND items.item_id = ?
-           ORDER BY generation_namespaces.order_index, items.order_index, assets.order_index`,
+          `SELECT
+             a.generation_id AS generationId,
+             a.asset_key AS assetKey,
+             a.display_key AS displayKey,
+             a.version,
+             a.mime_type AS mimeType,
+             a.media_kind AS mediaKind,
+             a.byte_length AS byteLength,
+             a.metadata_json AS metadata,
+             a.indexes_json AS indexesJson,
+             a.relative_path AS relativePath,
+             a.url,
+             a.file_stem AS fileStem,
+             a.order_index AS orderIndex
+           FROM asset_indexes ai
+           INNER JOIN assets a
+             ON a.generation_id = ai.generation_id AND a.asset_key = ai.asset_key
+           WHERE ai.generation_id = ? AND ai.index_name = ? AND ai.index_value = ?
+           ORDER BY a.order_index`,
         )
-        .all(activeGeneration, namespace, itemId),
-      `resolved asset rows for item "${namespace}/${itemId}"`,
+        .all(activeGeneration, indexName, value),
+      "index match rows",
     );
+
+    const assets = rows.map((row) => this.buildResolvedAsset(row));
+    return paginateArray(assets, pagination);
   }
 
-  private buildResolvedItems(rows: ActiveAssetRow[]): ResolvedMediaContentItem[] {
-    const items = new Map<string, ResolvedMediaContentItem>();
+  findByFileStem(stem: string, pagination?: PaginationInput): PaginationResult<FileStemMatch> {
+    this.assertNotClosed();
+    resolvePaginationWindow(pagination);
 
-    for (const row of rows) {
-      const key = `${row.namespace}|${row.itemId}`;
-      let item = items.get(key);
-      if (!item) {
-        item = {
-          namespace: row.namespace,
-          id: row.itemId,
-          version: row.itemVersion,
-          kind: row.itemKind as ResolvedMediaContentItem["kind"],
-          title: row.itemTitle ?? undefined,
-          description: row.itemDescription ?? undefined,
-          summary: row.itemSummary ?? undefined,
-          blobs: parseJsonWithSchema(
-            row.itemBlobsJson,
-            stringRecordSchema,
-            `item blobs for "${row.namespace}/${row.itemId}"`,
-          ),
-          metadata: parseJsonWithSchema(
-            row.itemMetadataJson,
-            jsonObjectSchema,
-            `item metadata for "${row.namespace}/${row.itemId}"`,
-          ),
-          assets: [],
-          assetsByRole: {},
-        };
-        items.set(key, item);
-      }
-
-      const resolvedAsset = {
-        id: row.assetId,
-        role: row.assetRole,
-        kind: row.assetKind,
-        mimeType: row.mimeType ?? undefined,
-        byteLength: row.byteLength ?? undefined,
-        url: this.options.devPassthrough
-          ? resolveAssetBaseUrl(
-              row.sourceJson,
-              this.options.assetBaseUrlOrigin,
-              `asset source for "${row.namespace}/${row.itemId}/${row.assetId}"`,
-              this.options.onWarn,
-            )
-          : buildMediaUrl(row.namespace, row.itemId, row.assetId),
-        metadata: parseJsonWithSchema(
-          row.assetMetadataJson,
-          jsonObjectSchema,
-          `asset metadata for "${row.namespace}/${row.itemId}/${row.assetId}"`,
-        ),
-      };
-      item.assets.push(resolvedAsset);
-      // First asset for a role wins; duplicates remain in `assets` (manifest order).
-      item.assetsByRole[resolvedAsset.role] ??= resolvedAsset;
+    const activeGeneration = this.getActiveGenerationId();
+    if (!activeGeneration) {
+      return { items: [], nextCursor: null };
     }
 
-    return [...items.values()];
+    const rows = parseWithSchema(
+      activeAssetRowSchema.array(),
+      this.db
+        .prepare(
+          `SELECT
+             generation_id AS generationId,
+             asset_key AS assetKey,
+             display_key AS displayKey,
+             version,
+             mime_type AS mimeType,
+             media_kind AS mediaKind,
+             byte_length AS byteLength,
+             metadata_json AS metadata,
+             indexes_json AS indexesJson,
+             relative_path AS relativePath,
+             url,
+             file_stem AS fileStem,
+             order_index AS orderIndex
+           FROM assets
+           WHERE generation_id = ? AND file_stem = ?
+           ORDER BY order_index`,
+        )
+        .all(activeGeneration, stem),
+      "file stem match rows",
+    );
+
+    const matches: FileStemMatch[] = rows.map((row) => ({
+      asset: this.buildResolvedAsset(row),
+    }));
+    return paginateArray(matches, pagination);
+  }
+
+  logicalKey(assetKey: string): string {
+    return assetKey;
+  }
+
+  private buildResolvedAsset(row: ActiveAssetRow): ResolvedMediaAsset {
+    const metadata = parseJsonWithSchema(
+      row.metadata,
+      jsonObjectSchema,
+      `metadata for asset "${row.assetKey}"`,
+    );
+    const indexes = parseJsonWithSchema(
+      row.indexesJson,
+      jsonObjectSchema,
+      `indexes for asset "${row.assetKey}"`,
+    ) as Record<string, string | string[]>;
+
+    let url: string;
+    if (this.options.devPassthrough) {
+      url = row.url;
+      const origin = this.options.assetBaseUrlOrigin;
+      if (origin) {
+        try {
+          const base = new URL(origin);
+          const resolved = new URL(url);
+          resolved.protocol = base.protocol;
+          resolved.hostname = base.hostname;
+          resolved.port = base.port;
+          url = resolved.toString();
+        } catch (err) {
+          if (this.options.onWarn) {
+            this.options.onWarn(`asset source for "${row.assetKey}"`, err);
+          }
+        }
+      }
+    } else {
+      url = `media://asset/${encodeURIComponent(row.assetKey)}`;
+    }
+
+    return {
+      key: row.assetKey,
+      displayKey: row.displayKey,
+      version: row.version,
+      mimeType: row.mimeType,
+      kind: row.mediaKind,
+      byteLength: row.byteLength ?? undefined,
+      url,
+      metadata,
+      indexes,
+    };
   }
 
   private migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS generations (
         id INTEGER PRIMARY KEY,
-        scope_type TEXT NOT NULL,
-        scope_key TEXT NOT NULL,
         snapshot_id TEXT,
         retrieved_at TEXT,
-        status TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        committed_at_ms INTEGER,
-        namespace_count INTEGER NOT NULL,
-        item_count INTEGER NOT NULL,
-        asset_count INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS generation_namespaces (
-        generation_id INTEGER NOT NULL,
-        namespace_key TEXT NOT NULL,
-        label TEXT,
-        metadata_json TEXT NOT NULL,
-        order_index INTEGER NOT NULL,
-        PRIMARY KEY (generation_id, namespace_key)
-      );
-
-      CREATE TABLE IF NOT EXISTS items (
-        generation_id INTEGER NOT NULL,
-        namespace_key TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        version TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        title TEXT,
-        description TEXT,
-        summary TEXT,
-        blobs_json TEXT NOT NULL,
-        metadata_json TEXT NOT NULL,
-        order_index INTEGER NOT NULL,
-        PRIMARY KEY (generation_id, namespace_key, item_id)
+        expires_at TEXT,
+        committed_at_ms INTEGER NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS assets (
         generation_id INTEGER NOT NULL,
-        namespace_key TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        asset_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        resolved_version TEXT NOT NULL,
-        asset_version TEXT,
-        manifest_mime_type TEXT,
-        manifest_file_name TEXT,
-        mime_type TEXT,
+        asset_key TEXT NOT NULL,
+        display_key TEXT NOT NULL,
+        version TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        media_kind TEXT NOT NULL,
         file_name TEXT NOT NULL,
         file_stem TEXT NOT NULL,
         byte_length INTEGER,
-        source_json TEXT NOT NULL,
-        resolved_request_json TEXT NOT NULL,
+        url TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
+        indexes_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
-        has_precise_manifest_fields INTEGER NOT NULL DEFAULT 1,
         relative_path TEXT,
-        PRIMARY KEY (generation_id, namespace_key, item_id, asset_id)
+        PRIMARY KEY (generation_id, asset_key)
       );
 
-      CREATE TABLE IF NOT EXISTS active_generation (
-        scope_type TEXT NOT NULL,
-        scope_key TEXT NOT NULL,
+      CREATE INDEX IF NOT EXISTS idx_assets_file_stem
+        ON assets (generation_id, file_stem, order_index);
+
+      CREATE TABLE IF NOT EXISTS asset_indexes (
         generation_id INTEGER NOT NULL,
-        PRIMARY KEY (scope_type, scope_key)
+        asset_key TEXT NOT NULL,
+        index_name TEXT NOT NULL,
+        index_value TEXT NOT NULL,
+        PRIMARY KEY (generation_id, asset_key, index_name, index_value)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_asset_indexes_lookup
+        ON asset_indexes (generation_id, index_name, index_value, asset_key);
+
+      CREATE TABLE IF NOT EXISTS index_definitions (
+        generation_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        cardinality TEXT NOT NULL,
+        required INTEGER NOT NULL,
+        builtin INTEGER NOT NULL,
+        PRIMARY KEY (generation_id, name)
       );
 
       CREATE TABLE IF NOT EXISTS pending_deletions (
         deletion_key TEXT PRIMARY KEY,
         logical_key TEXT NOT NULL,
-        namespace_key TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        asset_id TEXT NOT NULL,
+        asset_key TEXT NOT NULL,
         relative_path TEXT NOT NULL,
         generation_id INTEGER NOT NULL,
         delete_after_ms INTEGER NOT NULL
@@ -1004,80 +822,6 @@ export class MediaCacheDatabase {
       );
     `);
   }
-}
-
-function buildMediaUrl(namespace: string, itemId: string, assetId: string): string {
-  return `media://asset/${encodeURIComponent(namespace)}/${encodeURIComponent(itemId)}/${encodeURIComponent(assetId)}`;
-}
-
-/**
- * Dev passthrough: parse `source_json` and optionally rewrite URL origin.
- * @param onWarn Invoked only when origin override fails (graceful fallback). Parse errors and
- *   missing `url` throw without calling `onWarn` — catch the error to observe those failures.
- */
-function resolveAssetBaseUrl(
-  sourceJson: string,
-  assetBaseUrlOrigin: string | null,
-  contextLabel: string,
-  onWarn?: (contextLabel: string, err: unknown) => void,
-): string {
-  // Data-integrity error — do not emit resolve_asset_base_url_fallback (implies graceful recovery).
-  // The try/catch below handles origin-override failures and *does* fall back to the original URL.
-  let parsed: { url?: string };
-  try {
-    parsed = JSON.parse(sourceJson) as { url?: string };
-  } catch (err) {
-    throw new Error(
-      `${contextLabel}: Failed to parse source_json (${err instanceof Error ? err.message : String(err)})`,
-      { cause: err },
-    );
-  }
-  if (typeof parsed?.url !== "string" || !parsed?.url) {
-    throw new Error(`${contextLabel}: source_json missing url`);
-  }
-  const url = parsed.url;
-
-  if (!assetBaseUrlOrigin) {
-    return url;
-  }
-
-  try {
-    const origin = new URL(assetBaseUrlOrigin);
-    const resolved = new URL(url);
-    resolved.protocol = origin.protocol;
-    resolved.hostname = origin.hostname;
-    // normalizeAssetBaseUrl stores parsed.origin, which strips explicit default ports (e.g. :443).
-    resolved.port = origin.port;
-    return resolved.toString();
-  } catch (err) {
-    if (onWarn) {
-      onWarn(contextLabel, err);
-    } else {
-      consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
-    }
-    return url;
-  }
-}
-
-function createLogicalKey(...parts: string[]): string {
-  return JSON.stringify(parts);
-}
-
-function createPendingDeletionKey(logicalKey: string, relativePath: string): string {
-  return JSON.stringify([logicalKey, relativePath]);
-}
-
-function parseLogicalItemKey(key: string): [string, string] {
-  const parsed = JSON.parse(key) as unknown;
-  if (
-    Array.isArray(parsed) &&
-    parsed.length === 2 &&
-    parsed.every((entry) => typeof entry === "string")
-  ) {
-    return parsed as [string, string];
-  }
-
-  throw new Error(`Invalid logical item key: ${key}`);
 }
 
 function emptyStats(): SyncRunStats {
