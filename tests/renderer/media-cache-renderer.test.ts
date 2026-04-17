@@ -165,16 +165,30 @@ describe("renderer helpers", () => {
 describe("resolveMediaCacheBridge", () => {
   it("resolves from window key", () => {
     const bridge = createBridge();
-    (window as unknown as { mediaCache: typeof bridge }).mediaCache = bridge;
+    const win = window as unknown as { mediaCache?: typeof bridge };
+    const orig = win.mediaCache;
+    win.mediaCache = bridge;
     try {
       expect(resolveMediaCacheBridge({})).toBe(bridge);
     } finally {
-      delete (window as unknown as { mediaCache?: typeof bridge }).mediaCache;
+      if (orig !== undefined) {
+        win.mediaCache = orig;
+      } else {
+        delete win.mediaCache;
+      }
     }
   });
 
   it("throws when bridge missing", () => {
-    delete (window as unknown as { mediaCache?: unknown }).mediaCache;
-    expect(() => resolveMediaCacheBridge({})).toThrow(MISSING_BRIDGE_ERROR);
+    const win = window as unknown as { mediaCache?: unknown };
+    const orig = win.mediaCache;
+    delete win.mediaCache;
+    try {
+      expect(() => resolveMediaCacheBridge({})).toThrow(MISSING_BRIDGE_ERROR);
+    } finally {
+      if (orig !== undefined) {
+        win.mediaCache = orig;
+      }
+    }
   });
 });
