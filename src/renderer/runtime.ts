@@ -46,7 +46,11 @@ export function resolveMediaCacheBridge(options?: {
   if (
     !bridge ||
     typeof bridge.getStatus !== "function" ||
-    typeof bridge.subscribeStatus !== "function"
+    typeof bridge.subscribeStatus !== "function" ||
+    typeof bridge.syncNow !== "function" ||
+    typeof bridge.getAsset !== "function" ||
+    typeof bridge.listByIndex !== "function" ||
+    typeof bridge.findByFileStem !== "function"
   ) {
     throw new Error(MISSING_BRIDGE_ERROR);
   }
@@ -119,8 +123,8 @@ export function createMediaCacheStatusController(
     } finally {
       if (requestId === requestSequence) {
         loading = false;
+        emit();
       }
-      emit();
     }
   }
 
@@ -244,8 +248,7 @@ export function createMediaQueryWatcherInstance<T>(options: {
       cachedQuerySnapshot &&
       cachedQuerySnapshot.data === data &&
       cachedQuerySnapshot.loading === loading &&
-      cachedQuerySnapshot.error === error &&
-      cachedQuerySnapshot.refresh === refresh
+      cachedQuerySnapshot.error === error
     ) {
       return cachedQuerySnapshot;
     }
@@ -384,7 +387,7 @@ export function createMediaCacheRenderer(
         refetchOnSyncComplete: refetch,
         listener,
       });
-      instance.syncDeps([bridge, stem, cursor, limit]);
+      instance.syncDeps([bridge, "fileStem", stem, cursor, limit]);
       return () => instance.dispose();
     },
     dispose() {
