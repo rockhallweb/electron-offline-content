@@ -5,9 +5,9 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
-      "@rockhallweb/electron-offline-content/main": ["../../src/main/index.ts"],
-      "@rockhallweb/electron-offline-content/preload": ["../../src/preload/index.ts"],
-      "@rockhallweb/electron-offline-content/react": ["../../src/react/index.tsx"]
+      "@rockhall/electron-offline-content/main": ["../../src/main/index.ts"],
+      "@rockhall/electron-offline-content/preload": ["../../src/preload/index.ts"],
+      "@rockhall/electron-offline-content/react": ["../../src/react/index.tsx"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",

@@ -3,7 +3,7 @@
  * from mock NASA Images API responses; replace `fetchNasaContent` with a real
  * fetch when deploying against the live API.
  */
-import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhall/electron-offline-content/main";
 import { NasaContentSchema, populateStore } from "./transformations.js";
 
 // Create the media cache for offline content
@@ -11,7 +11,7 @@ export const mediaCache = createMediaCache({
   devPassthrough: false,
   storagePath: {
     appPath: "temp",
-    segments: ["rockhallweb-electron-offline-content-example", "nasa"],
+    segments: ["rockhall-electron-offline-content-example", "nasa"],
   },
   resolveStore: async () => {
     const nasaContent = await fetchNasaContent();

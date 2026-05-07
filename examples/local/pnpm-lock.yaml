@@ -8,7 +8,7 @@ importers:
 
   .:
     dependencies:
-      '@rockhallweb/electron-offline-content':
+      '@rockhall/electron-offline-content':
         specifier: ../../
         version: link:../..
       react:

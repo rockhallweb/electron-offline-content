@@ -18,7 +18,7 @@ This repo uses a single-context domain-doc layout. See `docs/agents/domain.md`.
 
 ### Overview
 
-This is an npm library (`@rockhallweb/electron-offline-content`) for Electron apps that need to download, index, and serve offline media content. It is **not** a standalone app—"running it" means building the library and launching one of the bundled example Electron apps.
+This is an npm library (`@rockhall/electron-offline-content`) for Electron apps that need to download, index, and serve offline media content. It is **not** a standalone app—"running it" means building the library and launching one of the bundled example Electron apps.
 
 ### Prerequisites
 

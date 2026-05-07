@@ -1,7 +1,7 @@
 ---
 name: react-rendering
 description: >
-  React bindings for @rockhallweb/electron-offline-content:
+  React bindings for @rockhall/electron-offline-content:
   MediaCacheProvider context, useMediaAsset for single asset lookups,
   useMediaByIndex for index-based queries, useMediaBridge and
   useMediaCacheStatus for sync phase and progress, useFileStemMatch
@@ -27,7 +27,7 @@ This skill builds on getting-started. Read it first for full main â†’ preload â†
 Wrap your renderer entry with `MediaCacheProvider`. The bridge is auto-detected from `window.mediaCache` when omitted.
 
 ```tsx
-import { MediaCacheProvider } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider } from "@rockhall/electron-offline-content/react";
 
 function App() {
   return (
@@ -41,7 +41,7 @@ function App() {
 Gate content rendering on first sync completion, then render assets:
 
 ```tsx
-import { useMediaByIndex, useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheReady } from "@rockhall/electron-offline-content/react";
 
 function KioskShell() {
   const ready = useMediaCacheReady();
@@ -75,7 +75,7 @@ Returns `AsyncState<MediaCacheReadyState>` where `MediaCacheReadyState` has `{ r
 Use as a gate before rendering any content that depends on cached media.
 
 ```tsx
-import { useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
+import { useMediaCacheReady } from "@rockhall/electron-offline-content/react";
 
 function LoadingGate({ children }: { children: React.ReactNode }) {
   const { data, loading } = useMediaCacheReady();
@@ -98,7 +98,7 @@ function LoadingGate({ children }: { children: React.ReactNode }) {
 Returns `AsyncState<ResolvedMediaAsset>` for a single asset by key.
 
 ```tsx
-import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
+import { useMediaAsset } from "@rockhall/electron-offline-content/react";
 
 function WelcomeVideo() {
   const { data: asset, loading } = useMediaAsset("video/welcome");
@@ -116,7 +116,7 @@ Use `useMediaAsset` when you know the exact asset key. Asset keys come from the 
 Returns `AsyncState<PaginationResult<ResolvedMediaAsset>>` for assets matching an index value.
 
 ```tsx
-import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex } from "@rockhall/electron-offline-content/react";
 
 function VideoList() {
   const { data, loading, error, refresh } = useMediaByIndex("category", "videos", {
@@ -166,7 +166,7 @@ function FloorExhibits({ floor }: { floor: string }) {
 Returns `AsyncState<MediaCacheStatus>` with `phase`, `progress`, `storageRoot`, `activeGenerationId`, `lastRun`, and `error`.
 
 ```tsx
-import { useMediaCacheStatus } from "@rockhallweb/electron-offline-content/react";
+import { useMediaCacheStatus } from "@rockhall/electron-offline-content/react";
 
 function SyncOverlay() {
   const { data: status, loading } = useMediaCacheStatus();
@@ -196,7 +196,7 @@ function SyncOverlay() {
 Returns bridge methods together with shared `status` and aggregated `errors`.
 
 ```tsx
-import { useMediaBridge } from "@rockhallweb/electron-offline-content/react";
+import { useMediaBridge } from "@rockhall/electron-offline-content/react";
 
 function DownloadButton() {
   const { syncNow, status, errors } = useMediaBridge();
@@ -218,7 +218,7 @@ function DownloadButton() {
 Returns `MediaCacheErrors` with `{ hasError, primaryError, syncError, statusError, queryErrors }`.
 
 ```tsx
-import { useMediaByIndex, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheErrors } from "@rockhall/electron-offline-content/react";
 
 function ExhibitPage() {
   const videos = useMediaByIndex("category", "videos", { limit: 50 });
@@ -243,7 +243,7 @@ function ExhibitPage() {
 Returns `AsyncState<PaginationResult<FileStemMatch>>`. Searches cached content by filename stem across all assets.
 
 ```tsx
-import { useFileStemMatch } from "@rockhallweb/electron-offline-content/react";
+import { useFileStemMatch } from "@rockhall/electron-offline-content/react";
 
 function AssetSearch({ query }: { query: string }) {
   const { data, loading } = useFileStemMatch(query, {

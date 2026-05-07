@@ -1,7 +1,7 @@
 ---
 name: getting-started
 description: >
-  Full greenfield integration of @rockhallweb/electron-offline-content:
+  Full greenfield integration of @rockhall/electron-offline-content:
   install, write resolveStore with createMediaStore, configure
   createMediaCache in main, wire preload bridge with
   exposeMediaCacheBridge, add MediaCacheProvider and hooks in React,
@@ -28,7 +28,7 @@ sources:
 Install the package:
 
 ```bash
-pnpm add @rockhallweb/electron-offline-content
+pnpm add @rockhall/electron-offline-content
 ```
 
 Prerequisites: Node.js >= 24, Electron >= 40. React >= 18 is an optional peer dependency needed only for the `/react` export.
@@ -40,7 +40,7 @@ Three files wire the integration across all three Electron processes: main, prel
 ```typescript
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
-import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhall/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
   app.exit(1);
@@ -91,7 +91,7 @@ Key ordering constraints:
 ### preload.ts
 
 ```typescript
-import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
+import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/preload";
 
 exposeMediaCacheBridge();
 ```
@@ -105,7 +105,7 @@ import {
   MediaCacheProvider,
   useMediaByIndex,
   useMediaCacheReady,
-} from "@rockhallweb/electron-offline-content/react";
+} from "@rockhall/electron-offline-content/react";
 
 function Content() {
   const ready = useMediaCacheReady();
@@ -168,7 +168,7 @@ ipcMain.handle("begin-sync", () => {
 `createMediaStore()` creates a flat asset store. Add assets with `store.add(assetKey, input)` and define secondary indexes with `store.defineIndex()` for querying. The first argument is an `AssetKeyInput` (`string` or `readonly string[]`); resolved assets expose `key` (hash) and `displayKey` (human-readable).
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 const store = createMediaStore();
 
@@ -204,7 +204,7 @@ Wrong:
 
 ```typescript
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 
 await app.whenReady();
 const mediaCache = createMediaCache({
@@ -218,7 +218,7 @@ Correct:
 
 ```typescript
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
@@ -244,7 +244,7 @@ import { contextBridge } from "electron";
 Correct:
 
 ```typescript
-import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
+import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/preload";
 
 exposeMediaCacheBridge();
 ```
@@ -258,7 +258,7 @@ All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaBr
 Wrong:
 
 ```tsx
-import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex } from "@rockhall/electron-offline-content/react";
 
 function App() {
   const videos = useMediaByIndex("category", "videos", { limit: 20 });
@@ -275,7 +275,7 @@ function App() {
 Correct:
 
 ```tsx
-import { MediaCacheProvider, useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider, useMediaByIndex } from "@rockhall/electron-offline-content/react";
 
 function Content() {
   const videos = useMediaByIndex("category", "videos", { limit: 20 });

@@ -66,7 +66,7 @@ import {
   defineItem,
   defineManifest,
   itemsFromEntries,
-} from "@rockhallweb/electron-offline-content/main";
+} from "@rockhall/electron-offline-content/main";
 
 const manifest = defineManifest({
   namespaces: {
@@ -90,7 +90,7 @@ const manifest = defineManifest({
 });
 
 // After — flat store with createMediaStore / defineIndex / store.add
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 const store = createMediaStore();
 const category = store.defineIndex("category");
@@ -196,14 +196,14 @@ const mediaCache = createMediaCache({
 
 ### Breaking changes
 
-**React (`@rockhallweb/electron-offline-content/react`)**
+**React (`@rockhall/electron-offline-content/react`)**
 
 - Replaced `useMediaItem`, `useMediaItems`, `useMediaNamespace`, and `useMediaNamespaceTree` with a single discriminated hook, `useMedia({ kind: "item", ... })` and `useMedia({ kind: "list", ... })`.
 - Renamed `useMediaCacheBridge` to `useMediaBridge` (same bridge surface, plus shared `phase`, `status`, and aggregated `errors`).
 - `useMediaCacheErrors()` no longer accepts hook results; it aggregates sync, status, and all active queries for the current `MediaCacheProvider`.
 - `useMediaCacheStatus()` now exposes a top-level `phase` field (cache phase or `"loading"` before the first status snapshot).
 
-**Main (`@rockhallweb/electron-offline-content/main`)**
+**Main (`@rockhall/electron-offline-content/main`)**
 
 - Manifest authoring uses `Record`-keyed maps: `namespaces`, per-namespace `items`, and per-item `assets` are keyed by stable id strings; item and asset values no longer carry redundant `id` fields.
 - Renamed `defineManifestItem` → `defineItem` and `defineManifestAsset` → `defineAsset`.

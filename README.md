@@ -1,4 +1,4 @@
-# `@rockhallweb/electron-offline-content`
+# `@rockhall/electron-offline-content`
 
 Download, index, and serve offline media content in Electron apps.
 
@@ -43,10 +43,10 @@ This package is opinionated. It codifies a specific content-sync model for kiosk
 ## Install
 
 ```bash
-pnpm add @rockhallweb/electron-offline-content
+pnpm add @rockhall/electron-offline-content
 ```
 
-`react >= 18` and `react-dom >= 18` are optional peer dependencies, needed only when using `@rockhallweb/electron-offline-content/react`.
+`react >= 18` and `react-dom >= 18` are optional peer dependencies, needed only when using `@rockhall/electron-offline-content/react`.
 
 ## Quick start
 
@@ -58,7 +58,7 @@ Create a module that fetches your content catalog and builds a flat asset store.
 
 ```ts
 // fetch-content.ts
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 export async function resolveStore() {
   const response = await fetch("https://cms.example.com/api/videos");
@@ -87,7 +87,7 @@ Import your `resolveStore` and wire up the cache. Create the cache **before** `a
 ```ts
 // main.ts
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 import { resolveStore } from "./fetch-content.js";
 
 const mediaCache = createMediaCache({
@@ -107,7 +107,7 @@ await mediaCache.start(); // registers protocol, attaches IPC, runs initial sync
 Expose the IPC bridge on `window.mediaCache` so the renderer can query the cache.
 
 ```ts
-import { exposeMediaCacheBridge } from "@rockhallweb/electron-offline-content/preload";
+import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/preload";
 
 exposeMediaCacheBridge();
 ```
@@ -122,7 +122,7 @@ import {
   useMediaByIndex,
   useMediaAsset,
   useMediaBridge,
-} from "@rockhallweb/electron-offline-content/react";
+} from "@rockhall/electron-offline-content/react";
 
 function App() {
   const videos = useMediaByIndex("collection", "videos", { limit: 20 });
@@ -162,7 +162,7 @@ The store describes every downloadable asset and its metadata. `resolveStore` mu
 A store is a flat collection of keyed **assets**, each tagged with optional **secondary indexes**:
 
 ```ts
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 const store = createMediaStore({
   expiresAt: "2026-03-10T18:00:00.000Z", // optional global URL expiration cutoff
@@ -195,7 +195,7 @@ When your source data is array-shaped, iterate and call `store.add` for each ent
 ```ts
 import {
   createMediaStore,
-} from "@rockhallweb/electron-offline-content/main";
+} from "@rockhall/electron-offline-content/main";
 
 type VideoRow = {
   id: string;
@@ -401,7 +401,7 @@ Downloads use a plain `GET` to each asset’s `url` string. There is no separate
 **Signed URLs** -- generate pre-signed URLs at store build time:
 
 ```ts
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 async function resolveStore() {
   const store = createMediaStore({
@@ -550,7 +550,7 @@ Assets removed from the store are not deleted immediately. They are marked for g
 
 ## API reference
 
-### `@rockhallweb/electron-offline-content/main`
+### `@rockhall/electron-offline-content/main`
 
 #### `createMediaStore(options?)`
 
@@ -603,7 +603,7 @@ console.log(gallery.indexName); // "gallery"
 
 #### `IndexTag`
 
-Class whose instances are produced by calling a `MediaIndex` handle. Used as elements of `MediaAssetInput.indexes`. Exported from `@rockhallweb/electron-offline-content/main`.
+Class whose instances are produced by calling a `MediaIndex` handle. Used as elements of `MediaAssetInput.indexes`. Exported from `@rockhall/electron-offline-content/main`.
 
 #### `AssetKeyInput`
 
@@ -676,7 +676,7 @@ In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing 
 
 See the published `.d.ts` files for full type definitions.
 
-### `@rockhallweb/electron-offline-content/preload`
+### `@rockhall/electron-offline-content/preload`
 
 #### `exposeMediaCacheBridge(options?)`
 
@@ -686,7 +686,7 @@ Calls `contextBridge.exposeInMainWorld` to put the `MediaCacheBridge` on `window
 
 Builds a `MediaCacheBridge` without calling `contextBridge`. Use this if you manage `contextBridge` yourself.
 
-### `@rockhallweb/electron-offline-content/react`
+### `@rockhall/electron-offline-content/react`
 
 All hooks require a `MediaCacheProvider` ancestor (or `window.mediaCache` as fallback).
 

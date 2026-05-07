@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { hashKey } from "@rockhallweb/electron-offline-content/main";
+import { hashKey } from "@rockhall/electron-offline-content/main";
 import {
   useMediaAsset,
   useMediaByIndex,
@@ -7,7 +7,7 @@ import {
   useMediaCacheStatus,
   useFileStemMatch,
   type ResolvedMediaAsset,
-} from "@rockhallweb/electron-offline-content/react";
+} from "@rockhall/electron-offline-content/react";
 import { exampleClientConfig } from "./example-client-config.js";
 
 function primaryAssets(assets: ResolvedMediaAsset[]): ResolvedMediaAsset[] {

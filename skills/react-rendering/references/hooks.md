@@ -1,6 +1,6 @@
 # Hooks API Reference
 
-Complete reference for the React bindings exported from `@rockhallweb/electron-offline-content/react`.
+Complete reference for the React bindings exported from `@rockhall/electron-offline-content/react`.
 
 ## Shared Types
 
@@ -43,7 +43,7 @@ function MediaCacheProvider({
 | `children` | `ReactNode`                     | Application tree.                                                                        |
 
 ```tsx
-import { MediaCacheProvider } from "@rockhallweb/electron-offline-content/react";
+import { MediaCacheProvider } from "@rockhall/electron-offline-content/react";
 
 <MediaCacheProvider>
   <App />
@@ -75,7 +75,7 @@ interface UseMediaBridgeResult extends MediaCacheBridge {
 **Throws:** if called outside a `MediaCacheProvider`.
 
 ```tsx
-import { useMediaBridge } from "@rockhallweb/electron-offline-content/react";
+import { useMediaBridge } from "@rockhall/electron-offline-content/react";
 
 function DebugPanel() {
   const { syncNow, status, errors } = useMediaBridge();
@@ -113,7 +113,7 @@ interface MediaCacheReadyState {
 | `syncError`          | Error from the most recent sync attempt, or `null`.                              |
 
 ```tsx
-import { useMediaCacheReady } from "@rockhallweb/electron-offline-content/react";
+import { useMediaCacheReady } from "@rockhall/electron-offline-content/react";
 
 function Gate({ children }: { children: React.ReactNode }) {
   const { data, loading } = useMediaCacheReady();
@@ -174,7 +174,7 @@ interface SyncProgress {
 | `error`              | Error message string from the last sync failure, or `null`.      |
 
 ```tsx
-import { useMediaCacheStatus } from "@rockhallweb/electron-offline-content/react";
+import { useMediaCacheStatus } from "@rockhall/electron-offline-content/react";
 
 function SyncProgress() {
   const { data: status, phase } = useMediaCacheStatus();
@@ -208,7 +208,7 @@ function useMediaAsset(
 **Returns:** `AsyncState<ResolvedMediaAsset | null>`
 
 ```tsx
-import { useMediaAsset } from "@rockhallweb/electron-offline-content/react";
+import { useMediaAsset } from "@rockhall/electron-offline-content/react";
 
 function WelcomeVideo() {
   const { data: asset, loading } = useMediaAsset(["video", "welcome"]);
@@ -254,7 +254,7 @@ function useMediaByIndex(
 **Returns:** `AsyncState<PaginationResult<ResolvedMediaAsset>>`
 
 ```tsx
-import { useMediaByIndex } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex } from "@rockhall/electron-offline-content/react";
 
 function ExhibitList() {
   const { data, loading } = useMediaByIndex("category", "exhibits", {
@@ -305,7 +305,7 @@ function useFileStemMatch(
 **Returns:** `AsyncState<PaginationResult<FileStemMatch>>`
 
 ```tsx
-import { useFileStemMatch } from "@rockhallweb/electron-offline-content/react";
+import { useFileStemMatch } from "@rockhall/electron-offline-content/react";
 
 function Search({ query }: { query: string }) {
   const { data, loading } = useFileStemMatch(query, { limit: 20 });
@@ -353,7 +353,7 @@ interface MediaCacheErrors {
 | `primaryError` | First available error in priority order: `statusError` → first `queryError` → `syncError`. |
 
 ```tsx
-import { useMediaByIndex, useMediaCacheErrors } from "@rockhallweb/electron-offline-content/react";
+import { useMediaByIndex, useMediaCacheErrors } from "@rockhall/electron-offline-content/react";
 
 function Page() {
   const videos = useMediaByIndex("category", "videos");

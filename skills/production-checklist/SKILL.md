@@ -31,7 +31,7 @@ This skill builds on cache-configuration. Read it first for all createMediaCache
 **Expected:**
 
 ```typescript
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 
 const mediaCache = createMediaCache({
   storagePath: { appPath: "userData", segments: ["offline-media"] },
@@ -78,7 +78,7 @@ const mediaCache = createMediaCache({
 
 ```typescript
 import { app } from "electron";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 
 if (!app.requestSingleInstanceLock()) {
   app.exit(1);
@@ -131,7 +131,7 @@ const mediaCache = createMediaCache({
 
 ```typescript
 import pino from "pino";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 
 const logger = pino({ name: "media-cache" });
 

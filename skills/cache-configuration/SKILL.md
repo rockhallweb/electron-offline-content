@@ -27,7 +27,7 @@ This skill builds on getting-started. Read it first for full main â†’ preload â†
 
 ```typescript
 import { app } from "electron";
-import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhall/electron-offline-content/main";
 import pino from "pino";
 
 const logger = pino({ name: "media-cache" });
