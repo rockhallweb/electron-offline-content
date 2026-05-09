@@ -88,9 +88,7 @@ describe("AssetDownloader paths and cleanup", () => {
     const downloader = createDownloader(root, vi.fn());
     const current = createTarget();
     const currentPartial = downloader.partialDownloadPath(current);
-    const stalePartial = downloader.partialDownloadPath(
-      createTarget({ version: "old-version" }),
-    );
+    const stalePartial = downloader.partialDownloadPath(createTarget({ version: "old-version" }));
     mkdirSync(dirname(currentPartial), { recursive: true });
     mkdirSync(dirname(stalePartial), { recursive: true });
     writeFileSync(currentPartial, "current");
