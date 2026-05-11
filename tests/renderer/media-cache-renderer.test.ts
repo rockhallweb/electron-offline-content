@@ -207,12 +207,13 @@ describe("resolveMediaCacheBridge", () => {
   it("resolves from window key", () => {
     const bridge = createBridge();
     const win = window as unknown as { mediaCache?: typeof bridge };
+    const hadMediaCache = Object.prototype.hasOwnProperty.call(win, "mediaCache");
     const orig = win.mediaCache;
     win.mediaCache = bridge;
     try {
       expect(resolveMediaCacheBridge({})).toBe(bridge);
     } finally {
-      if (orig !== undefined) {
+      if (hadMediaCache) {
         win.mediaCache = orig;
       } else {
         delete win.mediaCache;
@@ -222,13 +223,16 @@ describe("resolveMediaCacheBridge", () => {
 
   it("throws when bridge missing", () => {
     const win = window as unknown as { mediaCache?: unknown };
+    const hadMediaCache = Object.prototype.hasOwnProperty.call(win, "mediaCache");
     const orig = win.mediaCache;
     delete win.mediaCache;
     try {
       expect(() => resolveMediaCacheBridge({})).toThrow(MISSING_BRIDGE_ERROR);
     } finally {
-      if (orig !== undefined) {
+      if (hadMediaCache) {
         win.mediaCache = orig;
+      } else {
+        delete win.mediaCache;
       }
     }
   });
