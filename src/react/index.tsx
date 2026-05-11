@@ -3,9 +3,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
   type PropsWithChildren,
 } from "react";
 import type {
@@ -21,27 +24,22 @@ import type {
   MediaQuerySyncOptions,
   ResolvedMediaAsset,
 } from "../shared/types.js";
+import "../renderer/window-globals.js";
+import {
+  type MediaAsyncState,
+  type MediaCacheStatusController,
+  MISSING_BRIDGE_ERROR,
+  createMediaCacheStatusController,
+  createMediaQueryWatcherInstance,
+  deriveMediaCachePhase,
+} from "../renderer/runtime.js";
+import { aggregateMediaCacheErrors, mediaCacheReadyFromStatus } from "../renderer/helpers.js";
 
-declare global {
-  interface Window {
-    mediaCache?: MediaCacheBridge;
-  }
-}
-
-interface AsyncState<T> {
-  data: T | null;
-  loading: boolean;
-  error: Error | null;
-  refresh: () => Promise<void>;
-}
-
-function derivePhase(status: AsyncState<MediaCacheStatus>): MediaCachePhase {
-  return status.data?.phase ?? (status.loading ? "loading" : "idle");
-}
+type AsyncState<T> = MediaAsyncState<T>;
 
 interface MediaCacheContextValue {
   bridge: MediaCacheBridge | null;
-  status: AsyncState<MediaCacheStatus>;
+  statusController: MediaCacheStatusController | null;
   queryErrors: Error[];
   reportQueryError: (id: string, error: Error | null) => void;
 }
@@ -57,21 +55,24 @@ export interface UseMediaCacheStatusResult extends AsyncState<MediaCacheStatus> 
 }
 
 const MediaCacheContext = createContext<MediaCacheContextValue | null>(null);
-const EMPTY_QUERY_ERRORS: Error[] = [];
 let nextQueryErrorId = 0;
-const MISSING_BRIDGE_ERROR =
-  "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.";
 
 export function MediaCacheProvider({
   bridge,
   children,
 }: PropsWithChildren<{ bridge?: MediaCacheBridge }>) {
   const valueBridge = useMemo(() => bridge ?? window.mediaCache ?? null, [bridge]);
-  const status = useMediaCacheStatusState(valueBridge, valueBridge !== null);
+  const statusController = useMemo(
+    () => createMediaCacheStatusController(valueBridge, valueBridge !== null),
+    [valueBridge],
+  );
+
+  useEffect(() => () => statusController.dispose(), [statusController]);
+
   const [queryErrorsById, setQueryErrorsById] = useState<Map<string, Error>>(() => new Map());
 
   const reportQueryError = useCallback((id: string, error: Error | null) => {
-    setQueryErrorsById((previous) => {
+    setQueryErrorsById((previous: Map<string, Error>) => {
       if (error === null) {
         if (!previous.has(id)) {
           return previous;
@@ -95,11 +96,11 @@ export function MediaCacheProvider({
   const value = useMemo(
     () => ({
       bridge: valueBridge,
-      status,
+      statusController,
       queryErrors,
       reportQueryError,
     }),
-    [valueBridge, status, queryErrors, reportQueryError],
+    [valueBridge, statusController, queryErrors, reportQueryError],
   );
 
   return <MediaCacheContext.Provider value={value}>{children}</MediaCacheContext.Provider>;
@@ -107,13 +108,16 @@ export function MediaCacheProvider({
 
 export function useMediaBridge(): UseMediaBridgeResult {
   const { bridge, status, queryErrors } = useMediaCacheRuntime();
-  const errors = useMemo(() => buildMediaCacheErrors(status, queryErrors), [status, queryErrors]);
+  const errors = useMemo(
+    () => aggregateMediaCacheErrors(status, queryErrors),
+    [status, queryErrors],
+  );
 
   return useMemo(
     () => ({
       ...bridge,
       status,
-      phase: derivePhase(status),
+      phase: deriveMediaCachePhase(status),
       errors,
     }),
     [bridge, status, errors],
@@ -122,7 +126,7 @@ export function useMediaBridge(): UseMediaBridgeResult {
 
 export function useMediaCacheStatus(): UseMediaCacheStatusResult {
   const status = useMediaCacheRuntime().status;
-  return useMemo(() => ({ ...status, phase: derivePhase(status) }), [status]);
+  return useMemo(() => ({ ...status, phase: deriveMediaCachePhase(status) }), [status]);
 }
 
 /**
@@ -135,9 +139,9 @@ export function useMediaAsset(
   key: AssetKeyInput,
   options?: MediaQuerySyncOptions,
 ): AsyncState<ResolvedMediaAsset | null> {
-  const { bridge, status } = useMediaCacheRuntime();
+  const { bridge, statusController } = useMediaCacheRuntime();
   const stableKey = typeof key === "string" ? key : key.join("\0");
-  return useAsyncResource(() => bridge.getAsset(key), [bridge, stableKey], status, {
+  return useAsyncResource(() => bridge.getAsset(key), [bridge, stableKey], statusController, {
     refetchOnSyncComplete: options?.refetchOnSyncComplete,
   });
 }
@@ -154,13 +158,13 @@ export function useMediaByIndex(
   value: string,
   options?: PaginationInput & MediaQuerySyncOptions,
 ): AsyncState<PaginationResult<ResolvedMediaAsset>> {
-  const { bridge, status } = useMediaCacheRuntime();
+  const { bridge, statusController } = useMediaCacheRuntime();
   const cursor = options?.cursor;
   const limit = options?.limit;
   return useAsyncResource(
     () => bridge.listByIndex(indexName, value, { cursor, limit }),
     [bridge, indexName, value, cursor, limit],
-    status,
+    statusController,
     { refetchOnSyncComplete: options?.refetchOnSyncComplete },
   );
 }
@@ -175,13 +179,13 @@ export function useFileStemMatch(
   stem: string,
   options?: PaginationInput & MediaQuerySyncOptions,
 ): AsyncState<PaginationResult<FileStemMatch>> {
-  const { bridge, status } = useMediaCacheRuntime();
+  const { bridge, statusController } = useMediaCacheRuntime();
   const cursor = options?.cursor;
   const limit = options?.limit;
   return useAsyncResource(
     () => bridge.findByFileStem(stem, { cursor, limit }),
     [bridge, stem, cursor, limit],
-    status,
+    statusController,
     { refetchOnSyncComplete: options?.refetchOnSyncComplete },
   );
 }
@@ -190,15 +194,7 @@ export function useMediaCacheReady(): AsyncState<MediaCacheReadyState> {
   const status = useMediaCacheStatus();
 
   return {
-    data: status.data
-      ? {
-          ready: status.data.phase === "ready",
-          syncing: status.data.phase === "syncing",
-          phase: status.data.phase,
-          activeGenerationId: status.data.activeGenerationId,
-          syncError: status.data.error,
-        }
-      : null,
+    data: mediaCacheReadyFromStatus(status.data ?? undefined),
     loading: status.loading,
     error: status.error,
     refresh: status.refresh,
@@ -207,103 +203,83 @@ export function useMediaCacheReady(): AsyncState<MediaCacheReadyState> {
 
 export function useMediaCacheErrors(): MediaCacheErrors {
   const { status, queryErrors } = useMediaCacheRuntime();
-  return buildMediaCacheErrors(status, queryErrors);
+  return aggregateMediaCacheErrors(status, queryErrors);
 }
 
 function useAsyncResource<T>(
   loader: () => Promise<T>,
   refreshDeps: ReadonlyArray<unknown>,
-  status: AsyncState<MediaCacheStatus>,
+  statusController: MediaCacheStatusController,
   options?: MediaQuerySyncOptions,
 ): AsyncState<T> {
   const latestLoader = useRef(loader);
   latestLoader.current = loader;
-  const previousRefreshDeps = useRef<ReadonlyArray<unknown> | null>(null);
 
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const requestSequence = useRef(0);
+  const watcherRef = useRef<ReturnType<typeof createMediaQueryWatcherInstance<T>> | null>(null);
+  const [, forceRender] = useReducer((count: number) => count + 1, 0);
 
-  const refresh = useCallback(async () => {
-    const requestId = ++requestSequence.current;
-    setLoading(true);
-    try {
-      const result = await latestLoader.current();
-      if (requestId === requestSequence.current) {
-        setData(result);
-        setError(null);
-      }
-    } catch (caught) {
-      if (requestId === requestSequence.current) {
-        setError(toError(caught));
-      }
-    } finally {
-      if (requestId === requestSequence.current) {
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useRefetchOnReadyGeneration(status, options?.refetchOnSyncComplete ?? true, () => void refresh());
-  useQueryErrorRegistration(error);
+  useLayoutEffect(() => {
+    const instance = createMediaQueryWatcherInstance({
+      status: statusController,
+      getLoader: () => latestLoader.current,
+      refetchOnSyncComplete: options?.refetchOnSyncComplete ?? true,
+      listener: () => forceRender(),
+    });
+    watcherRef.current = instance;
+    instance.syncDeps(refreshDeps);
+    forceRender();
+    return () => {
+      instance.dispose();
+      watcherRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps compared imperatively via syncDeps
+  }, [statusController, options?.refetchOnSyncComplete]);
 
   useEffect(() => {
-    const previousDeps = previousRefreshDeps.current;
-    const shouldRefresh =
-      previousDeps === null ||
-      previousDeps.length !== refreshDeps.length ||
-      refreshDeps.some((dependency, index) => !Object.is(dependency, previousDeps[index]));
-
-    if (!shouldRefresh) {
-      return;
-    }
-
-    previousRefreshDeps.current = refreshDeps;
-    void refresh();
+    watcherRef.current?.syncDeps(refreshDeps);
   });
 
-  return { data, loading, error, refresh };
-}
+  const snapshot =
+    watcherRef.current?.getSnapshot() ??
+    ({
+      data: null,
+      loading: true,
+      error: null,
+      refresh: async () => {
+        await watcherRef.current?.refresh();
+      },
+    } as AsyncState<T>);
 
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
+  useQueryErrorRegistration(snapshot.error);
+
+  return snapshot;
 }
 
 function useMediaCacheRuntime(): {
   bridge: MediaCacheBridge;
   status: AsyncState<MediaCacheStatus>;
+  statusController: MediaCacheStatusController;
   queryErrors: Error[];
 } {
   const runtime = useContext(MediaCacheContext);
   const bridge = runtime?.bridge;
-  const standaloneStatus = useMediaCacheStatusState(bridge, runtime === null && bridge !== null);
+  const statusController = runtime?.statusController;
 
-  if (!bridge) {
+  if (!bridge || !statusController) {
     throw new Error(MISSING_BRIDGE_ERROR);
   }
 
+  const status = useSyncExternalStore(
+    statusController.subscribe,
+    statusController.getSnapshot,
+    statusController.getSnapshot,
+  );
+
   return {
     bridge,
-    status: runtime?.status ?? standaloneStatus,
-    queryErrors: runtime?.queryErrors ?? EMPTY_QUERY_ERRORS,
-  };
-}
-
-function buildMediaCacheErrors(
-  status: AsyncState<MediaCacheStatus>,
-  queryErrors: Error[],
-): MediaCacheErrors {
-  const syncError = status.data?.error ?? null;
-  const statusError = status.error;
-  const primaryError = statusError ?? queryErrors[0] ?? toPrimaryError(syncError);
-
-  return {
-    syncError,
-    statusError,
-    queryErrors,
-    hasError: primaryError !== null,
-    primaryError,
+    status,
+    statusController,
+    queryErrors: runtime.queryErrors,
   };
 }
 
@@ -326,100 +302,6 @@ function useQueryErrorRegistration(error: Error | null): void {
       runtime.reportQueryError(queryErrorId.current!, null);
     };
   }, [runtime, error]);
-}
-
-function useMediaCacheStatusState(
-  bridge: MediaCacheBridge | null | undefined,
-  enabled: boolean,
-): AsyncState<MediaCacheStatus> {
-  const [data, setData] = useState<MediaCacheStatus | null>(null);
-  const [loading, setLoading] = useState(enabled);
-  const [error, setError] = useState<Error | null>(null);
-  const requestSequence = useRef(0);
-
-  const refresh = useCallback(async () => {
-    if (!enabled || !bridge) {
-      return;
-    }
-
-    const requestId = ++requestSequence.current;
-    setLoading(true);
-    try {
-      const nextStatus = await bridge.getStatus();
-      if (requestId === requestSequence.current) {
-        setData(nextStatus);
-        setError(null);
-      }
-    } catch (caught) {
-      if (requestId === requestSequence.current) {
-        setError(toError(caught));
-      }
-    } finally {
-      if (requestId === requestSequence.current) {
-        setLoading(false);
-      }
-    }
-  }, [bridge, enabled]);
-
-  useEffect(() => {
-    if (!enabled || !bridge) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void refresh();
-    const unsubscribe = bridge.subscribeStatus((status) => {
-      requestSequence.current += 1;
-      if (!cancelled) {
-        setData(status);
-        setLoading(false);
-        setError(null);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      requestSequence.current += 1;
-      unsubscribe();
-    };
-  }, [bridge, enabled, refresh]);
-
-  return useMemo(() => ({ data, loading, error, refresh }), [data, loading, error, refresh]);
-}
-
-function toPrimaryError(syncError: MediaCacheStatus["error"]): Error | null {
-  if (!syncError) {
-    return null;
-  }
-
-  const error = new Error(syncError.message);
-  error.name = syncError.name;
-  return error;
-}
-
-function useRefetchOnReadyGeneration(
-  status: AsyncState<MediaCacheStatus>,
-  enabled: boolean,
-  onReadyGeneration: () => void,
-): void {
-  const callbackRef = useRef(onReadyGeneration);
-  callbackRef.current = onReadyGeneration;
-  const previousReadyGenerationId = useRef<number | null>(null);
-
-  useEffect(() => {
-    const phase = status.data?.phase;
-    const activeGenerationId = status.data?.activeGenerationId ?? null;
-
-    if (!enabled || phase !== "ready" || activeGenerationId === null) {
-      return;
-    }
-
-    if (previousReadyGenerationId.current !== activeGenerationId) {
-      previousReadyGenerationId.current = activeGenerationId;
-      callbackRef.current();
-    }
-  }, [enabled, status.data?.activeGenerationId, status.data?.phase]);
 }
 
 export type {

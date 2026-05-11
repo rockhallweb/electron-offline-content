@@ -38,6 +38,11 @@
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.cjs"
     },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "import": "./dist/renderer/index.js",
+      "require": "./dist/renderer/index.cjs"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -50,11 +55,12 @@
     "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --fix --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "test": "vitest run --config vitest.node.config.ts && vitest run --config vitest.node.integration.config.ts && vitest run --config vitest.react.config.ts",
+    "test": "vitest run --config vitest.node.config.ts && vitest run --config vitest.node.integration.config.ts && vitest run --config vitest.react.config.ts && vitest run --config vitest.renderer.config.ts",
     "test:smoke": "vitest run --config vitest.node.smoke.config.ts",
     "test:react": "vitest run --config vitest.react.config.ts",
+    "test:renderer": "vitest run --config vitest.renderer.config.ts",
     "test:watch": "vitest",
-    "validate": "turbo run lint format:check check && turbo run test:smoke && turbo run test:react && turbo run build",
+    "validate": "turbo run lint format:check check && turbo run test:smoke && turbo run test:react && turbo run test:renderer && turbo run build",
     "worktree:new": "node scripts/worktree.mjs create",
     "worktree:open": "node scripts/worktree.mjs open",
     "worktree:list": "git worktree list",
