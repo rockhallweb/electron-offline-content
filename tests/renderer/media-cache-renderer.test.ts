@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MISSING_BRIDGE_ERROR,
   aggregateMediaCacheErrors,
@@ -11,6 +11,7 @@ import {
   buildAssetWithVersion,
   buildStatus,
   createBridge,
+  deferred,
 } from "../react/helpers/media-cache-fixtures.js";
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
@@ -126,6 +127,46 @@ describe("createMediaCacheRenderer", () => {
     await waitUntil(() => lastPhase === "syncing");
     unsub();
     renderer.dispose();
+  });
+
+  it("allows index watches without options", async () => {
+    const listByIndex = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const bridge = createBridge({ listByIndex });
+    const renderer = createMediaCacheRenderer({ bridge });
+    const updates: number[] = [];
+    const unsub = renderer.watchMediaByIndex("mediaKind", "video", undefined, (state) => {
+      updates.push(state.data?.items.length ?? -1);
+    });
+
+    await waitUntil(() => updates.includes(0));
+    expect(listByIndex).toHaveBeenCalledWith("mediaKind", "video", {
+      cursor: undefined,
+      limit: undefined,
+    });
+
+    unsub();
+    renderer.dispose();
+  });
+
+  it("disposes active query watchers when renderer is disposed", async () => {
+    const pendingAsset = deferred<Awaited<ReturnType<typeof buildAssetWithVersion>>>();
+    const bridge = createBridge({
+      getAsset: () => pendingAsset.promise,
+    });
+    const renderer = createMediaCacheRenderer({ bridge });
+    const versions: string[] = [];
+
+    renderer.watchMediaAsset("forest", undefined, (state) => {
+      if (state.data?.version) {
+        versions.push(state.data.version);
+      }
+    });
+
+    renderer.dispose();
+    pendingAsset.resolve(buildAssetWithVersion("forest", "v1"));
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(versions).toEqual([]);
   });
 });
 

@@ -323,7 +323,7 @@ export interface MediaCacheRenderer {
   watchMediaByIndex(
     indexName: string,
     value: string,
-    options: PaginationInput & MediaQuerySyncOptions,
+    options: (PaginationInput & MediaQuerySyncOptions) | undefined,
     listener: (state: MediaAsyncState<PaginationResult<ResolvedMediaAsset>>) => void,
   ): () => void;
   watchFileStemMatch(
@@ -340,6 +340,15 @@ export function createMediaCacheRenderer(
 ): MediaCacheRenderer {
   const bridge = resolveMediaCacheBridge(options);
   const status = createMediaCacheStatusController(bridge, true);
+  const queryWatchers = new Set<MediaQueryWatcherInstance<unknown>>();
+
+  function addQueryWatcher<T>(instance: MediaQueryWatcherInstance<T>): () => void {
+    queryWatchers.add(instance as MediaQueryWatcherInstance<unknown>);
+    return () => {
+      queryWatchers.delete(instance as MediaQueryWatcherInstance<unknown>);
+      instance.dispose();
+    };
+  }
 
   function subscribeCacheStatus(
     listener: (state: MediaAsyncState<MediaCacheStatus>) => void,
@@ -363,10 +372,12 @@ export function createMediaCacheRenderer(
         listener,
       });
       instance.syncDeps([bridge, "asset", stableKey]);
-      return () => instance.dispose();
+      return addQueryWatcher(instance);
     },
     watchMediaByIndex(indexName, value, listOptions, listener) {
-      const { cursor, limit, refetchOnSyncComplete } = listOptions;
+      const cursor = listOptions?.cursor;
+      const limit = listOptions?.limit;
+      const refetchOnSyncComplete = listOptions?.refetchOnSyncComplete;
       const refetch = refetchOnSyncComplete ?? true;
       const instance = createMediaQueryWatcherInstance({
         status,
@@ -375,7 +386,7 @@ export function createMediaCacheRenderer(
         listener,
       });
       instance.syncDeps([bridge, "index", indexName, value, cursor, limit]);
-      return () => instance.dispose();
+      return addQueryWatcher(instance);
     },
     watchFileStemMatch(stem, stemOptions, listener) {
       const cursor = stemOptions?.cursor;
@@ -388,9 +399,13 @@ export function createMediaCacheRenderer(
         listener,
       });
       instance.syncDeps([bridge, "fileStem", stem, cursor, limit]);
-      return () => instance.dispose();
+      return addQueryWatcher(instance);
     },
     dispose() {
+      for (const watcher of queryWatchers) {
+        watcher.dispose();
+      }
+      queryWatchers.clear();
       status.dispose();
     },
   };
