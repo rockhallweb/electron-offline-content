@@ -49,12 +49,15 @@ describe("createMediaCacheRenderer", () => {
       }
     });
 
-    await waitUntil(() => updates.includes("v1"));
-    statusRef.current?.(buildStatus("ready", 1));
-    await waitUntil(() => updates.includes("v2"));
-    expect(calls).toBeGreaterThanOrEqual(2);
-    unsub();
-    renderer.dispose();
+    try {
+      await waitUntil(() => updates.includes("v1"));
+      statusRef.current?.(buildStatus("ready", 1));
+      await waitUntil(() => updates.includes("v2"));
+      expect(calls).toBeGreaterThanOrEqual(2);
+    } finally {
+      unsub();
+      renderer.dispose();
+    }
   });
 
   it("respects refetchOnSyncComplete false for asset watch", async () => {
@@ -81,13 +84,16 @@ describe("createMediaCacheRenderer", () => {
       }
     });
 
-    await waitUntil(() => versions.length === 1 && versions[0] === "v1");
-    statusRef.current?.(buildStatus("ready", 1));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(versions).toEqual(["v1"]);
-    expect(calls).toBe(1);
-    unsub();
-    renderer.dispose();
+    try {
+      await waitUntil(() => versions.length === 1 && versions[0] === "v1");
+      statusRef.current?.(buildStatus("ready", 1));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(versions).toEqual(["v1"]);
+      expect(calls).toBe(1);
+    } finally {
+      unsub();
+      renderer.dispose();
+    }
   });
 
   it("subscribeCacheStatus invokes listener with initial snapshot", async () => {
