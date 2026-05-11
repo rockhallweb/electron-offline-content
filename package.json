@@ -1,11 +1,19 @@
 {
-  "name": "@rockhallweb/electron-offline-content",
-  "version": "0.3.0",
+  "name": "@rockhall/electron-offline-content",
+  "version": "0.4.0",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "keywords": [
     "tanstack-intent"
   ],
-  "license": "UNLICENSED",
+  "homepage": "https://github.com/rockhallweb/electron-offline-content#readme",
+  "bugs": {
+    "url": "https://github.com/rockhallweb/electron-offline-content/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rockhallweb/electron-offline-content.git"
+  },
   "files": [
     "dist",
     "skills",
@@ -32,6 +40,9 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown",
     "check": "tsc --noEmit",
@@ -55,7 +66,6 @@
     "ci:validate": "pnpm validate"
   },
   "dependencies": {
-    "vercel": "^50.40.0",
     "zod": "^4.3.0"
   },
   "devDependencies": {

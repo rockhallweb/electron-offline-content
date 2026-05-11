@@ -1,4 +1,4 @@
-# @rockhallweb/electron-offline-content — Skill Spec
+# @rockhall/electron-offline-content — Skill Spec
 
 Electron package for kiosk-style apps that syncs a flat asset store of offline
 media content (video, images, audio, documents) to disk via SQLite-backed

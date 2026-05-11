@@ -1,11 +1,11 @@
 /**
- * Main-process wiring for @rockhallweb/electron-offline-content: create the cache (before
+ * Main-process wiring for @rockhall/electron-offline-content: create the cache (before
  * app readiness so offline `media:` registration runs), register the protocol handler after
  * ready, sync from your manifest, then expose IPC so the renderer can query status and URLs.
  */
 import { app, BrowserWindow, dialog } from "electron";
 import { join } from "node:path";
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 import { createExampleContext } from "./fetch-content.js";
 
 const SINGLE_INSTANCE_ERROR_TITLE = "Example Already Running";
@@ -29,7 +29,7 @@ async function bootstrap() {
   const mediaCache = createMediaCache({
     storagePath: {
       appPath: "temp",
-      segments: ["rockhallweb-electron-offline-content-example", "local"],
+      segments: ["rockhall-electron-offline-content-example", "local"],
     },
     resolveStore: example.resolveStore,
   });

@@ -12,7 +12,7 @@
  *
  * Used by the NASA example app's offline-media store builder.
  */
-import type { MediaIndex, MediaStore } from "@rockhallweb/electron-offline-content/main";
+import type { MediaIndex, MediaStore } from "@rockhall/electron-offline-content/main";
 import { z } from "zod";
 
 const NasaSearchItemDataLike = z.object({

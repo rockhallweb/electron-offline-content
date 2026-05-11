@@ -1181,9 +1181,7 @@ describe("media cache sync and queries (smoke)", () => {
     expect(logs.some((entry) => entry.event === "sync_started")).toBe(true);
     expect(logs.some((entry) => entry.event === "sync_completed")).toBe(true);
     expect(logs.some((entry) => entry.event === "asset_download_started")).toBe(true);
-    expect(logs.every((entry) => entry.service === "rockhallweb-electron-offline-content")).toBe(
-      true,
-    );
+    expect(logs.every((entry) => entry.service === "rockhall-electron-offline-content")).toBe(true);
     expect(logs.every((entry) => entry.component === "media-cache")).toBe(true);
   });
 

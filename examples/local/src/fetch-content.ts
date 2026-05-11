@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMediaStore, type MediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore, type MediaStore } from "@rockhall/electron-offline-content/main";
 import { exampleClientConfig, type ExampleClientConfig } from "./example-client-config.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "local");

@@ -1,10 +1,10 @@
 # Contributing
 
-Development guide for `@rockhallweb/electron-offline-content`.
+Development guide for `@rockhall/electron-offline-content`.
 
 ## Repository layout
 
-- **Root package** -- `@rockhallweb/electron-offline-content` (library source and published `dist/` output).
+- **Root package** -- `@rockhall/electron-offline-content` (library source and published `dist/` output).
 - **`turbo.json`** -- orchestrates the root build/test/lint pipelines and caches task outputs without turning the repository into a monorepo.
 - **`pnpm-workspace.yaml`** -- declares only the root package (`packages: ["."]`) so the root `pnpm-lock.yaml` stays limited to the library. Without this, pnpm can treat nested `package.json` files as extra importers and merge example dependencies into the root lockfile.
 - **Example apps** -- `examples/local` and `examples/nasa` are standalone pnpm projects (each has its own `pnpm-lock.yaml`). They depend on the root package via a local path (`../../`). A root `pnpm install` installs only the library; install example dependencies separately (see commands below).

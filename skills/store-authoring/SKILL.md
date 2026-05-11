@@ -27,7 +27,7 @@ sources:
 A complete `resolveStore` function that fetches from an API and builds a flat asset store with secondary indexes:
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 interface ApiCourse {
   id: string;
@@ -89,7 +89,7 @@ Resolved assets expose `asset.key` (storage hash) and `asset.displayKey` (human-
 Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets, then pass `IndexTag` values from each handle into `store.add()` for querying with `useMediaByIndex` in the renderer or `listByIndex` in the main process.
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 const store = createMediaStore();
 
@@ -155,7 +155,7 @@ store.add(["image", "logo"], {
 Since `resolveAssetRequest` has been removed, embed presigned (or otherwise auth-bearing) URLs in each asset’s `url` field during `resolveStore()`:
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 

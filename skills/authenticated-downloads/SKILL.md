@@ -24,7 +24,7 @@ sources:
 A `resolveStore` function that embeds S3 pre-signed URLs at store build time:
 
 ```typescript
-import { createMediaCache, createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache, createMediaStore } from "@rockhall/electron-offline-content/main";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -66,7 +66,7 @@ const mediaCache = createMediaCache({
 All authentication is handled during `resolveStore()`. The download pipeline fetches each asset using only its `url` string. Put signing parameters, tokens, or credentials into that URL (for example an S3 presigned URL) before calling `store.add`.
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 

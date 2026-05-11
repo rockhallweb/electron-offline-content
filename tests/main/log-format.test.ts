@@ -6,7 +6,7 @@ function entry(overrides: Partial<MediaCacheLogEvent> = {}): MediaCacheLogEvent 
   return {
     timestamp: "2026-03-30T12:00:00.000Z",
     level: "info",
-    service: "rockhallweb-electron-offline-content",
+    service: "rockhall-electron-offline-content",
     component: "media-cache",
     event: "cache_initialized",
     ...overrides,

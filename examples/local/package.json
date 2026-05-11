@@ -1,8 +1,8 @@
 {
-  "name": "@rockhallweb/electron-offline-content-example-local",
+  "name": "@rockhall/electron-offline-content-example-local",
   "version": "0.1.0",
   "private": true,
-  "description": "Local fixtures example (Electron Forge + React) for @rockhallweb/electron-offline-content",
+  "description": "Local fixtures example (Electron Forge + React) for @rockhall/electron-offline-content",
   "main": ".vite/build/main.js",
   "scripts": {
     "predev": "node ../../scripts/ensure-root-package-built.mjs",
@@ -16,7 +16,7 @@
     "validate": "pnpm run lint && pnpm run format:check && pnpm run knip"
   },
   "dependencies": {
-    "@rockhallweb/electron-offline-content": "../../",
+    "@rockhall/electron-offline-content": "../../",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

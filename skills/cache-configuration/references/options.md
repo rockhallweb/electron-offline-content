@@ -3,7 +3,7 @@
 Complete field-by-field reference for `createMediaCache(options)`.
 
 ```typescript
-import { createMediaCache } from "@rockhallweb/electron-offline-content/main";
+import { createMediaCache } from "@rockhall/electron-offline-content/main";
 ```
 
 ---
@@ -337,7 +337,7 @@ Function called at the start of each sync cycle to produce the current asset sto
 **Constraints:** Must return a valid `MediaStore` built with `createMediaStore()`. See store-authoring/SKILL.md for structure and validation rules.
 
 ```typescript
-import { createMediaStore } from "@rockhallweb/electron-offline-content/main";
+import { createMediaStore } from "@rockhall/electron-offline-content/main";
 
 resolveStore: async () => {
   const res = await fetch("https://cms.example.com/api/content");

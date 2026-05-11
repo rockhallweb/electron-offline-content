@@ -1,5 +1,5 @@
 /**
- * Main-process wiring for @rockhallweb/electron-offline-content: create the cache (before
+ * Main-process wiring for @rockhall/electron-offline-content: create the cache (before
  * app readiness so offline `media:` registration runs), register the protocol handler after
  * ready, sync from your manifest, then expose IPC so the renderer can query status and URLs.
  */
