@@ -30,6 +30,7 @@ export default defineConfig({
       },
     ],
     coverage: {
+      include: ["src/**/*.{ts,tsx}"],
       reporter: ["text", "html"],
     },
   },
