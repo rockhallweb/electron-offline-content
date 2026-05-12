@@ -28,8 +28,19 @@ function outExtensionJs(format: string) {
 
 const sharedBuildOptions: Pick<
   UserConfig,
-  "dts" | "format" | "sourcemap" | "target" | "unbundle" | "treeshake" | "hash" | "outExtensions"
+  | "deps"
+  | "dts"
+  | "format"
+  | "sourcemap"
+  | "target"
+  | "unbundle"
+  | "treeshake"
+  | "hash"
+  | "outExtensions"
 > = {
+  deps: {
+    neverBundle: [/^node:/],
+  },
   dts: true,
   format: ["esm", "cjs"],
   sourcemap: true,
