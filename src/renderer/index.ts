@@ -3,7 +3,6 @@ import type { MediaAsyncState } from "./runtime.js";
 import {
   type CreateMediaCacheRendererOptions,
   type MediaCacheRenderer,
-  MISSING_BRIDGE_ERROR,
   createMediaCacheRenderer as createMediaCacheRendererImpl,
 } from "./runtime.js";
 

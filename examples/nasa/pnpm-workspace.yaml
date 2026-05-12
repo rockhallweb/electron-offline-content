@@ -1,2 +1,6 @@
 packages:
   - "."
+blockExoticSubdeps: false
+allowBuilds:
+  electron: true
+  esbuild: true

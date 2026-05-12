@@ -11,8 +11,7 @@ import {
   type MediaCacheMain,
 } from "../../../src/main/media-cache.js";
 import { DataValidationError } from "../../../src/shared/errors.js";
-import { IndexTag, type JsonValue } from "../../../src/shared/types.js";
-import { hashKey } from "../../../src/internal/asset-key.js";
+import type { IndexTag, JsonValue } from "../../../src/shared/types.js";
 import { mediaCacheStoragePathSchema, parseWithSchema } from "../../../src/internal/validation.js";
 import { createMediaStore, type MediaStore } from "../../../src/main/store.js";
 

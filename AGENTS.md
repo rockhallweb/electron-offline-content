@@ -23,7 +23,7 @@ This is an npm library (`@rockhall/electron-offline-content`) for Electron apps 
 ### Prerequisites
 
 - **Node.js >= 24** (required for built-in `node:sqlite`). Install via `nvm install 24 && nvm alias default 24`.
-- **pnpm 10.30.2** (pinned via `packageManager` field). Activate via `corepack enable && corepack prepare pnpm@10.30.2 --activate`.
+- **pnpm 11.1.0** (pinned via `packageManager` field). Activate via `corepack enable && corepack prepare pnpm@11.1.0 --activate`.
 - **xvfb** for headless Electron (already installed on the VM). Prefix Electron commands with `xvfb-run -a`.
 
 ### Key commands

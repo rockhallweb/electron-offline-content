@@ -6,7 +6,7 @@ import {
   mediaCacheReadyFromStatus,
   resolveMediaCacheBridge,
 } from "../../src/renderer/index.js";
-import type { MediaCacheStatus } from "../../src/shared/types.js";
+import type { MediaCacheBridge, MediaCacheStatus } from "../../src/shared/types.js";
 import {
   buildAssetWithVersion,
   buildStatus,
@@ -136,7 +136,10 @@ describe("createMediaCacheRenderer", () => {
   });
 
   it("allows index watches without options", async () => {
-    const listByIndex = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const listByIndex = vi.fn<MediaCacheBridge["listByIndex"]>(async () => ({
+      items: [],
+      nextCursor: null,
+    }));
     const bridge = createBridge({ listByIndex });
     const renderer = createMediaCacheRenderer({ bridge });
     const updates: number[] = [];
