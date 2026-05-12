@@ -247,7 +247,7 @@ describe("media cache sync and queries (integration)", () => {
     let currentNow = 1_000;
     const storageRoot = createStorageRoot();
     const requestedUrls: string[] = [];
-    const fetchImpl: typeof globalThis.fetch = vi.fn(async (input) => {
+    const fetchImpl: typeof globalThis.fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const requestUrl =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requestedUrls.push(requestUrl);

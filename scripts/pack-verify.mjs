@@ -40,15 +40,23 @@ try {
     },
   });
 
-  await writeFile(join(copiedExampleDir, ".npmrc"), "node-linker=hoisted\n");
+  await writeFile(
+    join(copiedExampleDir, "pnpm-workspace.yaml"),
+    [
+      "packages:",
+      '  - "."',
+      "nodeLinker: hoisted",
+      "blockExoticSubdeps: false",
+      "allowBuilds:",
+      "  electron: true",
+      "  esbuild: true",
+      "",
+    ].join("\n"),
+  );
 
   const packageJsonPath = join(copiedExampleDir, "package.json");
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
   packageJson.dependencies["@rockhall/electron-offline-content"] = join(packDir, tarball);
-  packageJson.pnpm = {
-    ...packageJson.pnpm,
-    onlyBuiltDependencies: ["electron", "esbuild"],
-  };
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
   await run("pnpm", ["install", "--no-frozen-lockfile", "--ignore-scripts=false"], {

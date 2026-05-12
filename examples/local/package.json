@@ -35,11 +35,6 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.11"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
-  },
+  "packageManager": "pnpm@11.1.0",
   "productName": "Offline Content Example (local)"
 }

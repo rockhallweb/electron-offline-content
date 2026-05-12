@@ -1,2 +1,9 @@
 packages:
   - "."
+nodeLinker: hoisted
+minimumReleaseAge: 1
+allowBuilds:
+  electron: true
+  esbuild: true
+overrides:
+  esbuild: 0.27.4
