@@ -3,7 +3,12 @@
   "version": "0.4.0",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "keywords": [
-    "tanstack-intent"
+    "cache",
+    "electron",
+    "media",
+    "offline",
+    "react",
+    "sqlite"
   ],
   "homepage": "https://github.com/rockhallweb/electron-offline-content#readme",
   "bugs": {
@@ -18,7 +23,8 @@
     "dist",
     "skills",
     "!skills/_artifacts",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "type": "module",
   "sideEffects": false,
@@ -75,7 +81,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@tanstack/intent": "^0.0.29",
+    "@tanstack/intent": "^0.0.41",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",

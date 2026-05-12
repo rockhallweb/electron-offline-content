@@ -37,7 +37,7 @@ This package is opinionated. It codifies a specific content-sync model for kiosk
 ## Prerequisites
 
 - Node.js >= 24 (`node:sqlite` is used for the local metadata index)
-- pnpm >= 10
+- pnpm 11.1.0
 - Electron >= 40
 
 ## Install
