@@ -5,7 +5,7 @@ Download, index, and serve offline media content in Electron apps.
 - Flat key-value asset store with user-defined secondary indexes
 - Disk-backed binary asset cache with atomic downloads
 - Privileged `media://` protocol for renderer-safe local URLs
-- Preload bridge and React hooks for renderer access
+- Preload bridge, framework-agnostic renderer client, and optional React hooks
 - Dev passthrough mode for local development without downloading assets
 
 ## Table of contents
@@ -112,46 +112,49 @@ import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/prelo
 exposeMediaCacheBridge();
 ```
 
-### 4. Renderer (React)
+### 4. Renderer
 
-Wrap your app in `MediaCacheProvider` and use hooks to access content.
+Use the framework-agnostic renderer client to query the preload bridge and subscribe to async state updates.
 
-```tsx
-import {
-  MediaCacheProvider,
-  useMediaByIndex,
-  useMediaAsset,
-  useMediaBridge,
-} from "@rockhall/electron-offline-content/react";
+```ts
+import { createMediaCacheRenderer } from "@rockhall/electron-offline-content/renderer";
 
-function App() {
-  const videos = useMediaByIndex("collection", "videos", { limit: 20 });
-  const { errors } = useMediaBridge();
+const renderer = createMediaCacheRenderer();
+const container = document.querySelector<HTMLDivElement>("#videos");
+
+const unsubscribe = renderer.watchMediaByIndex("collection", "videos", { limit: 20 }, (videos) => {
+  if (!container) {
+    return;
+  }
 
   if (videos.loading) {
-    return <div>Loading...</div>;
-  }
-  if (errors.primaryError) {
-    return <div>{errors.primaryError.message}</div>;
+    container.textContent = "Loading...";
+    return;
   }
 
-  return (
-    <div>
-      {videos.data?.items.map((asset) => (
-        <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
-      ))}
-    </div>
-  );
-}
+  if (videos.error) {
+    container.textContent = videos.error.message;
+    return;
+  }
 
-export function Root() {
-  return (
-    <MediaCacheProvider>
-      <App />
-    </MediaCacheProvider>
+  container.replaceChildren(
+    ...(videos.data?.items ?? []).map((asset) => {
+      const video = document.createElement("video");
+      video.src = asset.url;
+      video.title = asset.displayKey;
+      video.controls = true;
+      return video;
+    }),
   );
-}
+});
+
+window.addEventListener("beforeunload", () => {
+  unsubscribe();
+  renderer.dispose();
+});
 ```
+
+React apps can use this renderer client from router loaders, component state, or any other data-loading layer. `@rockhall/electron-offline-content/react` is optional convenience sugar for apps that prefer hook-managed loading state.
 
 ## Store authoring
 
@@ -319,11 +322,16 @@ From the main process, use `cache.listByIndex(indexName, value)`:
 const natureVideos = await mediaCache.listByIndex("collection", "nature", { limit: 20 });
 ```
 
-From React, use the `useMediaByIndex` hook:
+From the renderer, use the preload-backed renderer client:
 
-```tsx
-const natureVideos = useMediaByIndex("collection", "nature", { limit: 20 });
+```ts
+import { createMediaCacheRenderer } from "@rockhall/electron-offline-content/renderer";
+
+const renderer = createMediaCacheRenderer();
+const natureVideos = await renderer.bridge.listByIndex("collection", "nature", { limit: 20 });
 ```
+
+React apps can also use `useMediaByIndex` from `@rockhall/electron-offline-content/react` when hook-managed loading state is a better fit.
 
 ### Built-in indexes
 
@@ -336,8 +344,8 @@ Two indexes are automatically populated for every asset without any `defineIndex
 
 Query all images:
 
-```tsx
-const images = useMediaByIndex("mediaKind", "image", { limit: 50 });
+```ts
+const images = await renderer.bridge.listByIndex("mediaKind", "image", { limit: 50 });
 ```
 
 ### Namespace-like grouping via indexes
@@ -364,16 +372,16 @@ store.add(["exhibits", "hubble"], {
 
 Then query:
 
-```tsx
-const lobbyAssets = useMediaByIndex("namespace", "lobby", { limit: 20 });
+```ts
+const lobbyAssets = await renderer.bridge.listByIndex("namespace", "lobby", { limit: 20 });
 ```
 
 ### File stem search
 
-`useFileStemMatch` finds assets by the normalized filename stem (name without extension) of their download URL:
+`findByFileStem` finds assets by the normalized filename stem (name without extension) of their download URL:
 
-```tsx
-const matches = useFileStemMatch("spring-campaign", { limit: 10 });
+```ts
+const matches = await renderer.bridge.findByFileStem("spring-campaign", { limit: 10 });
 ```
 
 ## Dev passthrough mode
@@ -456,19 +464,41 @@ All errors extend `MediaCacheError`, which carries a `code` string for programma
 
 ### Renderer error aggregation
 
-`useMediaCacheErrors()` combines sync errors and all active query errors under the current `MediaCacheProvider` into a single view:
+`aggregateMediaCacheErrors()` combines status loading errors, sync errors, and active query errors into a single view:
 
-```tsx
-const featured = useMediaAsset(["space", "hubble-cosmos", "main"]);
-const catalog = useMediaByIndex("collection", "space", { limit: 20 });
-const errors = useMediaCacheErrors();
+```ts
+import {
+  aggregateMediaCacheErrors,
+  createMediaCacheRenderer,
+  type MediaAsyncState,
+  type MediaCacheStatus,
+} from "@rockhall/electron-offline-content/renderer";
 
-if (errors.hasError) {
-  console.error(errors.primaryError);
-}
+const renderer = createMediaCacheRenderer();
+let statusState: MediaAsyncState<MediaCacheStatus> = {
+  data: null,
+  loading: true,
+  error: null,
+  refresh: async () => undefined,
+};
+const queryErrors: Error[] = [];
+
+const unsubscribeStatus = renderer.subscribeCacheStatus((nextStatus) => {
+  statusState = nextStatus;
+  const errors = aggregateMediaCacheErrors(statusState, queryErrors);
+
+  if (errors.hasError) {
+    console.error(errors.primaryError);
+  }
+});
+
+// Call during route/component teardown.
+unsubscribeStatus();
 ```
 
 `errors.primaryError` is the single most relevant error for display. `errors.syncError`, `errors.statusError`, and `errors.queryErrors` are available for more granular handling.
+
+React apps can use `useMediaCacheErrors()` for the same aggregation under the current `MediaCacheProvider`.
 
 ## Logging
 
@@ -686,7 +716,64 @@ Calls `contextBridge.exposeInMainWorld` to put the `MediaCacheBridge` on `window
 
 Builds a `MediaCacheBridge` without calling `contextBridge`. Use this if you manage `contextBridge` yourself.
 
+### `@rockhall/electron-offline-content/renderer`
+
+Framework-agnostic renderer client for apps using any UI framework, router loader, state manager, or plain DOM rendering. This is the recommended renderer integration for most consumers.
+
+#### `createMediaCacheRenderer(options?)`
+
+Resolves the preload bridge, subscribes to cache status, and creates query watchers with the same async-state behavior as the React hooks.
+
+Options:
+
+| Option      | Type               | Description                                                                                       |
+| ----------- | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `bridge`    | `MediaCacheBridge` | Explicit bridge instance. When omitted, the client reads from `window.mediaCache` by default.     |
+| `windowKey` | `string`           | Custom window key to read when your preload exposed the bridge somewhere other than `mediaCache`. |
+
+```ts
+import { createMediaCacheRenderer } from "@rockhall/electron-offline-content/renderer";
+
+const renderer = createMediaCacheRenderer();
+```
+
+#### `MediaCacheRenderer`
+
+Returned by `createMediaCacheRenderer()`.
+
+| Member                                                   | Returns            | Description                                                              |
+| -------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------ |
+| `bridge`                                                 | `MediaCacheBridge` | Direct access to renderer-safe async methods such as `getAsset()`.       |
+| `subscribeCacheStatus(listener)`                         | `() => void`       | Subscribe to `MediaAsyncState<MediaCacheStatus>` snapshots.              |
+| `watchMediaAsset(key, options, listener)`                | `() => void`       | Watch a single asset query.                                              |
+| `watchMediaByIndex(indexName, value, options, listener)` | `() => void`       | Watch a secondary-index query.                                           |
+| `watchFileStemMatch(stem, options, listener)`            | `() => void`       | Watch a file-stem search query.                                          |
+| `dispose()`                                              | `void`             | Dispose status subscription and all active query watchers owned by this. |
+
+Watcher listeners receive `MediaAsyncState<T>` snapshots:
+
+```ts
+{
+  data: T | null; // latest resolved value
+  loading: boolean; // true during initial load or refresh
+  error: Error | null; // last request error
+  refresh: () => Promise<void>;
+}
+```
+
+Each `watch*` method returns an unsubscribe function. Call it when your host framework, route, or component no longer needs that query. Call `renderer.dispose()` when the renderer client itself is no longer needed.
+
+Query watchers refetch after a completed sync by default. Pass `{ refetchOnSyncComplete: false }` to `watchMediaAsset`, `watchMediaByIndex`, or `watchFileStemMatch` to opt out. Index and file-stem watchers also accept `{ limit?, cursor? }`.
+
+#### Renderer helpers
+
+- `deriveMediaCachePhase(statusState)` returns `"loading"` before the first status snapshot, otherwise the cache status phase.
+- `mediaCacheReadyFromStatus(status)` maps a `MediaCacheStatus | null` to `{ ready, syncing, phase, activeGenerationId, syncError }`.
+- `aggregateMediaCacheErrors(statusState, queryErrors)` returns `{ syncError, statusError, queryErrors, hasError, primaryError }`.
+
 ### `@rockhall/electron-offline-content/react`
+
+Optional convenience hooks for React apps that prefer component-local hook loading state. If your React app already uses router loaders or another data-loading layer, prefer `@rockhall/electron-offline-content/renderer`.
 
 All hooks require a `MediaCacheProvider` ancestor (or `window.mediaCache` as fallback).
 
