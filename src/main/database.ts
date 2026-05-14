@@ -31,7 +31,7 @@ import {
   syncRunStatsSchema,
 } from "../internal/validation.js";
 
-const require = createRequire(import.meta.url);
+const require = createRequire(process.execPath);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 export interface ActiveAssetRow {
