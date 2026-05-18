@@ -60,7 +60,7 @@ import {
 
 export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
 
-const requireElectron = createRequire(import.meta.url);
+const requireElectron = createRequire(process.execPath);
 
 const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
