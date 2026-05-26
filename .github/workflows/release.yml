@@ -7,18 +7,16 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
-  stage:
-    name: stage npm package
+  validate:
+    name: validate release package
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
-    environment: npm
     if: github.event.release.prerelease == false
 
     steps:
@@ -84,5 +82,42 @@ jobs:
       - name: Verify example apps
         run: pnpm examples:verify
 
+      - name: Pack release artifact
+        run: |
+          mkdir -p release-artifact
+          npm pack --pack-destination release-artifact
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: npm-package
+          path: release-artifact/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  stage:
+    name: stage npm package
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: validate
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    if: github.event.release.prerelease == false
+
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: npm-package
+          path: release-artifact
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
       - name: Stage package
-        run: npm stage publish --access public
+        run: npm stage publish release-artifact/*.tgz --access public
