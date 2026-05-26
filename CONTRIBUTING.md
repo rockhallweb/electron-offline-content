@@ -18,6 +18,7 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 | Command             | Description                                                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                              |
+| `pnpm lint:actions` | Run Actionlint across GitHub Actions workflows. Requires `actionlint` on `PATH`.                                                                                               |
 | `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                                |
 | `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                                   |
 | `pnpm check`        | Type-check the package.                                                                                                                                                        |

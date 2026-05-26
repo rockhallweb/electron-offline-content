@@ -58,6 +58,7 @@
     "build": "tsdown",
     "check": "tsc --noEmit",
     "lint": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --deny-warnings .",
+    "lint:actions": "actionlint",
     "lint:fix": "oxlint --config .oxlintrc.json --react-plugin --vitest-plugin --node-plugin --fix --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
