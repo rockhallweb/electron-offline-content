@@ -3,7 +3,7 @@
 This repository uses two GitHub Actions workflows:
 
 - [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the Turbo-backed root validation pipeline plus explicit example setup.
-- [`.github/workflows/release.yml`](../.github/workflows/release.yml) publishes GitHub Releases to npm through npm Trusted Publishing.
+- [`.github/workflows/release.yml`](../.github/workflows/release.yml) stages GitHub Releases on npm through npm Trusted Publishing.
 
 The CI workflow runs:
 
@@ -39,6 +39,6 @@ Do not add `pull_request_target`, secrets, or write-scoped workflow permissions 
 
 ## Release Publishing
 
-The release workflow runs when a non-prerelease GitHub Release is published. It checks out the release tag, requires the tag to match `package.json`, runs the full test and validation matrix, verifies the packed tarball, verifies both example apps, and publishes to npm.
+The release workflow runs when a non-prerelease GitHub Release is published. It checks out the release tag, requires the tag to match `package.json`, runs the full test and validation matrix, verifies the packed tarball, verifies both example apps, and stages the package on npm. A maintainer must approve the staged package with 2FA before it becomes public.
 
-The release workflow uses `id-token: write` only for npm Trusted Publishing. It does not use an `NPM_TOKEN` secret. See [`docs/release.md`](release.md) for the release process and npm setup.
+The release workflow uses `id-token: write` only for npm Trusted Publishing. It does not use an `NPM_TOKEN` secret and should only be allowed to run `npm stage publish`, not `npm publish`. See [`docs/release.md`](release.md) for the release process and npm setup.

@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: publish to npm
+  stage:
+    name: stage npm package
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: npm
@@ -87,5 +87,5 @@ jobs:
       - name: Verify example apps
         run: pnpm examples:verify
 
-      - name: Publish package
-        run: npm publish --access public
+      - name: Stage package
+        run: npm stage publish --access public
