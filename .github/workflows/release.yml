@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: npm
+    if: github.event.release.prerelease == false
+
+    steps:
+      - name: Check release tag
+        run: |
+          case "${{ github.event.release.tag_name }}" in
+            v[0-9]*.[0-9]*.[0-9]*)
+              ;;
+            *)
+              echo "Release tag must look like v0.4.1."
+              exit 1
+              ;;
+          esac
+
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check package version
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          tag_version="${{ github.event.release.tag_name }}"
+          tag_version="${tag_version#v}"
+
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "package.json version ($package_version) does not match release tag ($tag_version)."
+            exit 1
+          fi
+
+      - name: Run full test suite
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm test
+
+      - name: Run validation pipeline
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm validate
+
+      - name: Verify package tarball
+        run: pnpm pack:verify
+
+      - name: Install example dependencies
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts --dir examples/local &
+          pid1=$!
+          pnpm install --frozen-lockfile --ignore-scripts --dir examples/nasa &
+          pid2=$!
+          wait $pid1 || exit 1
+          wait $pid2 || exit 1
+
+      - name: Verify example apps
+        run: pnpm examples:verify
+
+      - name: Publish package
+        run: npm publish --access public

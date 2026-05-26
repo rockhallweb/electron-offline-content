@@ -54,14 +54,16 @@ From the **repo root**, example checks without changing directory:
 
 ## Pre-release
 
-Before tagging or publishing, run the full local matrix and the same Turbo pipeline CI uses:
+Before tagging, run the full local matrix and the same Turbo pipeline CI uses:
 
 - `pnpm test` (main-process smoke/unit, main integration, then React hook tests)
 - `pnpm validate`
 
+Releases are published by GitHub Actions through npm Trusted Publishing, not from local laptops. See [`docs/release.md`](docs/release.md).
+
 ## CI
 
-GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
+GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The release workflow publishes GitHub Releases to npm after re-running the full release checks. The workflows are restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
 
 ## Day-to-day workflow
 

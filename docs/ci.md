@@ -1,6 +1,11 @@
 # CI
 
-This repository uses a single GitHub Actions workflow, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), to run a Turbo-backed root validation pipeline plus explicit example setup:
+This repository uses two GitHub Actions workflows:
+
+- [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the Turbo-backed root validation pipeline plus explicit example setup.
+- [`.github/workflows/release.yml`](../.github/workflows/release.yml) publishes GitHub Releases to npm through npm Trusted Publishing.
+
+The CI workflow runs:
 
 ```bash
 pnpm validate
@@ -31,3 +36,9 @@ The repository YAML cannot enforce all of the access policy. Configure these in 
 3. In Actions settings, allow only GitHub-authored or explicitly approved actions.
 
 Do not add `pull_request_target`, secrets, or write-scoped workflow permissions for this CI path.
+
+## Release Publishing
+
+The release workflow runs when a non-prerelease GitHub Release is published. It checks out the release tag, requires the tag to match `package.json`, runs the full test and validation matrix, verifies the packed tarball, verifies both example apps, and publishes to npm.
+
+The release workflow uses `id-token: write` only for npm Trusted Publishing. It does not use an `NPM_TOKEN` secret. See [`docs/release.md`](release.md) for the release process and npm setup.
