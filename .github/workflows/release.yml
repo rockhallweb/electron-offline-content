@@ -85,7 +85,7 @@ jobs:
       - name: Pack release artifact
         run: |
           mkdir -p release-artifact
-          npm pack --pack-destination release-artifact
+          pnpm pack --pack-destination release-artifact
 
       - name: Upload release artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
