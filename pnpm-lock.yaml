@@ -10,10 +10,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
     devDependencies:
       '@tanstack/intent':
         specifier: ^0.0.41

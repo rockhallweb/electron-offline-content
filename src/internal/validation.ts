@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { DataValidationError } from "../shared/errors.js";
 import type { ActiveAssetRow, GenerationAssetRow, PendingDeletion } from "../main/database.js";
 import type {
@@ -7,62 +6,197 @@ import type {
   MediaCacheStatus,
   MediaCacheStoragePath,
   MediaKind,
+  PaginationInput,
   SerializedMediaCacheError,
   SyncProgress,
   SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
 
-const nonNegativeIntegerSchema = z.number().int().nonnegative();
-const nonNegativeNumberSchema = z.number().nonnegative();
+interface ValidationIssue {
+  path: string;
+  message: string;
+}
+
+class ValidationError extends Error {
+  constructor(readonly issues: ValidationIssue[]) {
+    super(formatValidationIssues(issues));
+    this.name = "ValidationError";
+  }
+}
+
+export interface Schema<T> {
+  parse(value: unknown, path?: string): T;
+  array(): Schema<T[]>;
+}
+
+class Validator<T> implements Schema<T> {
+  constructor(private readonly parser: (value: unknown, path: string) => T) {}
+
+  parse(value: unknown, path = "(root)"): T {
+    return this.parser(value, path);
+  }
+
+  array(): Schema<T[]> {
+    return array(this);
+  }
+}
+
+const makeSchema = <T>(parser: (value: unknown, path: string) => T): Schema<T> =>
+  new Validator(parser);
+
+const nonNegativeIntegerSchema = makeSchema((value, path) => {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw issue(path, "Expected non-negative integer");
+  }
+  return value;
+});
+
+const nonNegativeNumberSchema = makeSchema((value, path) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw issue(path, "Expected non-negative number");
+  }
+  return value;
+});
+
+const stringSchema = makeSchema((value, path) => {
+  if (typeof value !== "string") {
+    throw issue(path, "Expected string");
+  }
+  return value;
+});
+
+const nullable = <T>(schema: Schema<T>): Schema<T | null> =>
+  makeSchema((value, path) => (value === null ? null : schema.parse(value, path)));
+
+const optional = <T>(schema: Schema<T>): Schema<T | undefined> =>
+  makeSchema((value, path) => (value === undefined ? undefined : schema.parse(value, path)));
+
+const nullishToUndefined = <T>(schema: Schema<T>): Schema<T | undefined> =>
+  makeSchema((value, path) =>
+    value === null || value === undefined ? undefined : schema.parse(value, path),
+  );
+
+const array = <T>(schema: Schema<T>): Schema<T[]> =>
+  makeSchema((value, path) => {
+    if (!Array.isArray(value)) {
+      throw issue(path, "Expected array");
+    }
+    const issues: ValidationIssue[] = [];
+    const parsed: T[] = [];
+    for (const [index, item] of value.entries()) {
+      try {
+        parsed[index] = schema.parse(item, `${path}.${index}`);
+      } catch (error) {
+        collectValidationIssues(error, issues);
+      }
+    }
+    throwIfIssues(issues);
+    return parsed;
+  });
+
+const object = <T extends object>(shape: { [K in keyof T]: Schema<T[K]> }): Schema<T> =>
+  makeSchema((value, path) => {
+    const record = expectRecord(value, path);
+    const issues: ValidationIssue[] = [];
+    const parsed = {} as T;
+    for (const key of Object.keys(shape) as (keyof T)[]) {
+      try {
+        parsed[key] = shape[key].parse(record[key as string], joinPath(path, key as string));
+      } catch (error) {
+        collectValidationIssues(error, issues);
+      }
+    }
+    throwIfIssues(issues);
+    return parsed;
+  });
+
+const record = <T>(schema: Schema<T>): Schema<Record<string, T>> =>
+  makeSchema((value, path) => {
+    const input = expectRecord(value, path);
+    const issues: ValidationIssue[] = [];
+    const parsed: Record<string, T> = {};
+    for (const [key, item] of Object.entries(input)) {
+      try {
+        parsed[key] = schema.parse(item, joinPath(path, key));
+      } catch (error) {
+        collectValidationIssues(error, issues);
+      }
+    }
+    throwIfIssues(issues);
+    return parsed;
+  });
+
+const oneOf = <T extends string>(values: readonly T[]): Schema<T> =>
+  makeSchema((value, path) => {
+    if (typeof value !== "string" || !values.includes(value as T)) {
+      throw issue(path, `Expected one of: ${values.join(", ")}`);
+    }
+    return value as T;
+  });
 
 /**
  * Schema for IPC/API string identifiers: asset key, index name, index value, file stem.
  * Enforces min 1 and max 2000 characters.
  */
-export const stringInputSchema = z.string().min(1).max(2000);
-
-export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema),
-  ]),
-);
-
-export const jsonObjectSchema: z.ZodType<Record<string, JsonValue>> = z.record(
-  z.string(),
-  jsonValueSchema,
-);
-
-export const stringRecordSchema = z.record(z.string(), z.string());
-
-export const serializedMediaCacheErrorSchema: z.ZodType<SerializedMediaCacheError> = z.object({
-  name: z.string(),
-  code: z.string(),
-  message: z.string(),
+export const stringInputSchema = makeSchema((value, path) => {
+  const parsed = stringSchema.parse(value, path);
+  if (parsed.length < 1) {
+    throw issue(path, "Expected string to contain at least 1 character");
+  }
+  if (parsed.length > 2000) {
+    throw issue(path, "Expected string to contain at most 2000 characters");
+  }
+  return parsed;
 });
 
-export const syncRunStatsSchema: z.ZodType<SyncRunStats> = z.object({
+export const jsonValueSchema: Schema<JsonValue> = makeSchema((value, path): JsonValue => {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return array(jsonValueSchema).parse(value, path);
+  }
+  if (isPlainRecord(value)) {
+    return record(jsonValueSchema).parse(value, path);
+  }
+  throw issue(path, "Expected JSON value");
+});
+
+export const jsonObjectSchema: Schema<Record<string, JsonValue>> = record(jsonValueSchema);
+
+export const stringRecordSchema = record(stringSchema);
+
+export const serializedMediaCacheErrorSchema: Schema<SerializedMediaCacheError> = object({
+  name: stringSchema,
+  code: stringSchema,
+  message: stringSchema,
+});
+
+export const syncRunStatsSchema: Schema<SyncRunStats> = object({
   totalAssets: nonNegativeIntegerSchema,
   downloadedAssets: nonNegativeIntegerSchema,
   skippedAssets: nonNegativeIntegerSchema,
   bytesDownloaded: nonNegativeNumberSchema,
 });
 
-export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
+const syncPhaseSchema: Schema<SyncProgress["phase"]> = oneOf([
+  "resolving-store",
+  "staging-generation",
+  "diffing",
+  "downloading",
+  "committing",
+  "pruning",
+]);
+
+export const syncProgressSchema: Schema<SyncProgress> = object({
   runId: nonNegativeIntegerSchema,
-  phase: z.enum([
-    "resolving-store",
-    "staging-generation",
-    "diffing",
-    "downloading",
-    "committing",
-    "pruning",
-  ]),
+  phase: syncPhaseSchema,
   totalAssets: nonNegativeIntegerSchema,
   completedAssets: nonNegativeIntegerSchema,
   downloadedAssets: nonNegativeIntegerSchema,
@@ -70,27 +204,32 @@ export const syncProgressSchema: z.ZodType<SyncProgress> = z.object({
   bytesDownloaded: nonNegativeNumberSchema,
 });
 
-export const syncRunSummarySchema: z.ZodType<SyncRunSummary> = z.object({
+export const syncRunSummarySchema: Schema<SyncRunSummary> = object({
   id: nonNegativeIntegerSchema,
-  status: z.enum(["running", "success", "error"]),
+  status: oneOf(["running", "success", "error"] as const),
   startedAt: nonNegativeIntegerSchema,
-  finishedAt: nonNegativeIntegerSchema.nullable(),
-  errorCode: z.string().nullable(),
-  errorMessage: z.string().nullable(),
+  finishedAt: nullable(nonNegativeIntegerSchema),
+  errorCode: nullable(stringSchema),
+  errorMessage: nullable(stringSchema),
   stats: syncRunStatsSchema,
 });
 
-export const mediaCacheStatusSchema: z.ZodType<MediaCacheStatus> = z.object({
-  phase: z.enum(["idle", "syncing", "ready", "error"]),
-  storageRoot: z.string().nullable().default(null),
-  activeGenerationId: nonNegativeIntegerSchema.nullable(),
-  progress: syncProgressSchema.nullable(),
-  lastRun: syncRunSummarySchema.nullable(),
-  error: serializedMediaCacheErrorSchema.nullable(),
-  updatedAt: nonNegativeIntegerSchema,
+export const mediaCacheStatusSchema: Schema<MediaCacheStatus> = makeSchema((value, path) => {
+  const parsed = object<MediaCacheStatus>({
+    phase: oneOf(["idle", "syncing", "ready", "error"]),
+    storageRoot: makeSchema((fieldValue, fieldPath) =>
+      fieldValue === undefined ? null : nullable(stringSchema).parse(fieldValue, fieldPath),
+    ),
+    activeGenerationId: nullable(nonNegativeIntegerSchema),
+    progress: nullable(syncProgressSchema),
+    lastRun: nullable(syncRunSummarySchema),
+    error: nullable(serializedMediaCacheErrorSchema),
+    updatedAt: nonNegativeIntegerSchema,
+  }).parse(value, path);
+  return parsed;
 });
 
-const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
+const mediaKindSchema: Schema<MediaKind> = oneOf([
   "video",
   "image",
   "audio",
@@ -100,7 +239,7 @@ const mediaKindSchema: z.ZodType<MediaKind> = z.enum([
   "binary",
 ]);
 
-const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
+const mediaCacheAppPathSchema: Schema<MediaCacheAppPath> = oneOf([
   "home",
   "appData",
   "userData",
@@ -119,124 +258,120 @@ const mediaCacheAppPathSchema: z.ZodType<MediaCacheAppPath> = z.enum([
   "crashDumps",
 ]);
 
-const storagePathSegmentSchema = z
-  .string()
-  .min(1)
-  .refine((segment) => !/[/\\]/.test(segment), {
-    message: "Storage path segments must not contain path separators",
-  })
-  .refine((segment) => segment !== "." && segment !== "..", {
-    message: 'Storage path segments must not be "." or ".."',
-  });
+const storagePathSegmentSchema = makeSchema((value, path) => {
+  const segment = stringSchema.parse(value, path);
+  if (segment.length < 1) {
+    throw issue(path, "Expected string to contain at least 1 character");
+  }
+  if (/[/\\]/.test(segment)) {
+    throw issue(path, "Storage path segments must not contain path separators");
+  }
+  if (segment === "." || segment === "..") {
+    throw issue(path, 'Storage path segments must not be "." or ".."');
+  }
+  return segment;
+});
 
-export const mediaCacheStoragePathSchema: z.ZodType<MediaCacheStoragePath> = z.object({
+export const mediaCacheStoragePathSchema: Schema<MediaCacheStoragePath> = object({
   appPath: mediaCacheAppPathSchema,
-  segments: z.array(storagePathSegmentSchema).optional(),
+  segments: optional(array(storagePathSegmentSchema)),
 });
 
-export const statusSnapshotRowSchema = z.object({
-  status_json: z.string(),
+export const statusSnapshotRowSchema = object({
+  status_json: stringSchema,
 });
 
-export const syncRunRowSchema = z.object({
+export const syncRunRowSchema = object({
   id: nonNegativeIntegerSchema,
   started_at_ms: nonNegativeIntegerSchema,
-  finished_at_ms: nonNegativeIntegerSchema.nullable(),
-  status: z.enum(["running", "success", "error"]),
-  error_code: z.string().nullable(),
-  error_message: z.string().nullable(),
-  stats_json: z.string(),
+  finished_at_ms: nullable(nonNegativeIntegerSchema),
+  status: oneOf(["running", "success", "error"] as const),
+  error_code: nullable(stringSchema),
+  error_message: nullable(stringSchema),
+  stats_json: stringSchema,
 });
 
-export const syncRunIdRowSchema = z.object({
+export const syncRunIdRowSchema = object({
   id: nonNegativeIntegerSchema,
 });
 
-export const generationIdRowSchema = z.object({
+export const generationIdRowSchema = object({
   id: nonNegativeIntegerSchema,
 });
 
-export const activeGenerationRowSchema = z.object({
+export const activeGenerationRowSchema = object({
   generation_id: nonNegativeIntegerSchema,
 });
 
 /** Row shape from getGenerationAssets used during sync diffing. */
-export const generationAssetRowSchema: z.ZodType<GenerationAssetRow> = z.object({
-  assetKey: z.string(),
-  version: z.string(),
-  relativePath: z.string().nullable(),
-  mimeType: z.string(),
-  url: z.string(),
+export const generationAssetRowSchema: Schema<GenerationAssetRow> = object({
+  assetKey: stringSchema,
+  version: stringSchema,
+  relativePath: nullable(stringSchema),
+  mimeType: stringSchema,
+  url: stringSchema,
 });
 
 /** Row shape for a fully joined active asset used for queries. */
-export const activeAssetRowSchema: z.ZodType<ActiveAssetRow> = z.object({
+export const activeAssetRowSchema: Schema<ActiveAssetRow> = object({
   generationId: nonNegativeIntegerSchema,
-  assetKey: z.string(),
-  displayKey: z.string(),
-  version: z.string(),
-  mimeType: z.string(),
+  assetKey: stringSchema,
+  displayKey: stringSchema,
+  version: stringSchema,
+  mimeType: stringSchema,
   mediaKind: mediaKindSchema,
-  byteLength: nonNegativeNumberSchema.nullable(),
-  metadata: z.string(),
-  indexesJson: z.string(),
-  relativePath: z.string().nullable(),
-  url: z.string(),
-  fileStem: z.string(),
+  byteLength: nullable(nonNegativeNumberSchema),
+  metadata: stringSchema,
+  indexesJson: stringSchema,
+  relativePath: nullable(stringSchema),
+  url: stringSchema,
+  fileStem: stringSchema,
   orderIndex: nonNegativeIntegerSchema,
 });
 
-export const pendingDeletionSchema: z.ZodType<PendingDeletion> = z.object({
-  deletionKey: z.string(),
-  logicalKey: z.string(),
-  relativePath: z.string(),
+export const pendingDeletionSchema: Schema<PendingDeletion> = object({
+  deletionKey: stringSchema,
+  logicalKey: stringSchema,
+  relativePath: stringSchema,
 });
 
-export const protocolAssetTargetRowSchema = z.object({
-  relative_path: z.string().nullable(),
+export const protocolAssetTargetRowSchema = object({
+  relative_path: nullable(stringSchema),
 });
 
-export const fileStemRowSchema = z.object({
-  assetKey: z.string(),
+export const fileStemRowSchema = object({
+  assetKey: stringSchema,
 });
 
-const optionalNonNegativeIntegerSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .nullish()
-  .transform((value) => value ?? undefined);
+const optionalNonNegativeIntegerSchema = nullishToUndefined(nonNegativeIntegerSchema);
 
-const optionalStringSchema = z
-  .string()
-  .nullish()
-  .transform((value) => value ?? undefined);
+const optionalStringSchema = nullishToUndefined(stringSchema);
 
-export const paginationInputSchema = z.object({
+export const paginationInputSchema: Schema<PaginationInput> = object({
   limit: optionalNonNegativeIntegerSchema,
   cursor: optionalStringSchema,
 });
 
-export const optionalPaginationInputSchema = paginationInputSchema
-  .nullish()
-  .transform((value) => value ?? undefined);
+export const optionalPaginationInputSchema = nullishToUndefined(paginationInputSchema);
 
-export const cursorPayloadSchema = z.object({
-  index: z.number().int().nonnegative(),
+export const cursorPayloadSchema = object({
+  index: nonNegativeIntegerSchema,
 });
 
-export function parseWithSchema<T>(schema: z.ZodType<T>, value: unknown, context: string): T {
-  const result = schema.safeParse(value);
-  if (result.success) {
-    return result.data;
+export function parseWithSchema<T>(schema: Schema<T>, value: unknown, context: string): T {
+  try {
+    return schema.parse(value);
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      throw new DataValidationError(`Invalid ${context}: ${formatValidationIssues(error.issues)}`, {
+        cause: error,
+      });
+    }
+    throw error;
   }
-
-  throw new DataValidationError(`Invalid ${context}: ${formatZodIssues(result.error)}`, {
-    cause: result.error,
-  });
 }
 
-export function parseJsonWithSchema<T>(rawJson: string, schema: z.ZodType<T>, context: string): T {
+export function parseJsonWithSchema<T>(rawJson: string, schema: Schema<T>, context: string): T {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -249,11 +384,7 @@ export function parseJsonWithSchema<T>(rawJson: string, schema: z.ZodType<T>, co
   return parseWithSchema(schema, parsed, context);
 }
 
-export function stringifyWithSchema<T>(
-  value: unknown,
-  schema: z.ZodType<T>,
-  context: string,
-): string {
+export function stringifyWithSchema<T>(value: unknown, schema: Schema<T>, context: string): string {
   let rawJson: string | undefined;
   try {
     rawJson = JSON.stringify(value);
@@ -270,11 +401,41 @@ export function stringifyWithSchema<T>(
   return rawJson;
 }
 
-function formatZodIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
-      return `${path}: ${issue.message}`;
-    })
+function expectRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!isPlainRecord(value)) {
+    throw issue(path, "Expected object");
+  }
+  return value;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function joinPath(base: string, key: string): string {
+  return base === "(root)" ? key : `${base}.${key}`;
+}
+
+function issue(path: string, message: string): ValidationError {
+  return new ValidationError([{ path, message }]);
+}
+
+function collectValidationIssues(error: unknown, issues: ValidationIssue[]): never | void {
+  if (error instanceof ValidationError) {
+    issues.push(...error.issues);
+    return;
+  }
+  throw error;
+}
+
+function throwIfIssues(issues: ValidationIssue[]): void {
+  if (issues.length > 0) {
+    throw new ValidationError(issues);
+  }
+}
+
+function formatValidationIssues(issues: ValidationIssue[]): string {
+  return issues
+    .map((validationIssue) => `${validationIssue.path}: ${validationIssue.message}`)
     .join("; ");
 }
