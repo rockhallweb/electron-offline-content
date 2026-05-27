@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [24, 25]
+        node-version: [24, 25, 26]
     if: >-
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository) &&
@@ -96,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [24, 25]
+        node-version: [24, 25, 26]
 
     steps:
       - name: Check out repository
