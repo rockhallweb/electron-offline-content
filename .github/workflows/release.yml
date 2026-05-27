@@ -123,4 +123,4 @@ jobs:
         run: npm install --global npm@11.15.0
 
       - name: Stage package
-        run: npm stage publish release-artifact/*.tgz --access public
+        run: npm stage publish ./release-artifact/*.tgz --access public
