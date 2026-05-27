@@ -62,7 +62,6 @@ export default defineConfig([
   },
   {
     entry: {
-      "react/index": "src/react/index.tsx",
       "renderer/index": "src/renderer/index.ts",
     },
     clean: false,

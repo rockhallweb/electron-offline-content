@@ -10,7 +10,7 @@ import type {
   ResolvedMediaAsset,
 } from "../shared/types.js";
 
-/** Async snapshot aligned with React hooks (`useMedia`, `useMediaCacheStatus`, etc.). */
+/** Async snapshot emitted by renderer status subscriptions and query watchers. */
 export interface MediaAsyncState<T> {
   /** Latest resolved value, or `null` while loading/when unavailable. */
   data: T | null;
@@ -23,7 +23,7 @@ export interface MediaAsyncState<T> {
 }
 
 export const MISSING_BRIDGE_ERROR =
-  "MediaCache bridge is unavailable. Wrap your app in <MediaCacheProvider> or expose the preload bridge on window.mediaCache.";
+  "MediaCache bridge is unavailable. Expose the preload bridge on window.mediaCache or pass a bridge explicitly.";
 
 export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -73,8 +73,7 @@ export interface MediaCacheStatusController {
 }
 
 /**
- * Owns status fetch + `subscribeStatus` wiring; same behavior as the former
- * `useMediaCacheStatusState` hook.
+ * Owns status fetch + `subscribeStatus` wiring for renderer clients.
  */
 export function createMediaCacheStatusController(
   bridge: MediaCacheBridge | null,
@@ -199,7 +198,7 @@ export interface MediaQueryWatcherInstance<T> {
  */
 export function createMediaQueryWatcherInstance<T>(options: {
   status: MediaCacheStatusController;
-  /** Called on each load so callers can close over fresh arguments (React ref pattern). */
+  /** Called on each load so callers can close over fresh arguments. */
   getLoader: () => () => Promise<T>;
   refetchOnSyncComplete: boolean;
   listener: (state: MediaAsyncState<T>) => void;

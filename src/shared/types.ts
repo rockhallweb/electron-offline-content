@@ -275,12 +275,12 @@ export interface PreloadExposeOptions {
   key?: string;
 }
 
-/** Optional sync-complete refetch behavior for React query hooks. */
+/** Optional sync-complete refetch behavior for renderer query watchers. */
 export interface MediaQuerySyncOptions {
   refetchOnSyncComplete?: boolean;
 }
 
-/** Derived readiness snapshot for `useMediaCacheReady()`. */
+/** Derived readiness snapshot for renderer UIs. */
 export interface MediaCacheReadyState {
   ready: boolean;
   syncing: boolean;
@@ -289,7 +289,7 @@ export interface MediaCacheReadyState {
   syncError: SerializedMediaCacheError | null;
 }
 
-/** Aggregated error view for the provider-driven `useMediaCacheErrors()`. */
+/** Aggregated error view for renderer UIs. */
 export interface MediaCacheErrors {
   syncError: SerializedMediaCacheError | null;
   statusError: Error | null;

@@ -7,7 +7,7 @@ import {
   useMediaCacheStatus,
   useFileStemMatch,
   type ResolvedMediaAsset,
-} from "@rockhall/electron-offline-content/react";
+} from "./use-media-cache.js";
 import { exampleClientConfig } from "./example-client-config.js";
 
 function primaryAssets(assets: ResolvedMediaAsset[]): ResolvedMediaAsset[] {
@@ -141,9 +141,7 @@ export function App() {
             </p>
             <h2 className="m-0 font-serif text-[clamp(2rem,3vw,3.1rem)] leading-[0.96] tracking-[-0.04em]">
               {String(
-                currentAsset.data?.metadata.title ??
-                  currentAsset.data?.displayKey ??
-                  (typeof selectedKey === "string" ? selectedKey : selectedKey.join("/")),
+                currentAsset.data?.metadata.title ?? currentAsset.data?.displayKey ?? selectedKey,
               )}
             </h2>
             <p className="m-0 text-[15px] leading-[1.7] text-muted">

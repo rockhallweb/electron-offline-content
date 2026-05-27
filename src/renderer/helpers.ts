@@ -28,7 +28,7 @@ export function mediaCacheReadyFromStatus(
   };
 }
 
-/** Combine status loading failures, sync errors, and query errors (same rules as `useMediaCacheErrors`). */
+/** Combine status loading failures, sync errors, and query errors for renderer UIs. */
 export function aggregateMediaCacheErrors(
   statusState: MediaAsyncState<MediaCacheStatus>,
   queryErrors: Error[],

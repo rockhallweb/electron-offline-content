@@ -8,14 +8,14 @@ import {
 
 export { aggregateMediaCacheErrors, mediaCacheReadyFromStatus } from "./helpers.js";
 
-export type { MediaAsyncState };
+export type { CreateMediaCacheRendererOptions, MediaAsyncState, MediaCacheRenderer };
 export { MISSING_BRIDGE_ERROR, deriveMediaCachePhase, resolveMediaCacheBridge } from "./runtime.js";
 
 export type CreateMediaCacheRendererInput = CreateMediaCacheRendererOptions;
 
 /**
  * Framework-agnostic entry: resolves the preload bridge, subscribes to cache status,
- * and exposes watchers aligned with the React hooks’ async semantics.
+ * and exposes async query watchers for app-owned renderer lifecycles.
  */
 export function createMediaCacheRenderer(
   options?: CreateMediaCacheRendererOptions,

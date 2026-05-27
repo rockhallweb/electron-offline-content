@@ -4,13 +4,9 @@ const ci = Boolean(process.env.CI);
 
 /**
  * Default config for `vitest` / `vitest watch` (multi-project).
- * CI and `pnpm test` / `pnpm test:smoke` use `vitest.node.config.ts` + `vitest.react.config.ts` sequentially instead.
+ * CI and `pnpm test` / `pnpm test:smoke` use focused Vitest configs sequentially instead.
  */
 export default defineConfig({
-  esbuild: {
-    jsx: "automatic",
-    jsxImportSource: "react",
-  },
   test: {
     ...(ci ? { maxWorkers: 1, fileParallelism: false } : {}),
     projects: [
@@ -23,8 +19,8 @@ export default defineConfig({
       },
       {
         test: {
-          name: "react",
-          include: ["tests/react/**/*.test.tsx"],
+          name: "renderer",
+          include: ["tests/renderer/**/*.test.ts"],
           environment: "happy-dom",
         },
       },

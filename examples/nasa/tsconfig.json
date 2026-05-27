@@ -7,7 +7,7 @@
     "paths": {
       "@rockhall/electron-offline-content/main": ["../../src/main/index.ts"],
       "@rockhall/electron-offline-content/preload": ["../../src/preload/index.ts"],
-      "@rockhall/electron-offline-content/react": ["../../src/react/index.tsx"]
+      "@rockhall/electron-offline-content/renderer": ["../../src/renderer/index.ts"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",

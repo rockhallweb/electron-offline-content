@@ -15,7 +15,6 @@
         "tsconfig.json",
         "vitest.config.ts",
         "vitest.node.config.ts",
-        "vitest.react.config.ts",
         "vitest.renderer.config.ts",
         "tsdown.config.ts"
       ]
@@ -31,7 +30,6 @@
         "tsconfig.json",
         "vitest.config.ts",
         "vitest.node.config.ts",
-        "vitest.react.config.ts",
         "vitest.renderer.config.ts"
       ]
     },
@@ -45,18 +43,7 @@
         "vitest.config.ts",
         "vitest.node.config.ts",
         "vitest.node.smoke.config.ts",
-        "vitest.react.config.ts",
         "vitest.renderer.config.ts"
-      ]
-    },
-    "test:react": {
-      "inputs": [
-        "src/**",
-        "tests/**",
-        "package.json",
-        "pnpm-lock.yaml",
-        "tsconfig.json",
-        "vitest.react.config.ts"
       ]
     },
     "test:renderer": {
