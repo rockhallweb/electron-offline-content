@@ -97,7 +97,7 @@ jobs:
 
   stage:
     name: stage npm package
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: validate
     environment: npm

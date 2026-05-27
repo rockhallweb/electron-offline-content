@@ -23,7 +23,7 @@ Trusted Publishing uses GitHub's OIDC identity for the configured workflow, so t
 4. Create a GitHub Release from the matching tag, for example `v0.4.1`.
 5. Publish the GitHub Release.
 
-Publishing the GitHub Release starts the `Release` workflow. The workflow checks that the release tag matches `package.json`, runs the full package test suite, runs `pnpm validate`, verifies the packed tarball, verifies the example apps, uploads the package tarball as a short-lived workflow artifact, and then stages that exact tarball with `npm stage publish --access public`. Only the staging job has permission to request an OIDC token.
+Publishing the GitHub Release starts the `Release` workflow. The workflow checks that the release tag matches `package.json`, runs the full package test suite, runs `pnpm validate`, verifies the packed tarball, verifies the example apps, uploads the package tarball as a short-lived workflow artifact, and then stages that exact tarball with `npm stage publish --access public`. Only the staging job has permission to request an OIDC token, and that job must run on a GitHub-hosted runner because npm Trusted Publishing does not currently support self-hosted runners.
 
 After the release workflow succeeds, approve the staged package:
 
