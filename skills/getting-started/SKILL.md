@@ -4,20 +4,20 @@ description: >
   Full greenfield integration of @rockhall/electron-offline-content:
   install, write resolveStore with createMediaStore, configure
   createMediaCache in main, wire preload bridge with
-  exposeMediaCacheBridge, add MediaCacheProvider and hooks in React,
+  exposeMediaCacheBridge, create the framework-agnostic renderer client,
   render first content offline. Covers app.requestSingleInstanceLock,
   createMediaCache timing relative to app.whenReady, and
   mediaCache.start() fire-and-forget pattern.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.4.0"
+library_version: "0.4.1"
 sources:
   - "rockhallweb/electron-offline-content:README.md"
   - "rockhallweb/electron-offline-content:src/main/index.ts"
   - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
   - "rockhallweb/electron-offline-content:src/main/store.ts"
   - "rockhallweb/electron-offline-content:src/preload/index.ts"
-  - "rockhallweb/electron-offline-content:src/react/index.tsx"
+  - "rockhallweb/electron-offline-content:src/renderer/index.ts"
   - "rockhallweb/electron-offline-content:examples/local/src/main.ts"
 ---
 
@@ -31,7 +31,7 @@ Install the package:
 pnpm add @rockhall/electron-offline-content
 ```
 
-Prerequisites: Node.js >= 24, Electron >= 40. React >= 18 is an optional peer dependency needed only for the `/react` export.
+Prerequisites: Node.js >= 24, Electron >= 40.
 
 Three files wire the integration across all three Electron processes: main, preload, and renderer.
 
@@ -86,7 +86,7 @@ Key ordering constraints:
 1. `app.requestSingleInstanceLock()` — before anything else.
 2. `createMediaCache()` — before `app.whenReady()`. The constructor registers `media:` as a privileged scheme, which must happen before the app ready event.
 3. `BrowserWindow` creation — after `app.whenReady()`.
-4. `mediaCache.start()` — after `app.whenReady()`, without `await`. Fire-and-forget; React hooks show progress while sync runs in the background.
+4. `mediaCache.start()` — after `app.whenReady()`, without `await`. Fire-and-forget; renderer status subscriptions show progress while sync runs in the background.
 
 ### preload.ts
 
@@ -96,43 +96,44 @@ import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/prelo
 exposeMediaCacheBridge();
 ```
 
-This calls `contextBridge.exposeInMainWorld` to put the IPC bridge on `window.mediaCache`. All React hooks depend on this bridge.
+This calls `contextBridge.exposeInMainWorld` to put the IPC bridge on `window.mediaCache`. The renderer client resolves this bridge by default.
 
-### App.tsx
+### renderer.ts
 
-```tsx
-import {
-  MediaCacheProvider,
-  useMediaByIndex,
-  useMediaCacheReady,
-} from "@rockhall/electron-offline-content/react";
+```typescript
+import { createMediaCacheRenderer } from "@rockhall/electron-offline-content/renderer";
 
-function Content() {
-  const ready = useMediaCacheReady();
-  const videos = useMediaByIndex("category", "videos", { limit: 20 });
+const renderer = createMediaCacheRenderer();
+const container = document.querySelector<HTMLDivElement>("#videos");
 
-  if (!ready.data?.ready) return <p>Preparing offline content...</p>;
-  if (videos.loading) return <p>Loading...</p>;
-
-  return (
-    <div>
-      {videos.data?.items.map((asset) => (
-        <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
-      ))}
-    </div>
+const unsubscribe = renderer.watchMediaByIndex("category", "videos", { limit: 20 }, (videos) => {
+  if (!container) return;
+  if (videos.loading) {
+    container.textContent = "Preparing offline content...";
+    return;
+  }
+  if (videos.error) {
+    container.textContent = videos.error.message;
+    return;
+  }
+  container.replaceChildren(
+    ...(videos.data?.items ?? []).map((asset) => {
+      const video = document.createElement("video");
+      video.src = asset.url;
+      video.title = asset.displayKey;
+      video.controls = true;
+      return video;
+    }),
   );
-}
+});
 
-export function App() {
-  return (
-    <MediaCacheProvider>
-      <Content />
-    </MediaCacheProvider>
-  );
-}
+window.addEventListener("beforeunload", () => {
+  unsubscribe();
+  renderer.dispose();
+});
 ```
 
-`MediaCacheProvider` must wrap any component that uses hooks. Hook URLs (`asset.url`) resolve to `media://` in offline mode or remote URLs in dev passthrough — pass them directly to `src` attributes.
+Resolved asset URLs (`asset.url`) resolve to `media://` in offline mode or remote URLs in dev passthrough — pass them directly to `src` attributes.
 
 ## Core Patterns
 
@@ -233,7 +234,7 @@ Source: README; media-cache.ts constructor calls `ensureMediaCacheProtocolScheme
 
 ### CRITICAL: Missing preload bridge setup
 
-Without `exposeMediaCacheBridge()` in the preload script, `window.mediaCache` is undefined and all React hooks throw `"MediaCache bridge is unavailable"`.
+Without `exposeMediaCacheBridge()` in the preload script, `window.mediaCache` is undefined and `createMediaCacheRenderer()` throws `"MediaCache bridge is unavailable"`.
 
 Wrong:
 
@@ -249,55 +250,7 @@ import { exposeMediaCacheBridge } from "@rockhall/electron-offline-content/prelo
 exposeMediaCacheBridge();
 ```
 
-Source: react/index.tsx `useMediaBridge()` throw
-
-### HIGH: Missing MediaCacheProvider in React tree
-
-All query hooks require a `MediaCacheProvider` ancestor. Without it, `useMediaBridge()` and the query hooks throw.
-
-Wrong:
-
-```tsx
-import { useMediaByIndex } from "@rockhall/electron-offline-content/react";
-
-function App() {
-  const videos = useMediaByIndex("category", "videos", { limit: 20 });
-  return (
-    <div>
-      {videos.data?.items.map((asset) => (
-        <p key={asset.key}>{asset.metadata.title}</p>
-      ))}
-    </div>
-  );
-}
-```
-
-Correct:
-
-```tsx
-import { MediaCacheProvider, useMediaByIndex } from "@rockhall/electron-offline-content/react";
-
-function Content() {
-  const videos = useMediaByIndex("category", "videos", { limit: 20 });
-  return (
-    <div>
-      {videos.data?.items.map((asset) => (
-        <p key={asset.key}>{asset.metadata.title}</p>
-      ))}
-    </div>
-  );
-}
-
-function App() {
-  return (
-    <MediaCacheProvider>
-      <Content />
-    </MediaCacheProvider>
-  );
-}
-```
-
-Source: react/index.tsx `MediaCacheProvider`
+Source: renderer/runtime.ts `resolveMediaCacheBridge()`
 
 ### HIGH: Forgetting app.requestSingleInstanceLock()
 
@@ -361,7 +314,7 @@ createWindow();
 mediaCache.start();
 ```
 
-React hooks (`useMediaCacheReady`, `useMediaCacheStatus`) show sync progress while the download runs in the background.
+Renderer status subscriptions show sync progress while the download runs in the background.
 
 Source: Maintainer interview; media-cache.ts
 
@@ -404,4 +357,3 @@ See also: store-authoring/SKILL.md § Common Mistakes
 
 See also: store-authoring/SKILL.md — Writing resolveStore functions and using createMediaStore
 See also: cache-configuration/SKILL.md — All createMediaCache options
-See also: react-rendering/SKILL.md — Complete React hooks API

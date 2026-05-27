@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   aggregateMediaCacheErrors,
   createMediaCacheRenderer,
@@ -17,6 +17,10 @@ import {
 export type { ResolvedMediaAsset };
 
 let renderer: MediaCacheRenderer | null = null;
+let nextQueryErrorId = 0;
+let queryErrorsSnapshot: Error[] = [];
+const queryErrorsById = new Map<string, Error>();
+const queryErrorListeners = new Set<() => void>();
 
 function getRenderer(): MediaCacheRenderer {
   renderer ??= createMediaCacheRenderer();
@@ -32,6 +36,47 @@ function initialState<T>(): MediaAsyncState<T> {
   };
 }
 
+function subscribeQueryErrors(listener: () => void): () => void {
+  queryErrorListeners.add(listener);
+  return () => {
+    queryErrorListeners.delete(listener);
+  };
+}
+
+function getQueryErrorsSnapshot(): Error[] {
+  return queryErrorsSnapshot;
+}
+
+function setQueryError(id: string, error: Error | null): void {
+  if (error === null) {
+    if (!queryErrorsById.delete(id)) {
+      return;
+    }
+  } else if (queryErrorsById.get(id) === error) {
+    return;
+  } else {
+    queryErrorsById.set(id, error);
+  }
+
+  queryErrorsSnapshot = Array.from(queryErrorsById.values());
+  for (const listener of queryErrorListeners) {
+    listener();
+  }
+}
+
+function useQueryErrors(): Error[] {
+  return useSyncExternalStore(subscribeQueryErrors, getQueryErrorsSnapshot, getQueryErrorsSnapshot);
+}
+
+function useReportedQueryError(error: Error | null): void {
+  const [id] = useState(() => `query-${nextQueryErrorId++}`);
+
+  useEffect(() => {
+    setQueryError(id, error);
+    return () => setQueryError(id, null);
+  }, [error, id]);
+}
+
 export function useMediaCacheStatus(): MediaAsyncState<MediaCacheStatus> & {
   phase: ReturnType<typeof deriveMediaCachePhase>;
 } {
@@ -44,7 +89,11 @@ export function useMediaCacheStatus(): MediaAsyncState<MediaCacheStatus> & {
 
 export function useMediaBridge() {
   const status = useMediaCacheStatus();
-  const errors = useMemo(() => aggregateMediaCacheErrors(status, []), [status]);
+  const queryErrors = useQueryErrors();
+  const errors = useMemo(
+    () => aggregateMediaCacheErrors(status, queryErrors),
+    [status, queryErrors],
+  );
 
   return {
     ...getRenderer().bridge,
@@ -74,6 +123,8 @@ export function useMediaAsset(
     [assetKey, refetchOnSyncComplete],
   );
 
+  useReportedQueryError(asset.error);
+
   return asset;
 }
 
@@ -100,6 +151,8 @@ export function useMediaByIndex(
     [indexName, value, cursor, limit, refetchOnSyncComplete],
   );
 
+  useReportedQueryError(assets.error);
+
   return assets;
 }
 
@@ -119,6 +172,8 @@ export function useFileStemMatch(
       getRenderer().watchFileStemMatch(stem, { cursor, limit, refetchOnSyncComplete }, setMatches),
     [stem, cursor, limit, refetchOnSyncComplete],
   );
+
+  useReportedQueryError(matches.error);
 
   return matches;
 }

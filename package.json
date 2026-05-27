@@ -7,7 +7,8 @@
     "electron",
     "media",
     "offline",
-    "sqlite"
+    "sqlite",
+    "tanstack-intent"
   ],
   "homepage": "https://github.com/rockhallweb/electron-offline-content#readme",
   "bugs": {

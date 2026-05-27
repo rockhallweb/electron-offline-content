@@ -5,16 +5,16 @@
 
 library:
   name: "@rockhall/electron-offline-content"
-  version: "0.4.0"
+  version: "0.4.1"
   repository: "https://github.com/rockhallweb/electron-offline-content"
   description: >
     Electron package for kiosk-style apps that syncs offline media content
     to disk via SQLite metadata and blob storage, then serves it through a
-    media:// protocol with React hooks for renderer access.
+    media:// protocol and framework-agnostic renderer bridge.
 generated_from:
   domain_map: "skills/_artifacts/domain_map.yaml"
   skill_spec: "skills/_artifacts/skill_spec.md"
-generated_at: "2026-04-05"
+generated_at: "2026-05-26"
 
 skills:
   - name: "Getting Started"
@@ -25,10 +25,10 @@ skills:
     description: >
       Full greenfield integration of @rockhall/electron-offline-content:
       install, write resolveStore with createMediaStore, configure createMediaCache in main,
-      wire preload bridge with exposeMediaCacheBridge, add MediaCacheProvider
-      and hooks in React, render first content offline. Covers
-      app.requestSingleInstanceLock, createMediaCache timing relative to
-      app.whenReady, and mediaCache.start() fire-and-forget pattern.
+      wire preload bridge with exposeMediaCacheBridge, create the renderer client,
+      and render first content offline. Covers app.requestSingleInstanceLock,
+      createMediaCache timing relative to app.whenReady, and mediaCache.start()
+      fire-and-forget pattern.
     requires: []
     sources:
       - "rockhallweb/electron-offline-content:README.md"
@@ -36,7 +36,7 @@ skills:
       - "rockhallweb/electron-offline-content:src/main/media-cache.ts"
       - "rockhallweb/electron-offline-content:src/main/store.ts"
       - "rockhallweb/electron-offline-content:src/preload/index.ts"
-      - "rockhallweb/electron-offline-content:src/react/index.tsx"
+      - "rockhallweb/electron-offline-content:src/renderer/index.ts"
       - "rockhallweb/electron-offline-content:examples/local/src/main.ts"
       - "rockhallweb/electron-offline-content:examples/local/src/preload.ts"
       - "rockhallweb/electron-offline-content:examples/local/src/App.tsx"
@@ -76,8 +76,7 @@ skills:
       appPath and segments, devPassthrough mode, assetBaseUrl origin override,
       onSyncFailure mode selection (serve-last-snapshot vs throw),
       maxCacheBytes, reserveFreeBytes, staleDeleteAfterMs, syncHistoryLimit,
-      onLog structured logging with custom sinks (pino, logtape), logLevel,
-      logFormat, MediaCacheLogEvent structure.
+      structured logging with custom sinks, log level, and log format.
     requires:
       - "getting-started"
     sources:
@@ -89,30 +88,6 @@ skills:
     references:
       - "references/options.md"
 
-  - name: "React Rendering"
-    slug: "react-rendering"
-    type: "framework"
-    domain: "renderer-access"
-    path: "skills/react-rendering/SKILL.md"
-    description: >
-      React bindings for @rockhall/electron-offline-content:
-      MediaCacheProvider context, useMediaBridge and useMediaCacheStatus for sync phase and
-      progress, useMedia for querying cached content
-      by namespace, useFileStemMatch for filename search, useMediaCacheReady
-      for download gates, useMediaCacheErrors for aggregated error display.
-      AsyncState shape, refetchOnSyncComplete, assetsByRole convenience
-      lookup, rendering media:// URLs in video/img/audio/track elements.
-    requires:
-      - "getting-started"
-    sources:
-      - "rockhallweb/electron-offline-content:src/react/index.tsx"
-      - "rockhallweb/electron-offline-content:src/shared/types.ts"
-      - "rockhallweb/electron-offline-content:src/shared/pagination.ts"
-      - "rockhallweb/electron-offline-content:src/shared/stem.ts"
-    subsystems: []
-    references:
-      - "references/hooks.md"
-
   - name: "Authenticated Downloads"
     slug: "authenticated-downloads"
     type: "core"
@@ -120,7 +95,7 @@ skills:
     path: "skills/authenticated-downloads/SKILL.md"
     description: >
       Adding authentication to asset downloads by embedding presigned URLs
-      in each asset’s flat url field during resolveStore. Pre-signed URL
+      in each asset's flat url field during resolveStore. Pre-signed URL
       expiration vs catalog sync duration tradeoff; dev passthrough vs
       offline download testing.
     requires:
@@ -140,12 +115,11 @@ skills:
     path: "skills/production-checklist/SKILL.md"
     description: >
       Go-live audit for kiosk deployment: verify devPassthrough disabled,
-      storage limits set for device hardware (maxCacheBytes, reserveFreeBytes),
-      structured logging wired to production sink, onSyncFailure mode chosen,
-      app.requestSingleInstanceLock in place, scope boundaries confirmed
-      (read-only presentation assets only), offline mode tested with real
-      storage path and media:// protocol URLs, disk space validated for
-      full catalog download.
+      storage limits set for device hardware, structured logging wired to
+      production sink, onSyncFailure mode chosen, app.requestSingleInstanceLock
+      in place, scope boundaries confirmed, offline mode tested with real
+      storage path and media:// protocol URLs, disk space validated for full
+      catalog download.
     requires:
       - "cache-configuration"
     sources:
