@@ -9,7 +9,7 @@ description: >
   url fields during resolveStore.
 type: core
 library: electron-offline-content
-library_version: "0.4.0"
+library_version: "0.4.1"
 requires:
   - getting-started
 sources:
@@ -86,7 +86,7 @@ Resolved assets expose `asset.key` (storage hash) and `asset.displayKey` (human-
 
 ### User-defined secondary indexes
 
-Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets, then pass `IndexTag` values from each handle into `store.add()` for querying with `useMediaByIndex` in the renderer or `listByIndex` in the main process.
+Indexes replace the old namespace hierarchy. Define them with `store.defineIndex()` before adding assets, then pass `IndexTag` values from each handle into `store.add()` for querying with `renderer.bridge.listByIndex()` in the renderer or `listByIndex` in the main process.
 
 ```typescript
 import { createMediaStore } from "@rockhall/electron-offline-content/main";
@@ -113,10 +113,10 @@ for (const exhibit of exhibits) {
 }
 ```
 
-```tsx
+```typescript
 // In renderer — query by index
-const floor2 = useMediaByIndex("floor", "2", { limit: 100 });
-const videos2026 = useMediaByIndex("year", "2026");
+const floor2 = await renderer.bridge.listByIndex("floor", "2", { limit: 100 });
+const videos2026 = await renderer.bridge.listByIndex("year", "2026");
 ```
 
 ### Asset key conventions
@@ -130,7 +130,7 @@ store.add(["inductee", "2026", "beyonce", "ceremony"], { ... });
 store.add(["inductee", "2026", "beyonce", "poster"], { ... });
 ```
 
-Use the same `AssetKeyInput` in `useMediaAsset(key)` for single-asset lookups. Protocol URLs still use the encoded storage identity derived from the hash.
+Use the same `AssetKeyInput` in `renderer.bridge.getAsset(key)` for single-asset lookups. Protocol URLs still use the encoded storage identity derived from the hash.
 
 ### Per-asset versioning
 
@@ -185,7 +185,7 @@ async function resolveStore() {
 
 ### Multi-asset content
 
-Related assets share a key prefix and use the same indexes. Use `useMediaAsset(key)` for individual lookups or `useMediaByIndex` to query by a shared index value:
+Related assets share a key prefix and use the same indexes. Use `renderer.bridge.getAsset(key)` for individual lookups or `renderer.bridge.listByIndex()` to query by a shared index value:
 
 ```typescript
 const store = createMediaStore();
@@ -218,12 +218,12 @@ store.add(["inductee", "2026", "beyonce", "subs-en"], {
 });
 ```
 
-```tsx
+```typescript
 // In renderer — look up related assets by index
-const beyonceAssets = useMediaByIndex("inductee", "beyonce-2026");
+const beyonceAssets = await renderer.bridge.listByIndex("inductee", "beyonce-2026");
 // Or look up individual assets by the same AssetKeyInput used in resolveStore
-const ceremony = useMediaAsset(["inductee", "2026", "beyonce", "ceremony"]);
-const poster = useMediaAsset(["inductee", "2026", "beyonce", "poster"]);
+const ceremony = await renderer.bridge.getAsset(["inductee", "2026", "beyonce", "ceremony"]);
+const poster = await renderer.bridge.getAsset(["inductee", "2026", "beyonce", "poster"]);
 // asset.displayKey shows the joined path; asset.key is the stable hash
 ```
 
@@ -297,7 +297,7 @@ Source: internal/asset-file-name.ts
 
 ### HIGH: Forgetting to defineIndex before querying
 
-Indexes must be defined with `store.defineIndex()` before assets are added. If you query an undefined index with `useMediaByIndex` or `listByIndex`, the query returns no results.
+Indexes must be defined with `store.defineIndex()` before assets are added. If you query an undefined index with `renderer.bridge.listByIndex()` or `listByIndex`, the query returns no results.
 
 ```typescript
 // WRONG — index not defined
@@ -308,7 +308,7 @@ store.add(["video", "welcome"], {
   url,
   metadata: { category: "lobby" },
 });
-// useMediaByIndex("category", "lobby") returns nothing
+// renderer.bridge.listByIndex("category", "lobby") returns nothing
 ```
 
 ```typescript
@@ -365,5 +365,4 @@ See also: authenticated-downloads/SKILL.md § Common Mistakes
 ## Cross-References
 
 See also: getting-started/SKILL.md — Full main → preload → renderer wiring
-See also: react-rendering/SKILL.md — Index definitions determine how hooks query content
 See also: authenticated-downloads/SKILL.md — Auth strategies for asset sources

@@ -10,7 +10,7 @@ description: >
   full catalog download.
 type: lifecycle
 library: electron-offline-content
-library_version: "0.4.0"
+library_version: "0.4.1"
 requires:
   - cache-configuration
 sources:

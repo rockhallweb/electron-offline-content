@@ -6,7 +6,7 @@ import {
   useMediaCacheStatus,
   useMediaBridge,
   type ResolvedMediaAsset,
-} from "@rockhall/electron-offline-content/react";
+} from "./use-media-cache.js";
 import { cn } from "./cn";
 import { formatBytes } from "./util";
 

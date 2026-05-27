@@ -12,7 +12,7 @@ import {
   buildStatus,
   createBridge,
   deferred,
-} from "../react/helpers/media-cache-fixtures.js";
+} from "./helpers/media-cache-fixtures.js";
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
   const start = Date.now();

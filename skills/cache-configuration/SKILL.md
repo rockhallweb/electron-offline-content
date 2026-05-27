@@ -9,7 +9,7 @@ description: >
   console formats, and MediaCacheLogEvent structure.
 type: core
 library: electron-offline-content
-library_version: "0.4.0"
+library_version: "0.4.1"
 requires:
   - getting-started
 sources:

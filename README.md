@@ -5,7 +5,7 @@ Download, index, and serve offline media content in Electron apps.
 - Flat key-value asset store with user-defined secondary indexes
 - Disk-backed binary asset cache with atomic downloads
 - Privileged `media://` protocol for renderer-safe local URLs
-- Preload bridge, framework-agnostic renderer client, and optional React hooks
+- Preload bridge and framework-agnostic renderer client
 - Dev passthrough mode for local development without downloading assets
 
 ## Table of contents
@@ -45,8 +45,6 @@ This package is opinionated. It codifies a specific content-sync model for kiosk
 ```bash
 pnpm add @rockhall/electron-offline-content
 ```
-
-`react >= 18` and `react-dom >= 18` are optional peer dependencies, needed only when using `@rockhall/electron-offline-content/react`.
 
 ## Quick start
 
@@ -154,7 +152,7 @@ window.addEventListener("beforeunload", () => {
 });
 ```
 
-React apps can use this renderer client from router loaders, component state, or any other data-loading layer. `@rockhall/electron-offline-content/react` is optional convenience sugar for apps that prefer hook-managed loading state.
+Apps can use this renderer client from router loaders, component state, framework-managed lifecycles, or any other data-loading layer.
 
 ## Store authoring
 
@@ -189,7 +187,7 @@ store.add(["lobby", "spring-campaign", "poster"], {
 });
 ```
 
-Pass a non-empty string or a non-empty array of non-empty string segments as the first argument to `store.add()` (the `AssetKeyInput` type). Segments are joined for a human-readable `displayKey` on resolved assets; internally the package stores a **SHA-256 hash** (first 16 hex characters) as the stable `key`. Either form can be used with `getAsset()` / `useMediaAsset()` as long as it matches what you passed to `add()`.
+Pass a non-empty string or a non-empty array of non-empty string segments as the first argument to `store.add()` (the `AssetKeyInput` type). Segments are joined for a human-readable `displayKey` on resolved assets; internally the package stores a **SHA-256 hash** (first 16 hex characters) as the stable `key`. Either form can be used with `getAsset()` as long as it matches what you passed to `add()`.
 
 ### Building stores from arrays
 
@@ -330,8 +328,6 @@ import { createMediaCacheRenderer } from "@rockhall/electron-offline-content/ren
 const renderer = createMediaCacheRenderer();
 const natureVideos = await renderer.bridge.listByIndex("collection", "nature", { limit: 20 });
 ```
-
-React apps can also use `useMediaByIndex` from `@rockhall/electron-offline-content/react` when hook-managed loading state is a better fit.
 
 ### Built-in indexes
 
@@ -498,8 +494,6 @@ unsubscribeStatus();
 
 `errors.primaryError` is the single most relevant error for display. `errors.syncError`, `errors.statusError`, and `errors.queryErrors` are available for more granular handling.
 
-React apps can use `useMediaCacheErrors()` for the same aggregation under the current `MediaCacheProvider`.
-
 ## Logging
 
 When `logging?.onLog` is omitted and `NODE_ENV` is not `"production"`, the package prints to the main-process console. Lines are human-readable English by default.
@@ -637,7 +631,7 @@ Class whose instances are produced by calling a `MediaIndex` handle. Used as ele
 
 #### `AssetKeyInput`
 
-Type alias: `string | readonly string[]`. Used for `MediaStore.add`, `getAsset`, and `useMediaAsset`. Arrays are joined with `/` for `displayKey` and hashed for stable `key` identity.
+Type alias: `string | readonly string[]`. Used for `MediaStore.add` and `getAsset`. Arrays are joined with `/` for `displayKey` and hashed for stable `key` identity.
 
 #### `mediaKindFromMime(mimeType)`
 
@@ -722,7 +716,7 @@ Framework-agnostic renderer client for apps using any UI framework, router loade
 
 #### `createMediaCacheRenderer(options?)`
 
-Resolves the preload bridge, subscribes to cache status, and creates query watchers with the same async-state behavior as the React hooks.
+Resolves the preload bridge, subscribes to cache status, and creates async query watchers for app-owned renderer lifecycles.
 
 Options:
 
@@ -770,98 +764,6 @@ Query watchers refetch after a completed sync by default. Pass `{ refetchOnSyncC
 - `deriveMediaCachePhase(statusState)` returns `"loading"` before the first status snapshot, otherwise the cache status phase.
 - `mediaCacheReadyFromStatus(status)` maps a `MediaCacheStatus | null` to `{ ready, syncing, phase, activeGenerationId, syncError }`.
 - `aggregateMediaCacheErrors(statusState, queryErrors)` returns `{ syncError, statusError, queryErrors, hasError, primaryError }`.
-
-### `@rockhall/electron-offline-content/react`
-
-Optional convenience hooks for React apps that prefer component-local hook loading state. If your React app already uses router loaders or another data-loading layer, prefer `@rockhall/electron-offline-content/renderer`.
-
-All hooks require a `MediaCacheProvider` ancestor (or `window.mediaCache` as fallback).
-
-#### `MediaCacheProvider`
-
-Context provider. If your preload uses the default `window.mediaCache` key, you can omit the `bridge` prop.
-
-```tsx
-<MediaCacheProvider bridge={customBridge}>
-  <App />
-</MediaCacheProvider>
-```
-
-#### `useMediaBridge()`
-
-Returns the active bridge methods together with shared `status`, top-level composite `phase` (`MediaCachePhase`: cache phase or `"loading"` before the first snapshot), and aggregated `errors`.
-
-```tsx
-const { syncNow, status, phase, errors } = useMediaBridge();
-```
-
-Use this when you need imperative bridge access without wiring separate status and error hooks.
-
-#### `useMediaCacheStatus()`
-
-Returns `UseMediaCacheStatusResult`: the same fields as `AsyncState<MediaCacheStatus>` plus top-level `phase` (`MediaCachePhase`). Subscribes to live status updates and exposes `refresh()`.
-
-#### `useMediaAsset(key, options?)`
-
-Fetches a single asset by `AssetKeyInput` (same string or segment array you used in `store.add`). Returns `AsyncState<ResolvedMediaAsset | null>`.
-
-Options: `{ refetchOnSyncComplete? }`
-
-```tsx
-const asset = useMediaAsset(["videos", "welcome", "main"]);
-
-if (asset.data) {
-  return <video src={asset.data.url} title={asset.data.displayKey} controls />;
-}
-```
-
-#### `useMediaByIndex(indexName, value, options?)`
-
-Lists assets matching a secondary index value. Returns `AsyncState<PaginationResult<ResolvedMediaAsset>>`.
-
-Options: `{ limit?, cursor?, refetchOnSyncComplete? }`
-
-```tsx
-const videos = useMediaByIndex("collection", "exhibits", { limit: 20 });
-
-if (videos.data) {
-  return videos.data.items.map((asset) => (
-    <video key={asset.key} src={asset.url} title={asset.displayKey} controls />
-  ));
-}
-```
-
-#### `useFileStemMatch(stem, options?)`
-
-Returns `AsyncState<PaginationResult<FileStemMatch>>`. Searches by normalized filename stem.
-
-Options: `{ limit?, cursor?, refetchOnSyncComplete? }`
-
-#### `useMediaCacheReady()`
-
-Returns `AsyncState<MediaCacheReadyState>`. Lightweight readiness gate: `{ ready, syncing, phase, activeGenerationId, syncError }`.
-
-```tsx
-const ready = useMediaCacheReady();
-if (!ready.data?.ready) return <p>Preparing offline content...</p>;
-```
-
-#### `useMediaCacheErrors()`
-
-Aggregates sync and provider-wide query errors into `MediaCacheErrors`: `{ syncError, statusError, queryErrors, hasError, primaryError }`.
-
-#### `AsyncState<T>`
-
-Hooks such as `useMediaAsset`, `useMediaByIndex`, `useFileStemMatch`, `useMediaCacheReady`, and `useMediaCacheStatus` return this shape:
-
-```ts
-{
-  data: T | null; // latest resolved value
-  loading: boolean; // true during initial load or refresh
-  error: Error | null; // last request error
-  refresh: () => Promise<void>;
-}
-```
 
 ## Notes
 
