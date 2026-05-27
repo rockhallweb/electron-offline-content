@@ -82,6 +82,24 @@ function isModuleNotFoundError(error: unknown): boolean {
   );
 }
 
+function isElectronLoadError(error: unknown): boolean {
+  return (
+    isModuleNotFoundError(error) ||
+    (error instanceof Error && error.message.startsWith("Electron failed to install correctly"))
+  );
+}
+
+async function importElectron(): Promise<typeof import("electron") | null> {
+  try {
+    return await import("electron");
+  } catch (error) {
+    if (isElectronLoadError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 /** True when not a production build; Electron `forge start` often leaves `NODE_ENV` unset. */
 function isNonProductionNodeEnv(): boolean {
   return process.env.NODE_ENV !== "production";
@@ -104,7 +122,7 @@ function ensureMediaCacheProtocolSchemesPrivileged(): void {
   try {
     ({ protocol } = requireElectron("electron") as typeof import("electron"));
   } catch (error) {
-    if (isModuleNotFoundError(error)) {
+    if (isElectronLoadError(error)) {
       return;
     }
     throw error;
@@ -381,7 +399,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    const electron = options?.session ? null : await import("electron");
+    const electron = options?.session ? null : await importElectron();
     const session = options?.session ?? electron?.session?.defaultSession;
     if (!session || typeof session.protocol?.handle !== "function") {
       this.emitLog("debug", "protocol_registration_skipped", {
@@ -446,7 +464,7 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    const electron = options?.ipcMain ? null : await import("electron");
+    const electron = options?.ipcMain ? null : await importElectron();
     const ipcMain = options?.ipcMain ?? electron?.ipcMain;
     if (!ipcMain || typeof ipcMain.handle !== "function") {
       this.emitLog("debug", "ipc_attach_skipped", {
