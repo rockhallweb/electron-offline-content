@@ -115,7 +115,7 @@ const record = <T>(schema: Schema<T>): Schema<Record<string, T>> =>
   makeSchema((value, path) => {
     const input = expectRecord(value, path);
     const issues: ValidationIssue[] = [];
-    const parsed: Record<string, T> = {};
+    const parsed = Object.create(null) as Record<string, T>;
     for (const [key, item] of Object.entries(input)) {
       try {
         parsed[key] = schema.parse(item, joinPath(path, key));

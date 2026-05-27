@@ -55,6 +55,17 @@ describe("validation", () => {
     );
   });
 
+  it("preserves special prototype keys in parsed records", () => {
+    const metadata = JSON.parse('{"__proto__":{"polluted":true},"constructor":"kept"}') as unknown;
+
+    const parsed = parseWithSchema(jsonObjectSchema, metadata, "metadata");
+
+    expect(Object.getPrototypeOf(parsed)).toBeNull();
+    expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
+    expect(parsed.__proto__).toEqual({ polluted: true });
+    expect(parsed.constructor).toBe("kept");
+  });
+
   it("still wraps aggregated validation issues in DataValidationError", () => {
     expect(() =>
       parseWithSchema(
