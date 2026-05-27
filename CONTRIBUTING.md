@@ -18,6 +18,7 @@ Each example is a small Electron Forge + React + Vite app that shows how to wire
 | Command             | Description                                                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `pnpm lint`         | Run Oxlint across the repository.                                                                                                                                              |
+| `pnpm lint:actions` | Run Actionlint across GitHub Actions workflows. Requires `actionlint` on `PATH`.                                                                                               |
 | `pnpm format:check` | Verify formatting with Oxfmt without rewriting.                                                                                                                                |
 | `pnpm format`       | Rewrite supported files in place with Oxfmt.                                                                                                                                   |
 | `pnpm check`        | Type-check the package.                                                                                                                                                        |
@@ -54,14 +55,16 @@ From the **repo root**, example checks without changing directory:
 
 ## Pre-release
 
-Before tagging or publishing, run the full local matrix and the same Turbo pipeline CI uses:
+Before tagging, run the full local matrix and the same Turbo pipeline CI uses:
 
 - `pnpm test` (main-process smoke/unit, main integration, then React hook tests)
 - `pnpm validate`
 
+Releases are staged by GitHub Actions through npm Trusted Publishing, then manually approved with 2FA. Do not publish from local laptops for routine releases. See [`docs/release.md`](docs/release.md).
+
 ## CI
 
-GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The workflow is restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
+GitHub Actions runs `pnpm validate` (lint, format, type-check, `test:smoke`, `pnpm test:react`, build), then `pnpm pack:verify` on pushes to `main` only, then parallel example installs and `pnpm examples:verify`. On `main`, `workflow_dispatch`, and merge queue, the **test integration** job runs only the main-process integration suite; React hook coverage stays in `pnpm validate`. The release workflow stages GitHub Releases on npm after re-running the full release checks; a maintainer approves the staged package with 2FA before it becomes public. The workflows are restricted to member-controlled branches and same-repository PRs. See [`docs/ci.md`](docs/ci.md) for policy and required GitHub settings.
 
 ## Day-to-day workflow
 
