@@ -1,10 +1,67 @@
 import { StoreValidationError } from "./errors.js";
-import type { FlatManifest } from "./types.js";
+import { mediaKindFromMime } from "../internal/media-kind.js";
+import { fileStem } from "./stem.js";
+import type { FlatManifest, IndexDefinition, JsonValue, MediaKind } from "./types.js";
+
+export interface NormalizableManifestAsset {
+  key: string;
+  displayKey: string;
+  version: string;
+  mimeType: string;
+  url: string;
+  fileName: string;
+  byteLength?: number;
+  metadata: Record<string, JsonValue>;
+  indexes: Record<string, string | string[]>;
+}
+
+export interface NormalizableManifest {
+  snapshotId?: string;
+  retrievedAt?: string;
+  expiresAt?: string;
+  indexDefinitions: IndexDefinition[];
+  assets: NormalizableManifestAsset[];
+}
+
+const BUILTIN_INDEX_DEFINITIONS: IndexDefinition[] = [
+  { name: "mimeType", cardinality: "single", required: false, builtin: true },
+  { name: "mediaKind", cardinality: "single", required: false, builtin: true },
+];
 
 /**
- * Validates flat manifest metadata (currently only `expiresAt`).
- * All per-asset normalization happens inside `MediaStore._serialize()`.
+ * Normalizes and validates the final manifest shape consumed by sync staging.
  */
+export function normalizeFlatManifest(input: NormalizableManifest): FlatManifest {
+  const manifest: FlatManifest = {
+    snapshotId: input.snapshotId,
+    retrievedAt: input.retrievedAt,
+    expiresAt: input.expiresAt,
+    indexDefinitions: [...input.indexDefinitions, ...BUILTIN_INDEX_DEFINITIONS],
+    assets: input.assets.map((asset) => {
+      const mediaKind: MediaKind = mediaKindFromMime(asset.mimeType);
+      return {
+        key: asset.key,
+        displayKey: asset.displayKey,
+        version: asset.version,
+        mimeType: asset.mimeType,
+        mediaKind,
+        url: asset.url,
+        fileName: asset.fileName,
+        fileStem: fileStem(asset.fileName),
+        byteLength: asset.byteLength,
+        metadata: asset.metadata,
+        indexes: {
+          ...asset.indexes,
+          mimeType: asset.mimeType,
+          mediaKind,
+        },
+      };
+    }),
+  };
+
+  return validateFlatManifest(manifest);
+}
+
 export function validateFlatManifest(manifest: FlatManifest): FlatManifest {
   if (manifest.expiresAt !== undefined) {
     normalizeExpiration(manifest.expiresAt);

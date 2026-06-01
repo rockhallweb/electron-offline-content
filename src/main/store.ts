@@ -1,11 +1,10 @@
 import { StoreValidationError } from "../shared/errors.js";
 import { deriveAssetFileName } from "../internal/asset-file-name.js";
-import { mediaKindFromMime } from "../internal/media-kind.js";
 import { hashKey, displayKey, isValidKeyInput, type AssetKeyInput } from "../internal/asset-key.js";
+import { normalizeFlatManifest } from "../shared/normalize.js";
 import {
   IndexTag,
   type FlatManifest,
-  type FlatManifestAsset,
   type IndexDefinition,
   type JsonValue,
   type MediaAssetInput,
@@ -14,11 +13,6 @@ import {
 const MIME_PATTERN = /^\S+\/\S+$/;
 
 const BUILTIN_INDEX_NAMES = new Set(["mimeType", "mediaKind"]);
-
-function fileStem(fileName: string): string {
-  const dotIndex = fileName.lastIndexOf(".");
-  return dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
-}
 
 /**
  * Callable handle returned by {@link MediaStore.defineIndex}. Call it with a value
@@ -282,45 +276,26 @@ export class MediaStore {
       }
     }
 
-    const indexDefinitions: IndexDefinition[] = [
-      ...Array.from(this.indexes.values()),
-      { name: "mimeType", cardinality: "single", required: false, builtin: true },
-      { name: "mediaKind", cardinality: "single", required: false, builtin: true },
-    ];
+    const indexDefinitions: IndexDefinition[] = Array.from(this.indexes.values());
+    const assets = Array.from(this.assets.values()).map((stored) => ({
+      key: stored.key,
+      displayKey: stored.displayKey,
+      version: stored.version,
+      mimeType: stored.mimeType,
+      url: stored.url,
+      fileName: stored.fileName,
+      byteLength: stored.byteLength,
+      metadata: stored.metadata,
+      indexes: stored.indexes,
+    }));
 
-    const assets: FlatManifestAsset[] = [];
-    for (const [, stored] of this.assets) {
-      const mediaKind = mediaKindFromMime(stored.mimeType);
-      const stem = fileStem(stored.fileName);
-
-      const allIndexes: Record<string, string | string[]> = {
-        ...stored.indexes,
-        mimeType: stored.mimeType,
-        mediaKind,
-      };
-
-      assets.push({
-        key: stored.key,
-        displayKey: stored.displayKey,
-        version: stored.version,
-        mimeType: stored.mimeType,
-        mediaKind,
-        url: stored.url,
-        fileName: stored.fileName,
-        fileStem: stem,
-        byteLength: stored.byteLength,
-        metadata: stored.metadata,
-        indexes: allIndexes,
-      });
-    }
-
-    return {
+    return normalizeFlatManifest({
       snapshotId: this.options.snapshotId,
       retrievedAt: this.options.retrievedAt,
       expiresAt: this.options.expiresAt,
       indexDefinitions,
       assets,
-    };
+    });
   }
 }
 
