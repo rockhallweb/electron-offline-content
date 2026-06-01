@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  statfsSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { AssetDownloader, type AssetDownloadTarget } from "../../src/main/asset-download.js";
@@ -33,7 +26,7 @@ function createDownloader(
   root: string,
   fetchImpl: typeof globalThis.fetch,
   options?: {
-    reserveFreeBytes?: number;
+    ensureFileSpaceCommit?: () => Promise<void>;
   },
 ): AssetDownloader {
   return new AssetDownloader(
@@ -41,12 +34,10 @@ function createDownloader(
     {
       fetchImpl,
       sleep: async () => undefined,
-      statfs: async (path) =>
-        statfsSync(path) as Awaited<ReturnType<typeof import("node:fs/promises").statfs>>,
     },
     {
-      reserveFreeBytes: options?.reserveFreeBytes,
       emitLog: () => undefined,
+      ensureFileSpaceCommit: options?.ensureFileSpaceCommit ?? (async () => undefined),
     },
   );
 }
@@ -65,22 +56,17 @@ function textResponse(
 }
 
 describe("AssetDownloader paths and cleanup", () => {
-  it("builds encoded partial paths and discounts existing partial bytes", () => {
+  it("builds encoded partial paths", () => {
     const root = createRoot();
     const downloader = createDownloader(root, vi.fn());
     const target = createTarget({
       assetKey: "nature videos/forest/loop/poster#1",
       fileName: "main cut.mp4",
-      byteLength: 20,
     });
     const partialPath = downloader.partialDownloadPath(target);
 
     expect(partialPath).toContain("nature%20videos%2Fforest%2Floop%2Fposter%231");
     expect(partialPath).toContain("main%20cut.mp4.part");
-
-    mkdirSync(dirname(partialPath), { recursive: true });
-    writeFileSync(partialPath, "partial");
-    expect(downloader.remainingDownloadBytes(target)).toBe(13);
   });
 
   it("removes obsolete partial files while keeping resumable targets", () => {
@@ -269,14 +255,15 @@ describe("AssetDownloader range and retry behaviour", () => {
 });
 
 describe("AssetDownloader storage commit guard", () => {
-  it("checks reserveFreeBytes before committing a completed download", async () => {
+  it("runs the injected commit-space check before moving a completed download", async () => {
     const root = createRoot();
-    const stats = statfsSync(root);
-    const availableBytes = Number(stats.bavail) * Number(stats.bsize);
+    const error = new StorageLimitError("no room");
     const downloader = createDownloader(root, async () => textResponse("main"), {
-      reserveFreeBytes: availableBytes + 1,
+      ensureFileSpaceCommit: async () => {
+        throw error;
+      },
     });
 
-    await expect(downloader.ensureFileSpaceCommit()).rejects.toThrow(StorageLimitError);
+    await expect(downloader.downloadAsset(createTarget(), () => undefined)).rejects.toBe(error);
   });
 });

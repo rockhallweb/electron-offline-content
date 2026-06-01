@@ -14,18 +14,7 @@ import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { dirname, join } from "node:path";
 import { isNoSpaceError, StorageLimitError, SyncFailureError } from "../shared/errors.js";
 import type { JsonValue, MediaCacheLogLevel } from "../shared/types.js";
-
-/** When `reserveFreeBytes` is omitted, preserve this much free space on the cache volume (1 GiB). */
-export const DEFAULT_RESERVE_FREE_BYTES = 1024 * 1024 * 1024;
-
-/**
- * Effective minimum free bytes: explicit option, or {@link DEFAULT_RESERVE_FREE_BYTES} when omitted.
- * `0` means no reserved headroom.
- * @internal
- */
-export function effectiveReserveFreeBytes(explicit: number | undefined): number {
-  return explicit === undefined ? DEFAULT_RESERVE_FREE_BYTES : explicit;
-}
+import { partialDownloadPath } from "./storage-budget.js";
 
 export interface QueuedAssetDownloadTarget {
   assetKey: string;
@@ -50,7 +39,6 @@ export interface AssetDownloadResult {
 export interface AssetDownloaderDependencies {
   fetchImpl: typeof globalThis.fetch;
   sleep: (delayMs: number) => Promise<void>;
-  statfs: (path: string) => Promise<StatFsResult>;
 }
 
 export type AssetDownloadLogHandler = (
@@ -59,32 +47,18 @@ export type AssetDownloadLogHandler = (
   fields?: Record<string, JsonValue | undefined>,
 ) => void;
 
-type StatFsResult = Awaited<ReturnType<typeof import("node:fs/promises").statfs>>;
-
 export class AssetDownloader {
   constructor(
     private readonly storageRoot: string,
     private readonly deps: AssetDownloaderDependencies,
     private readonly options: {
-      reserveFreeBytes?: number;
       emitLog: AssetDownloadLogHandler;
+      ensureFileSpaceCommit: () => Promise<void>;
     },
   ) {}
 
-  remainingDownloadBytes(download: QueuedAssetDownloadTarget): number {
-    const expectedBytes = download.byteLength ?? 0;
-    const partialBytes = this.partialDownloadBytes(download);
-    return Math.max(expectedBytes - partialBytes, 0);
-  }
-
   partialDownloadPath(download: QueuedAssetDownloadTarget): string {
-    return join(
-      this.storageRoot,
-      "temp",
-      sanitizeSegment(download.assetKey),
-      sanitizeSegment(download.version),
-      `${sanitizeSegment(download.fileName)}.part`,
-    );
+    return partialDownloadPath(this.storageRoot, download);
   }
 
   cleanupObsoletePartialDownloads(downloads: QueuedAssetDownloadTarget[]): void {
@@ -171,20 +145,6 @@ export class AssetDownloader {
     }
 
     throw lastError;
-  }
-
-  async ensureFileSpaceCommit(): Promise<void> {
-    const stats = await this.deps.statfs(this.storageRoot);
-    const availableBytes = Number(stats.bavail) * Number(stats.bsize);
-    const reserve = effectiveReserveFreeBytes(this.options.reserveFreeBytes);
-    if (availableBytes < reserve) {
-      throw new StorageLimitError(`Committing download would violate reserveFreeBytes ${reserve}.`);
-    }
-  }
-
-  private partialDownloadBytes(download: QueuedAssetDownloadTarget): number {
-    const tempPath = this.partialDownloadPath(download);
-    return existsSync(tempPath) ? statSync(tempPath).size : 0;
   }
 
   private async downloadAssetAttempt(
@@ -281,7 +241,7 @@ export class AssetDownloader {
         throw wrapRetryableDownloadError(error);
       }
 
-      await this.ensureFileSpaceCommit();
+      await this.options.ensureFileSpaceCommit();
       mkdirSync(dirname(destinationPath), { recursive: true });
       rmSync(destinationPath, { force: true });
       renameSync(tempPath, destinationPath);
