@@ -29,9 +29,17 @@ describe("MEDIA_CACHE_BRIDGE_OPERATIONS", () => {
     expect(MEDIA_CACHE_BRIDGE_OPERATION_LIST).toEqual([
       MEDIA_CACHE_BRIDGE_OPERATIONS.getStatus,
       MEDIA_CACHE_BRIDGE_OPERATIONS.syncNow,
+      MEDIA_CACHE_BRIDGE_OPERATIONS.getAsset,
+      MEDIA_CACHE_BRIDGE_OPERATIONS.listByIndex,
+      MEDIA_CACHE_BRIDGE_OPERATIONS.findByFileStem,
     ]);
     expect(MEDIA_CACHE_BRIDGE_OPERATIONS.getStatus.channel).toBe(MEDIA_CACHE_IPC.getStatus);
     expect(MEDIA_CACHE_BRIDGE_OPERATIONS.syncNow.channel).toBe(MEDIA_CACHE_IPC.syncNow);
+    expect(MEDIA_CACHE_BRIDGE_OPERATIONS.getAsset.channel).toBe(MEDIA_CACHE_IPC.getAsset);
+    expect(MEDIA_CACHE_BRIDGE_OPERATIONS.listByIndex.channel).toBe(MEDIA_CACHE_IPC.listByIndex);
+    expect(MEDIA_CACHE_BRIDGE_OPERATIONS.findByFileStem.channel).toBe(
+      MEDIA_CACHE_IPC.findByFileStem,
+    );
   });
 
   it("registers main IPC handlers for every registry operation", async () => {
@@ -54,12 +62,30 @@ describe("MEDIA_CACHE_BRIDGE_OPERATIONS", () => {
     const bridge = createMediaCacheBridge();
     await bridge.getStatus();
     await bridge.syncNow();
+    await bridge.getAsset("asset-key");
+    await bridge.listByIndex("mimeType", "video/mp4", { limit: 10 });
+    await bridge.findByFileStem("forest", { cursor: "next" });
 
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       MEDIA_CACHE_BRIDGE_OPERATIONS.getStatus.channel,
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       MEDIA_CACHE_BRIDGE_OPERATIONS.syncNow.channel,
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      MEDIA_CACHE_BRIDGE_OPERATIONS.getAsset.channel,
+      "asset-key",
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      MEDIA_CACHE_BRIDGE_OPERATIONS.listByIndex.channel,
+      "mimeType",
+      "video/mp4",
+      { limit: 10 },
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      MEDIA_CACHE_BRIDGE_OPERATIONS.findByFileStem.channel,
+      "forest",
+      { cursor: "next" },
     );
   });
 

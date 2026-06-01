@@ -47,9 +47,6 @@ export function resolveMediaCacheBridge(options?: {
   if (
     !bridge ||
     typeof bridge.subscribeStatus !== "function" ||
-    typeof bridge.getAsset !== "function" ||
-    typeof bridge.listByIndex !== "function" ||
-    typeof bridge.findByFileStem !== "function" ||
     MEDIA_CACHE_BRIDGE_OPERATION_LIST.some(
       (operation) => typeof bridge[operation.name] !== "function",
     )

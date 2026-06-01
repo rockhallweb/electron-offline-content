@@ -14,11 +14,11 @@ export function createMediaCacheBridge(): MediaCacheBridge {
   return {
     getStatus: () => invokeBridgeOperation("getStatus"),
     syncNow: () => invokeBridgeOperation("syncNow"),
-    getAsset: (key) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getAsset, key),
+    getAsset: (key) => invokeBridgeOperation("getAsset", key),
     listByIndex: (indexName, value, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.listByIndex, indexName, value, pagination),
+      invokeBridgeOperation("listByIndex", indexName, value, pagination),
     findByFileStem: (stem, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.findByFileStem, stem, pagination),
+      invokeBridgeOperation("findByFileStem", stem, pagination),
     subscribeStatus: (listener) => {
       const wrapped = (
         _event: Electron.IpcRendererEvent,
@@ -34,8 +34,9 @@ export function createMediaCacheBridge(): MediaCacheBridge {
 
 function invokeBridgeOperation<Name extends MediaCacheBridgeOperationName>(
   name: Name,
+  ...args: Parameters<MediaCacheBridgeOperationHandlers[Name]>
 ): ReturnType<MediaCacheBridgeOperationHandlers[Name]> {
-  return ipcRenderer.invoke(MEDIA_CACHE_BRIDGE_OPERATIONS[name].channel) as ReturnType<
+  return ipcRenderer.invoke(MEDIA_CACHE_BRIDGE_OPERATIONS[name].channel, ...args) as ReturnType<
     MediaCacheBridgeOperationHandlers[Name]
   >;
 }

@@ -475,21 +475,34 @@ export class MediaCache implements MediaCacheMain {
     }
 
     for (const operation of MEDIA_CACHE_BRIDGE_OPERATION_LIST) {
-      ipcMain.handle(operation.channel, async () => this[operation.name]());
+      switch (operation.name) {
+        case "getStatus":
+          ipcMain.handle(operation.channel, async () => this.getStatus());
+          break;
+        case "syncNow":
+          ipcMain.handle(operation.channel, async () => this.syncNow());
+          break;
+        case "getAsset":
+          ipcMain.handle(operation.channel, async (_event, key: AssetKeyInput) =>
+            this.getAsset(key),
+          );
+          break;
+        case "listByIndex":
+          ipcMain.handle(
+            operation.channel,
+            async (_event, indexName: string, value: string, pagination?: PaginationInput) =>
+              this.listByIndex(indexName, value, pagination),
+          );
+          break;
+        case "findByFileStem":
+          ipcMain.handle(
+            operation.channel,
+            async (_event, stem: string, pagination?: PaginationInput) =>
+              this.findByFileStem(stem, pagination),
+          );
+          break;
+      }
     }
-    ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: AssetKeyInput) =>
-      this.getAsset(key),
-    );
-    ipcMain.handle(
-      MEDIA_CACHE_IPC.listByIndex,
-      async (_event, indexName: string, value: string, pagination?: PaginationInput) =>
-        this.listByIndex(indexName, value, pagination),
-    );
-    ipcMain.handle(
-      MEDIA_CACHE_IPC.findByFileStem,
-      async (_event, stem: string, pagination?: PaginationInput) =>
-        this.findByFileStem(stem, pagination),
-    );
 
     if (electron) {
       this.events.on(MEDIA_CACHE_IPC.statusChanged, (status: MediaCacheStatus) => {
