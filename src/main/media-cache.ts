@@ -57,6 +57,7 @@ import {
   type AssetDownloadTarget,
   type QueuedAssetDownloadTarget,
 } from "./asset-download.js";
+import { GenerationLifecycle } from "./generation-lifecycle.js";
 
 export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
 
@@ -257,6 +258,7 @@ export class MediaCache implements MediaCacheMain {
   private readonly assetBaseUrlOrigin: string | null;
   private storageRootLock: StorageRootLockHandle | null = null;
   private db: MediaCacheDatabase | null = null;
+  private generationLifecycle: GenerationLifecycle | null = null;
   private storageRoot: string | null = null;
   private status: MediaCacheStatus;
   private syncPromise: Promise<void> | null = null;
@@ -532,6 +534,7 @@ export class MediaCache implements MediaCacheMain {
         }
       },
     });
+    this.generationLifecycle = new GenerationLifecycle(this.storageRoot, this.db);
     if (this.devPassthrough) {
       this.prepareDevRuntimeState();
     }
@@ -576,23 +579,16 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private reconcileOrphanedStagedGenerations(): number | null {
-    const activeGenerationId = this.db!.getActiveGenerationId();
-    const stagedGenerationIds = this.db!.listStagedGenerationIds().filter(
-      (generationId) => generationId !== activeGenerationId,
-    );
-    if (stagedGenerationIds.length === 0) {
+    const { activeGenerationId, removedGenerationIds } =
+      this.generationLifecycle!.reconcileOrphanedStagedGenerations();
+    if (removedGenerationIds.length === 0) {
       return activeGenerationId;
-    }
-
-    for (const stagedGenerationId of stagedGenerationIds) {
-      this.cleanupStagedGenerationFiles(stagedGenerationId, activeGenerationId);
-      this.db!.deleteGeneration(stagedGenerationId);
     }
 
     this.emitLog("warn", "orphaned_staged_generations_removed", {
       active_generation_id: activeGenerationId,
-      removed_generation_ids: stagedGenerationIds,
-      removed_generation_count: stagedGenerationIds.length,
+      removed_generation_ids: removedGenerationIds,
+      removed_generation_count: removedGenerationIds.length,
     });
     return activeGenerationId;
   }
@@ -831,8 +827,7 @@ export class MediaCache implements MediaCacheMain {
       });
     } catch (error) {
       if (stagedGenerationId !== null) {
-        this.cleanupStagedGenerationFiles(stagedGenerationId, this.db!.getActiveGenerationId());
-        this.db!.deleteGeneration(stagedGenerationId);
+        this.generationLifecycle!.rollbackStagedGeneration(stagedGenerationId);
       }
 
       const serialized = toSerializedError(error);
@@ -954,34 +949,6 @@ export class MediaCache implements MediaCacheMain {
       reserveFreeBytes: this.options.reserveFreeBytes,
       emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
     });
-  }
-
-  private cleanupStagedGenerationFiles(
-    stagedGenerationId: number,
-    activeGenerationId: number | null,
-  ): void {
-    const activePaths = new Set(
-      activeGenerationId
-        ? this.db!.getGenerationAssets(activeGenerationId).flatMap((row) =>
-            row.relativePath ? [normalizeStoredRelativePath(row.relativePath)] : [],
-          )
-        : [],
-    );
-
-    for (const row of this.db!.getGenerationAssets(stagedGenerationId)) {
-      if (!row.relativePath) {
-        continue;
-      }
-
-      const normalizedRelativePath = normalizeStoredRelativePath(row.relativePath);
-      if (activePaths.has(normalizedRelativePath)) {
-        continue;
-      }
-
-      const absolutePath = join(this.storageRoot!, normalizedRelativePath);
-      rmSync(absolutePath, { force: true });
-      pruneEmptyParents(absolutePath, this.storageRoot!);
-    }
   }
 
   private markRemovedAssetsForDeletion(
