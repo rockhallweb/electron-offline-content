@@ -1,4 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
+import {
+  MEDIA_CACHE_BRIDGE_OPERATIONS,
+  type MediaCacheBridgeOperationHandlers,
+  type MediaCacheBridgeOperationName,
+} from "../shared/bridge-operations.js";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "../shared/types.js";
 
@@ -7,8 +12,8 @@ import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "..
  */
 export function createMediaCacheBridge(): MediaCacheBridge {
   return {
-    getStatus: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.getStatus),
-    syncNow: () => ipcRenderer.invoke(MEDIA_CACHE_IPC.syncNow),
+    getStatus: () => invokeBridgeOperation("getStatus"),
+    syncNow: () => invokeBridgeOperation("syncNow"),
     getAsset: (key) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getAsset, key),
     listByIndex: (indexName, value, pagination?: PaginationInput) =>
       ipcRenderer.invoke(MEDIA_CACHE_IPC.listByIndex, indexName, value, pagination),
@@ -25,6 +30,14 @@ export function createMediaCacheBridge(): MediaCacheBridge {
       };
     },
   };
+}
+
+function invokeBridgeOperation<Name extends MediaCacheBridgeOperationName>(
+  name: Name,
+): ReturnType<MediaCacheBridgeOperationHandlers[Name]> {
+  return ipcRenderer.invoke(MEDIA_CACHE_BRIDGE_OPERATIONS[name].channel) as ReturnType<
+    MediaCacheBridgeOperationHandlers[Name]
+  >;
 }
 
 /**

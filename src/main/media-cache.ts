@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
+import { MEDIA_CACHE_BRIDGE_OPERATION_LIST } from "../shared/bridge-operations.js";
 import { validateFlatManifest } from "../shared/normalize.js";
 import { normalizeStem } from "../shared/stem.js";
 import {
@@ -473,8 +474,9 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
-    ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
+    for (const operation of MEDIA_CACHE_BRIDGE_OPERATION_LIST) {
+      ipcMain.handle(operation.channel, async () => this[operation.name]());
+    }
     ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: AssetKeyInput) =>
       this.getAsset(key),
     );
