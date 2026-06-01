@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
+import { projectResolvedMediaAsset } from "./catalog-projection.js";
 import type {
   FileStemMatch,
   FlatManifest,
@@ -18,7 +19,6 @@ import {
   activeGenerationRowSchema,
   generationAssetRowSchema,
   generationIdRowSchema,
-  jsonObjectSchema,
   mediaCacheStatusSchema,
   parseJsonWithSchema,
   parseWithSchema,
@@ -696,50 +696,7 @@ export class MediaCacheDatabase {
   }
 
   private buildResolvedAsset(row: ActiveAssetRow): ResolvedMediaAsset {
-    const metadata = parseJsonWithSchema(
-      row.metadata,
-      jsonObjectSchema,
-      `metadata for asset "${row.assetKey}"`,
-    );
-    const indexes = parseJsonWithSchema(
-      row.indexesJson,
-      jsonObjectSchema,
-      `indexes for asset "${row.assetKey}"`,
-    ) as Record<string, string | string[]>;
-
-    let url: string;
-    if (this.options.devPassthrough) {
-      url = row.url;
-      const origin = this.options.assetBaseUrlOrigin;
-      if (origin) {
-        try {
-          const base = new URL(origin);
-          const resolved = new URL(url);
-          resolved.protocol = base.protocol;
-          resolved.hostname = base.hostname;
-          resolved.port = base.port;
-          url = resolved.toString();
-        } catch (err) {
-          if (this.options.onWarn) {
-            this.options.onWarn(`asset source for "${row.assetKey}"`, err);
-          }
-        }
-      }
-    } else {
-      url = `media://asset/${encodeURIComponent(row.assetKey)}`;
-    }
-
-    return {
-      key: row.assetKey,
-      displayKey: row.displayKey,
-      version: row.version,
-      mimeType: row.mimeType,
-      kind: row.mediaKind,
-      byteLength: row.byteLength ?? undefined,
-      url,
-      metadata,
-      indexes,
-    };
+    return projectResolvedMediaAsset(row, this.options);
   }
 
   private migrate(): void {
