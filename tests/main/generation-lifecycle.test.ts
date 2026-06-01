@@ -133,6 +133,112 @@ describe("GenerationLifecycle", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("commits staged generations and marks replaced blobs for delayed deletion", () => {
+    const root = mkdtempSync(join(tmpdir(), "generation-lifecycle-commit-"));
+    try {
+      const db = createDatabase(root);
+      const activeGenerationId = stageGeneration(db, {
+        snapshotId: "active",
+        assets: [
+          {
+            key: "nature/forest/main",
+            version: "v1",
+            mimeType: "video/mp4",
+            fileName: "main.mp4",
+            url: "https://example.test/main.mp4",
+          },
+          {
+            key: "nature/forest/poster",
+            version: "v1",
+            mimeType: "image/jpeg",
+            fileName: "poster.jpg",
+            url: "https://example.test/poster.jpg",
+          },
+        ],
+      });
+      const replacedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+      const reusedPath = blobPathFor(hashKey("nature/forest/poster"), "v1", "poster.jpg");
+      db.setAssetDownloadState(
+        activeGenerationId,
+        hashKey("nature/forest/main"),
+        replacedPath,
+        "video/mp4",
+      );
+      db.setAssetDownloadState(
+        activeGenerationId,
+        hashKey("nature/forest/poster"),
+        reusedPath,
+        "image/jpeg",
+      );
+      db.activateGeneration(activeGenerationId, 2);
+
+      const stagedGenerationId = stageGeneration(db, {
+        snapshotId: "next",
+        assets: [
+          {
+            key: "nature/forest/main",
+            version: "v2",
+            mimeType: "video/mp4",
+            fileName: "main-v2.mp4",
+            url: "https://example.test/main-v2.mp4",
+          },
+          {
+            key: "nature/forest/poster",
+            version: "v1",
+            mimeType: "image/jpeg",
+            fileName: "poster.jpg",
+            url: "https://example.test/poster.jpg",
+          },
+        ],
+      });
+      const nextPath = blobPathFor(hashKey("nature/forest/main"), "v2", "main-v2.mp4");
+      db.setAssetDownloadState(
+        stagedGenerationId,
+        hashKey("nature/forest/main"),
+        nextPath,
+        "video/mp4",
+      );
+      db.setAssetDownloadState(
+        stagedGenerationId,
+        hashKey("nature/forest/poster"),
+        reusedPath,
+        "image/jpeg",
+      );
+      db.markPendingDeletion(
+        hashKey("nature/forest/poster"),
+        reusedPath,
+        activeGenerationId,
+        "stale-reused-path",
+        10,
+      );
+
+      const result = new GenerationLifecycle(root, db).commitStagedGeneration({
+        stagedGenerationId,
+        now: 1_000,
+        staleDeleteAfterMs: 250,
+      });
+
+      expect(result).toEqual({
+        previousGenerationId: activeGenerationId,
+        activeGenerationId: stagedGenerationId,
+        markedForDeletionCount: 1,
+        deleteAfterMs: 1_250,
+      });
+      expect(db.getActiveGenerationId()).toBe(stagedGenerationId);
+      expect(db.getExpiredPendingDeletions(1_249)).toEqual([]);
+      expect(db.getExpiredPendingDeletions(1_250)).toEqual([
+        {
+          deletionKey: JSON.stringify([hashKey("nature/forest/main"), replacedPath]),
+          logicalKey: hashKey("nature/forest/main"),
+          relativePath: replacedPath,
+        },
+      ]);
+      db.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function createDatabase(root: string): MediaCacheDatabase {

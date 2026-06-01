@@ -791,16 +791,24 @@ export class MediaCache implements MediaCacheMain {
         phase: "committing",
       }));
 
-      const previousGenerationId = this.db!.activateGeneration(stagedGenerationId, this.deps.now());
-      this.db!.clearPendingDeletionsForGeneration(stagedGenerationId);
-      if (previousGenerationId) {
-        this.markRemovedAssetsForDeletion(previousGenerationId, stagedGenerationId);
-      }
+      const commitResult = this.generationLifecycle!.commitStagedGeneration({
+        stagedGenerationId,
+        now: this.deps.now(),
+        staleDeleteAfterMs: this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS,
+      });
       this.emitLog("info", "generation_committed", {
         run_id: runId,
-        previous_generation_id: previousGenerationId,
+        previous_generation_id: commitResult.previousGenerationId,
         active_generation_id: stagedGenerationId,
       });
+      if (commitResult.previousGenerationId !== null) {
+        this.emitLog("debug", "assets_marked_for_deletion", {
+          previous_generation_id: commitResult.previousGenerationId,
+          active_generation_id: commitResult.activeGenerationId,
+          marked_count: commitResult.markedForDeletionCount,
+          delete_after_ms: commitResult.deleteAfterMs,
+        });
+      }
 
       this.updateProgress((progress) => ({
         ...progress,
@@ -951,42 +959,6 @@ export class MediaCache implements MediaCacheMain {
     });
   }
 
-  private markRemovedAssetsForDeletion(
-    previousGenerationId: number,
-    stagedGenerationId: number,
-  ): void {
-    const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
-    const nextAssets = new Map(
-      this.db!.getGenerationAssets(stagedGenerationId).map((row) => [
-        row.assetKey,
-        row.relativePath,
-      ]),
-    );
-    const deleteAfterMs =
-      this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
-
-    let markedCount = 0;
-    for (const row of previousAssets) {
-      const nextRelativePath = nextAssets.get(row.assetKey);
-      if (row.relativePath && nextRelativePath !== row.relativePath) {
-        this.db!.markPendingDeletion(
-          row.assetKey,
-          row.relativePath,
-          previousGenerationId,
-          createPendingDeletionKey(row.assetKey, row.relativePath),
-          deleteAfterMs,
-        );
-        markedCount += 1;
-      }
-    }
-    this.emitLog("debug", "assets_marked_for_deletion", {
-      previous_generation_id: previousGenerationId,
-      active_generation_id: stagedGenerationId,
-      marked_count: markedCount,
-      delete_after_ms: deleteAfterMs,
-    });
-  }
-
   private async pruneExpiredDeletions(): Promise<void> {
     const expired = this.db!.getExpiredPendingDeletions(this.deps.now());
     if (expired.length === 0) {
@@ -1125,10 +1097,6 @@ function writeDefaultDevelopmentConsoleLog(
     default:
       console.log(line);
   }
-}
-
-function createPendingDeletionKey(assetKey: string, relativePath: string): string {
-  return JSON.stringify([assetKey, relativePath]);
 }
 
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {
