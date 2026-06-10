@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { IpcMain, Session } from "electron";
+import { registerBridgeOperationHandlers } from "../shared/bridge-operations.js";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import { validateFlatManifest } from "../shared/normalize.js";
 import { normalizeStem } from "../shared/stem.js";
@@ -473,8 +474,10 @@ export class MediaCache implements MediaCacheMain {
       return;
     }
 
-    ipcMain.handle(MEDIA_CACHE_IPC.getStatus, async () => this.getStatus());
-    ipcMain.handle(MEDIA_CACHE_IPC.syncNow, async () => this.syncNow());
+    registerBridgeOperationHandlers(ipcMain, {
+      getStatus: async () => this.getStatus(),
+      syncNow: async () => this.syncNow(),
+    });
     ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: AssetKeyInput) =>
       this.getAsset(key),
     );

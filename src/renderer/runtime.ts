@@ -1,3 +1,4 @@
+import { hasBridgeOperations } from "../shared/bridge-operations.js";
 import type {
   AssetKeyInput,
   FileStemMatch,
@@ -45,9 +46,8 @@ export function resolveMediaCacheBridge(options?: {
 
   if (
     !bridge ||
-    typeof bridge.getStatus !== "function" ||
+    !hasBridgeOperations(bridge) ||
     typeof bridge.subscribeStatus !== "function" ||
-    typeof bridge.syncNow !== "function" ||
     typeof bridge.getAsset !== "function" ||
     typeof bridge.listByIndex !== "function" ||
     typeof bridge.findByFileStem !== "function"
