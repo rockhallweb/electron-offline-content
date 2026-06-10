@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
@@ -13,7 +13,6 @@ import {
   DataValidationError,
   StoreExpiredError,
   StoreValidationError,
-  StorageLimitError,
   toSerializedError,
 } from "../shared/errors.js";
 import type {
@@ -54,14 +53,15 @@ import {
 } from "./storage-root-lock.js";
 import {
   AssetDownloader,
-  effectiveReserveFreeBytes,
+  partialDownloadBytes,
   type AssetDownloadTarget,
   type QueuedAssetDownloadTarget,
 } from "./asset-download.js";
 import { GenerationLifecycle, normalizeStoredRelativePath } from "./generation-lifecycle.js";
 import { registerMediaProtocolHandler } from "./media-protocol.js";
+import { StorageBudget } from "./storage-budget.js";
 
-export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
+export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./storage-budget.js";
 
 const requireElectron = createRequire(process.execPath);
 
@@ -848,46 +848,11 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private async enforceStorageLimits(downloads: QueuedAssetDownloadTarget[]): Promise<void> {
-    const estimatedBlobBytes = downloads.reduce(
-      (sum, download) => sum + (download.byteLength ?? 0),
-      0,
-    );
-    const estimatedRemainingDownloadBytes = downloads.reduce(
-      (sum, download) => sum + this.createAssetDownloader().remainingDownloadBytes(download),
-      0,
-    );
-
-    if (this.options.maxCacheBytes !== undefined) {
-      const currentBytes = this.currentBytesOnDisk(join(this.storageRoot!, "blobs"));
-      if (currentBytes + estimatedBlobBytes > this.options.maxCacheBytes) {
-        this.emitLog("warn", "storage_limit_exceeded", {
-          current_bytes: currentBytes,
-          estimated_download_bytes: estimatedBlobBytes,
-          max_cache_bytes: this.options.maxCacheBytes,
-        });
-        throw new StorageLimitError(
-          `Estimated cache size ${currentBytes + estimatedBlobBytes} exceeds maxCacheBytes ${this.options.maxCacheBytes}.`,
-        );
-      }
-    }
-
-    const stats = await this.deps.statfs(this.storageRoot!);
-    const availableBytes = Number(stats.bavail) * Number(stats.bsize);
-    const reserve = effectiveReserveFreeBytes(this.options.reserveFreeBytes);
-    if (availableBytes - estimatedRemainingDownloadBytes < reserve) {
-      this.emitLog("warn", "storage_reserve_violation", {
-        available_bytes: availableBytes,
-        estimated_download_bytes: estimatedRemainingDownloadBytes,
-        reserve_free_bytes: reserve,
-      });
-      throw new StorageLimitError(
-        `Estimated download size ${estimatedRemainingDownloadBytes} leaves less than reserveFreeBytes ${reserve}.`,
-      );
-    }
+    await this.createStorageBudget().ensureDownloadBudget(downloads);
   }
 
   private async ensureFileSpaceCommit(): Promise<void> {
-    await this.createAssetDownloader().ensureFileSpaceCommit();
+    await this.createStorageBudget().ensureCommitReserve();
   }
 
   private cleanupObsoletePartialDownloads(downloads: QueuedAssetDownloadTarget[]): void {
@@ -895,10 +860,28 @@ export class MediaCache implements MediaCacheMain {
   }
 
   private createAssetDownloader(): AssetDownloader {
-    return new AssetDownloader(this.storageRoot!, this.deps, {
-      reserveFreeBytes: this.options.reserveFreeBytes,
-      emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
-    });
+    return new AssetDownloader(
+      this.storageRoot!,
+      { fetchImpl: this.deps.fetchImpl, sleep: this.deps.sleep },
+      {
+        budget: this.createStorageBudget(),
+        emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
+      },
+    );
+  }
+
+  private createStorageBudget(): StorageBudget {
+    const storageRoot = this.storageRoot!;
+    return new StorageBudget(
+      storageRoot,
+      { partialDownloadBytes: (download) => partialDownloadBytes(storageRoot, download) },
+      { statfs: this.deps.statfs },
+      {
+        maxCacheBytes: this.options.maxCacheBytes,
+        reserveFreeBytes: this.options.reserveFreeBytes,
+        emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
+      },
+    );
   }
 
   private createGenerationLifecycle(): GenerationLifecycle {
@@ -906,22 +889,6 @@ export class MediaCache implements MediaCacheMain {
       staleDeleteAfterMs: this.options.staleDeleteAfterMs,
       emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
     });
-  }
-
-  private currentBytesOnDisk(directory: string): number {
-    if (!existsSync(directory)) {
-      return 0;
-    }
-
-    const stats = statSync(directory);
-    if (stats.isFile()) {
-      return stats.size;
-    }
-
-    return readdirSync(directory).reduce(
-      (sum, entry) => sum + this.currentBytesOnDisk(join(directory, entry)),
-      0,
-    );
   }
 
   private updateProgress(transform: (progress: SyncProgress) => SyncProgress): void {

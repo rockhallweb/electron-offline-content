@@ -1,16 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statfsSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
-import { AssetDownloader, type AssetDownloadTarget } from "../../src/main/asset-download.js";
+import {
+  AssetDownloader,
+  type AssetDownloadTarget,
+  type CommitReserveCheck,
+} from "../../src/main/asset-download.js";
 import { StorageLimitError } from "../../src/shared/errors.js";
 
 function createRoot(): string {
@@ -34,7 +30,7 @@ function createDownloader(
   root: string,
   fetchImpl: typeof globalThis.fetch,
   options?: {
-    reserveFreeBytes?: number;
+    budget?: CommitReserveCheck;
   },
 ): AssetDownloader {
   return new AssetDownloader(
@@ -42,11 +38,9 @@ function createDownloader(
     {
       fetchImpl,
       sleep: async () => undefined,
-      statfs: async (path) =>
-        statfsSync(path) as Awaited<ReturnType<typeof import("node:fs/promises").statfs>>,
     },
     {
-      reserveFreeBytes: options?.reserveFreeBytes,
+      budget: options?.budget ?? { ensureCommitReserve: async () => undefined },
       emitLog: () => undefined,
     },
   );
@@ -66,7 +60,7 @@ function textResponse(
 }
 
 describe("AssetDownloader paths and cleanup", () => {
-  it("builds encoded partial paths and discounts existing partial bytes", () => {
+  it("builds encoded partial paths", () => {
     const root = createRoot();
     const downloader = createDownloader(root, vi.fn());
     const target = createTarget({
@@ -78,10 +72,6 @@ describe("AssetDownloader paths and cleanup", () => {
 
     expect(partialPath).toContain("nature%20videos%2Fforest%2Floop%2Fposter%231");
     expect(partialPath).toContain("main%20cut.mp4.part");
-
-    mkdirSync(dirname(partialPath), { recursive: true });
-    writeFileSync(partialPath, "partial");
-    expect(downloader.remainingDownloadBytes(target)).toBe(13);
   });
 
   it("removes obsolete partial files while keeping resumable targets", () => {
@@ -326,14 +316,27 @@ describe("AssetDownloader range and retry behaviour", () => {
 });
 
 describe("AssetDownloader storage commit guard", () => {
-  it("checks reserveFreeBytes before committing a completed download", async () => {
+  it("consults the storage budget before committing a completed download", async () => {
     const root = createRoot();
-    const stats = statfsSync(root);
-    const availableBytes = Number(stats.bavail) * Number(stats.bsize);
+    const target = createTarget({ fileName: "commit-guard.mp4" });
+    const ensureCommitReserve = vi.fn<() => Promise<void>>(async () => {
+      throw new StorageLimitError("Committing download would violate reserveFreeBytes 1.");
+    });
     const downloader = createDownloader(root, async () => textResponse("main"), {
-      reserveFreeBytes: availableBytes + 1,
+      budget: { ensureCommitReserve },
     });
 
-    await expect(downloader.ensureFileSpaceCommit()).rejects.toThrow(StorageLimitError);
+    await expect(downloader.downloadAsset(target, () => undefined)).rejects.toThrow(
+      StorageLimitError,
+    );
+    expect(ensureCommitReserve).toHaveBeenCalledTimes(1);
+    const blobPath = join(
+      root,
+      "blobs",
+      encodeURIComponent(target.assetKey),
+      encodeURIComponent(target.version),
+      encodeURIComponent(target.fileName),
+    );
+    expect(existsSync(blobPath)).toBe(false);
   });
 });
