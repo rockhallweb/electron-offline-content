@@ -57,18 +57,12 @@ import {
   type AssetDownloadTarget,
   type QueuedAssetDownloadTarget,
 } from "./asset-download.js";
-import {
-  GenerationLifecycle,
-  normalizeStoredRelativePath,
-  pruneEmptyParents,
-  resolveStoredBlobPath,
-} from "./generation-lifecycle.js";
+import { GenerationLifecycle, normalizeStoredRelativePath } from "./generation-lifecycle.js";
 
 export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
 
 const requireElectron = createRequire(process.execPath);
 
-const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
 type StatFsResult = Awaited<ReturnType<typeof statfs>>;
 const LOG_LEVEL_WEIGHT: Record<MediaCacheLogLevel, number> = {
@@ -713,7 +707,7 @@ export class MediaCache implements MediaCacheMain {
         dev_passthrough_enabled: this.devPassthrough,
       });
 
-      await this.pruneExpiredDeletions();
+      this.createGenerationLifecycle().pruneExpiredDeletions(this.deps.now());
       this.cleanupObsoletePartialDownloads(downloads);
       if (!this.devPassthrough) {
         await this.enforceStorageLimits(downloads);
@@ -779,11 +773,10 @@ export class MediaCache implements MediaCacheMain {
         phase: "committing",
       }));
 
-      const previousGenerationId = this.db!.activateGeneration(stagedGenerationId, this.deps.now());
-      this.db!.clearPendingDeletionsForGeneration(stagedGenerationId);
-      if (previousGenerationId) {
-        this.markRemovedAssetsForDeletion(previousGenerationId, stagedGenerationId);
-      }
+      const { previousGenerationId } = this.createGenerationLifecycle().commitStagedGeneration(
+        stagedGenerationId,
+        this.deps.now(),
+      );
       this.emitLog("info", "generation_committed", {
         run_id: runId,
         previous_generation_id: previousGenerationId,
@@ -794,7 +787,7 @@ export class MediaCache implements MediaCacheMain {
         ...progress,
         phase: "pruning",
       }));
-      await this.pruneExpiredDeletions();
+      this.createGenerationLifecycle().pruneExpiredDeletions(this.deps.now());
 
       const summary = this.db!.completeSyncRun(runId, "success", this.deps.now(), stats);
       this.db!.pruneSyncHistory(this.options.syncHistoryLimit ?? DEFAULT_SYNC_HISTORY_LIMIT);
@@ -941,67 +934,9 @@ export class MediaCache implements MediaCacheMain {
 
   private createGenerationLifecycle(): GenerationLifecycle {
     return new GenerationLifecycle(this.storageRoot!, this.db!, {
+      staleDeleteAfterMs: this.options.staleDeleteAfterMs,
       emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
     });
-  }
-
-  private markRemovedAssetsForDeletion(
-    previousGenerationId: number,
-    stagedGenerationId: number,
-  ): void {
-    const previousAssets = this.db!.getGenerationAssets(previousGenerationId);
-    const nextAssets = new Map(
-      this.db!.getGenerationAssets(stagedGenerationId).map((row) => [
-        row.assetKey,
-        row.relativePath,
-      ]),
-    );
-    const deleteAfterMs =
-      this.deps.now() + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
-
-    let markedCount = 0;
-    for (const row of previousAssets) {
-      const nextRelativePath = nextAssets.get(row.assetKey);
-      if (row.relativePath && nextRelativePath !== row.relativePath) {
-        this.db!.markPendingDeletion(
-          row.assetKey,
-          row.relativePath,
-          previousGenerationId,
-          createPendingDeletionKey(row.assetKey, row.relativePath),
-          deleteAfterMs,
-        );
-        markedCount += 1;
-      }
-    }
-    this.emitLog("debug", "assets_marked_for_deletion", {
-      previous_generation_id: previousGenerationId,
-      active_generation_id: stagedGenerationId,
-      marked_count: markedCount,
-      delete_after_ms: deleteAfterMs,
-    });
-  }
-
-  private async pruneExpiredDeletions(): Promise<void> {
-    const expired = this.db!.getExpiredPendingDeletions(this.deps.now());
-    if (expired.length === 0) {
-      this.emitLog("debug", "deletion_prune_skipped", { expired_count: 0 });
-      return;
-    }
-
-    for (const deletion of expired) {
-      const absolutePath = resolveStoredBlobPath(this.storageRoot!, deletion.relativePath);
-      if (absolutePath === null) {
-        this.emitLog("warn", "pending_deletion_path_outside_storage_root", {
-          relative_path: deletion.relativePath,
-        });
-        continue;
-      }
-      rmSync(absolutePath, { force: true });
-      pruneEmptyParents(absolutePath, this.storageRoot!);
-    }
-
-    this.db!.deletePendingDeletions(expired.map((item) => item.deletionKey));
-    this.emitLog("debug", "assets_pruned", { pruned_count: expired.length });
   }
 
   private currentBytesOnDisk(directory: string): number {
@@ -1122,10 +1057,6 @@ function writeDefaultDevelopmentConsoleLog(
     default:
       console.log(line);
   }
-}
-
-function createPendingDeletionKey(assetKey: string, relativePath: string): string {
-  return JSON.stringify([assetKey, relativePath]);
 }
 
 function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string | null {

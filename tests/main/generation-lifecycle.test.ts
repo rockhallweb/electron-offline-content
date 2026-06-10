@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MediaCacheDatabase } from "../../src/main/database.js";
-import { GenerationLifecycle, pruneEmptyParents } from "../../src/main/generation-lifecycle.js";
+import {
+  DEFAULT_STALE_DELETE_MS,
+  GenerationLifecycle,
+  pruneEmptyParents,
+} from "../../src/main/generation-lifecycle.js";
 import { validateFlatManifest } from "../../src/shared/normalize.js";
 import type { MediaCacheLogLevel } from "../../src/shared/types.js";
 import {
@@ -323,5 +327,238 @@ describe("generation lifecycle", () => {
 
     expect(existsSync(sharedAbsolutePath)).toBe(true);
     expect(db.listStagedGenerationIds()).toEqual([]);
+  });
+
+  it("commits a staged generation and marks replaced blob paths for delayed deletion", () => {
+    const staleDeleteAfterMs = 1_000;
+    const delayedLifecycle = new GenerationLifecycle(storageRoot, db, {
+      staleDeleteAfterMs,
+      emitLog: (level, event, fields = {}) => {
+        logs.push({ level, event, fields });
+      },
+    });
+    const v1Path = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const posterPath = blobPathFor(hashKey("nature/forest/poster"), "v1", "poster.jpg");
+    const v2Path = blobPathFor(hashKey("nature/forest/main"), "v2", "main-v2.mp4");
+
+    const committedGenerationId = stageGeneration("committed", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: v1Path,
+      },
+      {
+        key: "nature/forest/poster",
+        version: "v1",
+        mimeType: "image/jpeg",
+        fileName: "poster.jpg",
+        url: "https://example.test/poster.jpg",
+        relativePath: posterPath,
+      },
+    ]);
+    db.activateGeneration(committedGenerationId, 1);
+
+    const stagedGenerationId = stageGeneration(
+      "staged",
+      [
+        {
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "main-v2.mp4",
+          url: "https://example.test/main-v2.mp4",
+          relativePath: v2Path,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          url: "https://example.test/poster.jpg",
+          relativePath: posterPath,
+        },
+      ],
+      2,
+    );
+    const v1AbsolutePath = writeBlob(v1Path, "video-one");
+    writeBlob(posterPath, "poster");
+    writeBlob(v2Path, "video-two");
+
+    const now = 100;
+    const { previousGenerationId } = delayedLifecycle.commitStagedGeneration(
+      stagedGenerationId,
+      now,
+    );
+
+    expect(previousGenerationId).toBe(committedGenerationId);
+    expect(db.getActiveGenerationId()).toBe(stagedGenerationId);
+    expect(existsSync(v1AbsolutePath)).toBe(true);
+    expect(db.getExpiredPendingDeletions(now + staleDeleteAfterMs - 1)).toEqual([]);
+    expect(db.getExpiredPendingDeletions(now + staleDeleteAfterMs)).toMatchObject([
+      { relativePath: v1Path },
+    ]);
+    expect(logs).toEqual([
+      {
+        level: "debug",
+        event: "assets_marked_for_deletion",
+        fields: {
+          previous_generation_id: committedGenerationId,
+          active_generation_id: stagedGenerationId,
+          marked_count: 1,
+          delete_after_ms: now + staleDeleteAfterMs,
+        },
+      },
+    ]);
+  });
+
+  it("returns null and marks nothing on the first commit", () => {
+    const stagedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const stagedGenerationId = stageGeneration("first-commit", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: stagedPath,
+      },
+    ]);
+    writeBlob(stagedPath, "video-one");
+
+    const { previousGenerationId } = lifecycle.commitStagedGeneration(stagedGenerationId, 100);
+
+    expect(previousGenerationId).toBeNull();
+    expect(db.getActiveGenerationId()).toBe(stagedGenerationId);
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
+    expect(logs).toEqual([]);
+  });
+
+  it("clears pending deletions for blob paths the committed generation references again", () => {
+    const v1Path = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    db.markPendingDeletion(
+      hashKey("nature/forest/main"),
+      v1Path,
+      99,
+      JSON.stringify([hashKey("nature/forest/main"), v1Path]),
+      50,
+    );
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toHaveLength(1);
+
+    const stagedGenerationId = stageGeneration("resurrects-v1", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: v1Path,
+      },
+    ]);
+    writeBlob(v1Path, "video-one");
+
+    lifecycle.commitStagedGeneration(stagedGenerationId, 100);
+
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
+  });
+
+  it("applies the default stale delete delay when staleDeleteAfterMs is omitted", () => {
+    const v1Path = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const v2Path = blobPathFor(hashKey("nature/forest/main"), "v2", "main-v2.mp4");
+    const committedGenerationId = stageGeneration("committed", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: v1Path,
+      },
+    ]);
+    db.activateGeneration(committedGenerationId, 1);
+    const stagedGenerationId = stageGeneration(
+      "staged",
+      [
+        {
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "main-v2.mp4",
+          url: "https://example.test/main-v2.mp4",
+          relativePath: v2Path,
+        },
+      ],
+      2,
+    );
+
+    const now = 100;
+    lifecycle.commitStagedGeneration(stagedGenerationId, now);
+
+    expect(db.getExpiredPendingDeletions(now + DEFAULT_STALE_DELETE_MS - 1)).toEqual([]);
+    expect(db.getExpiredPendingDeletions(now + DEFAULT_STALE_DELETE_MS)).toMatchObject([
+      { relativePath: v1Path },
+    ]);
+  });
+
+  it("prunes expired pending deletions, removing blob files and their records", () => {
+    const staleDeleteAfterMs = 1_000;
+    const delayedLifecycle = new GenerationLifecycle(storageRoot, db, {
+      staleDeleteAfterMs,
+      emitLog: (level, event, fields = {}) => {
+        logs.push({ level, event, fields });
+      },
+    });
+    const v1Path = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
+    const v2Path = blobPathFor(hashKey("nature/forest/main"), "v2", "main-v2.mp4");
+    const committedGenerationId = stageGeneration("committed", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: v1Path,
+      },
+    ]);
+    db.activateGeneration(committedGenerationId, 1);
+    const stagedGenerationId = stageGeneration(
+      "staged",
+      [
+        {
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "main-v2.mp4",
+          url: "https://example.test/main-v2.mp4",
+          relativePath: v2Path,
+        },
+      ],
+      2,
+    );
+    const v1AbsolutePath = writeBlob(v1Path, "video-one");
+    const v2AbsolutePath = writeBlob(v2Path, "video-two");
+
+    delayedLifecycle.commitStagedGeneration(stagedGenerationId, 100);
+
+    delayedLifecycle.pruneExpiredDeletions(100 + staleDeleteAfterMs - 1);
+    expect(existsSync(v1AbsolutePath)).toBe(true);
+    expect(logs.at(-1)).toEqual({
+      level: "debug",
+      event: "deletion_prune_skipped",
+      fields: { expired_count: 0 },
+    });
+
+    delayedLifecycle.pruneExpiredDeletions(100 + staleDeleteAfterMs);
+    expect(existsSync(v1AbsolutePath)).toBe(false);
+    expect(existsSync(dirname(v1AbsolutePath))).toBe(false);
+    expect(existsSync(v2AbsolutePath)).toBe(true);
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
+    expect(logs.at(-1)).toEqual({
+      level: "debug",
+      event: "assets_pruned",
+      fields: { pruned_count: 1 },
+    });
   });
 });
