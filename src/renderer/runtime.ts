@@ -44,14 +44,7 @@ export function resolveMediaCacheBridge(options?: {
 
   const bridge = options?.bridge ?? (fromWindow as MediaCacheBridge | undefined);
 
-  if (
-    !bridge ||
-    !hasBridgeOperations(bridge) ||
-    typeof bridge.subscribeStatus !== "function" ||
-    typeof bridge.getAsset !== "function" ||
-    typeof bridge.listByIndex !== "function" ||
-    typeof bridge.findByFileStem !== "function"
-  ) {
+  if (!bridge || !hasBridgeOperations(bridge) || typeof bridge.subscribeStatus !== "function") {
     throw new Error(MISSING_BRIDGE_ERROR);
   }
 

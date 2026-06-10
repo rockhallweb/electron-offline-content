@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { createBridgeOperationInvokers } from "../shared/bridge-operations.js";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
-import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "../shared/types.js";
+import type { MediaCacheBridge, PreloadExposeOptions } from "../shared/types.js";
 
 /**
  * Builds a {@link import("../shared/types.js").MediaCacheBridge} that invokes main-process handlers via `ipcRenderer`.
@@ -9,11 +9,6 @@ import type { MediaCacheBridge, PaginationInput, PreloadExposeOptions } from "..
 export function createMediaCacheBridge(): MediaCacheBridge {
   return {
     ...createBridgeOperationInvokers(ipcRenderer),
-    getAsset: (key) => ipcRenderer.invoke(MEDIA_CACHE_IPC.getAsset, key),
-    listByIndex: (indexName, value, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.listByIndex, indexName, value, pagination),
-    findByFileStem: (stem, pagination?: PaginationInput) =>
-      ipcRenderer.invoke(MEDIA_CACHE_IPC.findByFileStem, stem, pagination),
     subscribeStatus: (listener) => {
       const wrapped = (
         _event: Electron.IpcRendererEvent,
