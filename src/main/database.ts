@@ -3,13 +3,11 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { paginateArray, resolvePaginationWindow } from "../shared/pagination.js";
 import type {
-  FileStemMatch,
   FlatManifest,
   MediaCacheStatus,
   MediaKind,
   PaginationInput,
   PaginationResult,
-  ResolvedMediaAsset,
   SyncRunStats,
   SyncRunSummary,
 } from "../shared/types.js";
@@ -18,7 +16,6 @@ import {
   activeGenerationRowSchema,
   generationAssetRowSchema,
   generationIdRowSchema,
-  jsonObjectSchema,
   mediaCacheStatusSchema,
   parseJsonWithSchema,
   parseWithSchema,
@@ -72,18 +69,7 @@ export class MediaCacheDatabase {
   private readonly db: import("node:sqlite").DatabaseSync;
   private closed = false;
 
-  constructor(
-    private readonly root: string,
-    private readonly options: {
-      devPassthrough: boolean;
-      assetBaseUrlOrigin: string | null;
-      /**
-       * Invoked only when dev passthrough origin override fails (fallback to stored URL).
-       * Not called for invalid `url` (parse error) — those throw.
-       */
-      onWarn?: (contextLabel: string, err: unknown) => void;
-    },
-  ) {
+  constructor(private readonly root: string) {
     const sqliteDir = join(root, "sqlite");
     mkdirSync(sqliteDir, { recursive: true });
     this.db = new DatabaseSync(join(sqliteDir, "media-cache.db"));
@@ -569,7 +555,7 @@ export class MediaCacheDatabase {
     };
   }
 
-  getAsset(assetKey: string): ResolvedMediaAsset | null {
+  getAssetRow(assetKey: string): ActiveAssetRow | null {
     this.assertNotClosed();
     const activeGeneration = this.getActiveGenerationId();
     if (!activeGeneration) {
@@ -601,15 +587,14 @@ export class MediaCacheDatabase {
       return null;
     }
 
-    const validatedRow = parseWithSchema(activeAssetRowSchema, row, `asset "${assetKey}"`);
-    return this.buildResolvedAsset(validatedRow);
+    return parseWithSchema(activeAssetRowSchema, row, `asset "${assetKey}"`);
   }
 
-  listByIndex(
+  listRowsByIndex(
     indexName: string,
     value: string,
     pagination?: PaginationInput,
-  ): PaginationResult<ResolvedMediaAsset> {
+  ): PaginationResult<ActiveAssetRow> {
     this.assertNotClosed();
     resolvePaginationWindow(pagination);
 
@@ -646,11 +631,10 @@ export class MediaCacheDatabase {
       "index match rows",
     );
 
-    const assets = rows.map((row) => this.buildResolvedAsset(row));
-    return paginateArray(assets, pagination);
+    return paginateArray(rows, pagination);
   }
 
-  findByFileStem(stem: string, pagination?: PaginationInput): PaginationResult<FileStemMatch> {
+  findRowsByFileStem(stem: string, pagination?: PaginationInput): PaginationResult<ActiveAssetRow> {
     this.assertNotClosed();
     resolvePaginationWindow(pagination);
 
@@ -685,61 +669,11 @@ export class MediaCacheDatabase {
       "file stem match rows",
     );
 
-    const matches: FileStemMatch[] = rows.map((row) => ({
-      asset: this.buildResolvedAsset(row),
-    }));
-    return paginateArray(matches, pagination);
+    return paginateArray(rows, pagination);
   }
 
   logicalKey(assetKey: string): string {
     return assetKey;
-  }
-
-  private buildResolvedAsset(row: ActiveAssetRow): ResolvedMediaAsset {
-    const metadata = parseJsonWithSchema(
-      row.metadata,
-      jsonObjectSchema,
-      `metadata for asset "${row.assetKey}"`,
-    );
-    const indexes = parseJsonWithSchema(
-      row.indexesJson,
-      jsonObjectSchema,
-      `indexes for asset "${row.assetKey}"`,
-    ) as Record<string, string | string[]>;
-
-    let url: string;
-    if (this.options.devPassthrough) {
-      url = row.url;
-      const origin = this.options.assetBaseUrlOrigin;
-      if (origin) {
-        try {
-          const base = new URL(origin);
-          const resolved = new URL(url);
-          resolved.protocol = base.protocol;
-          resolved.hostname = base.hostname;
-          resolved.port = base.port;
-          url = resolved.toString();
-        } catch (err) {
-          if (this.options.onWarn) {
-            this.options.onWarn(`asset source for "${row.assetKey}"`, err);
-          }
-        }
-      }
-    } else {
-      url = `media://asset/${encodeURIComponent(row.assetKey)}`;
-    }
-
-    return {
-      key: row.assetKey,
-      displayKey: row.displayKey,
-      version: row.version,
-      mimeType: row.mimeType,
-      kind: row.mediaKind,
-      byteLength: row.byteLength ?? undefined,
-      url,
-      metadata,
-      indexes,
-    };
   }
 
   private migrate(): void {

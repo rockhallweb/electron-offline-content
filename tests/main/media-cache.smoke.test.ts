@@ -1355,15 +1355,15 @@ describe("media cache sync and queries (smoke)", () => {
     const db = (
       cache as unknown as {
         db: {
-          listByIndex(indexName: string, value: string, pagination?: unknown): unknown;
+          listRowsByIndex(indexName: string, value: string, pagination?: unknown): unknown;
         };
       }
     ).db;
-    const originalListByIndex = db.listByIndex.bind(db);
+    const originalListRowsByIndex = db.listRowsByIndex.bind(db);
     let dbCalled = false;
-    db.listByIndex = (indexName: string, value: string, pagination?: unknown) => {
+    db.listRowsByIndex = (indexName: string, value: string, pagination?: unknown) => {
       dbCalled = true;
-      return originalListByIndex(indexName, value, pagination);
+      return originalListRowsByIndex(indexName, value, pagination);
     };
 
     await expect(

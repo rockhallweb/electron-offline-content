@@ -41,7 +41,8 @@ import {
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
-import { MediaCacheDatabase } from "./database.js";
+import { MediaCacheDatabase, type ActiveAssetRow } from "./database.js";
+import { projectResolvedAsset } from "./catalog-projection.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { hashKey } from "../internal/asset-key.js";
 import type { StorageRootLockHandle } from "./storage-root-lock.js";
@@ -354,7 +355,8 @@ export class MediaCache implements MediaCacheMain {
   async getAsset(key: AssetKeyInput): Promise<ResolvedMediaAsset | null> {
     const hashedKey = hashKey(key);
     await this.ensureInitialized();
-    return this.db!.getAsset(hashedKey);
+    const row = this.db!.getAssetRow(hashedKey);
+    return row ? this.projectAsset(row) : null;
   }
 
   async listByIndex(
@@ -370,7 +372,11 @@ export class MediaCache implements MediaCacheMain {
       "index pagination input",
     );
     await this.ensureInitialized();
-    return this.db!.listByIndex(validatedIndexName, validatedValue, validatedPagination);
+    const page = this.db!.listRowsByIndex(validatedIndexName, validatedValue, validatedPagination);
+    return {
+      items: page.items.map((row) => this.projectAsset(row)),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async findByFileStem(
@@ -384,7 +390,28 @@ export class MediaCache implements MediaCacheMain {
       "file stem pagination input",
     );
     await this.ensureInitialized();
-    return this.db!.findByFileStem(normalizeStem(validatedStem), validatedPagination);
+    const page = this.db!.findRowsByFileStem(normalizeStem(validatedStem), validatedPagination);
+    return {
+      items: page.items.map((row) => ({ asset: this.projectAsset(row) })),
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  private projectAsset(row: ActiveAssetRow): ResolvedMediaAsset {
+    return projectResolvedAsset(row, {
+      devPassthrough: this.devPassthrough,
+      assetBaseUrlOrigin: this.assetBaseUrlOrigin,
+      onWarn: (contextLabel, err) => {
+        if (this.logHandler != null || this.defaultDevelopmentConsole) {
+          this.emitLog("warn", "resolve_asset_base_url_fallback", {
+            context_label: contextLabel,
+            error: err != null ? String(err) : undefined,
+          });
+        } else {
+          consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
+        }
+      },
+    });
   }
 
   async registerProtocol(options?: RegisterProtocolOptions): Promise<void> {
@@ -518,20 +545,7 @@ export class MediaCache implements MediaCacheMain {
       });
     }
 
-    this.db = new MediaCacheDatabase(this.storageRoot, {
-      devPassthrough: this.devPassthrough,
-      assetBaseUrlOrigin: this.assetBaseUrlOrigin,
-      onWarn: (contextLabel, err) => {
-        if (this.logHandler != null || this.defaultDevelopmentConsole) {
-          this.emitLog("warn", "resolve_asset_base_url_fallback", {
-            context_label: contextLabel,
-            error: err != null ? String(err) : undefined,
-          });
-        } else {
-          consoleWarnResolveAssetBaseUrlFallback(contextLabel, err);
-        }
-      },
-    });
+    this.db = new MediaCacheDatabase(this.storageRoot);
     if (this.devPassthrough) {
       this.prepareDevRuntimeState();
     }
