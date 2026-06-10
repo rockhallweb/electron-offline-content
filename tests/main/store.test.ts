@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { hashKey } from "../../src/internal/asset-key.js";
-import { mediaKindFromMime } from "../../src/internal/media-kind.js";
 import { createMediaStore, MediaStore } from "../../src/main/store.js";
 import { StoreValidationError } from "../../src/shared/errors.js";
 import { IndexTag } from "../../src/shared/types.js";
@@ -440,22 +439,21 @@ describe("store._serialize", () => {
     const manifest = store._serialize();
     expect(manifest.snapshotId).toBe("empty");
     expect(manifest.assets).toEqual([]);
-    expect(manifest.indexDefinitions).toEqual([
-      { name: "mimeType", cardinality: "single", required: false, builtin: true },
-      { name: "mediaKind", cardinality: "single", required: false, builtin: true },
-    ]);
+    expect(manifest.indexDefinitions).toEqual([]);
   });
 
-  it("includes user-defined indexes before built-in indexes", () => {
+  it("serializes user-defined index definitions in declaration order", () => {
     const store = createMediaStore();
     store.defineIndex("gallery");
     store.defineIndex("tags", { cardinality: "multi", required: true });
     const manifest = store._serialize();
-    const names = manifest.indexDefinitions.map((d) => d.name);
-    expect(names).toEqual(["gallery", "tags", "mimeType", "mediaKind"]);
+    expect(manifest.indexDefinitions).toEqual([
+      { name: "gallery", cardinality: "single", required: false, builtin: false },
+      { name: "tags", cardinality: "multi", required: true, builtin: false },
+    ]);
   });
 
-  it("auto-populates mimeType and mediaKind indexes on each asset", () => {
+  it("leaves built-in index injection to manifest normalization", () => {
     const store = createMediaStore();
     store.add("video-1", {
       version: "v1",
@@ -463,41 +461,7 @@ describe("store._serialize", () => {
       url: "https://cdn.example.com/clip.mp4",
     });
     const manifest = store._serialize();
-    const asset = manifest.assets[0]!;
-    expect(asset.indexes.mimeType).toBe("video/mp4");
-    expect(asset.indexes.mediaKind).toBe("video");
-    expect(asset.mediaKind).toBe("video");
-  });
-
-  it("derives mediaKind correctly for various MIME types", () => {
-    const store = createMediaStore();
-
-    const cases: Array<[string, string, string]> = [
-      ["img", "image/png", "image"],
-      ["aud", "audio/mpeg", "audio"],
-      ["doc", "application/pdf", "document"],
-      ["html", "text/html", "html"],
-      ["txt", "text/plain", "text"],
-      ["json", "application/json", "text"],
-      ["bin", "application/octet-stream", "binary"],
-    ];
-
-    for (const [key, mime, expectedKind] of cases) {
-      expect(mediaKindFromMime(mime)).toBe(expectedKind);
-      store.add(key, {
-        version: "v1",
-        mimeType: mime,
-        url: `https://cdn.example.com/${key}.bin`,
-      });
-    }
-
-    const manifest = store._serialize();
-    for (const [key, , expectedKind] of cases) {
-      const asset = manifest.assets.find((a) => a.displayKey === key);
-      expect(asset?.key).toBe(hashKey(key));
-      expect(asset?.mediaKind).toBe(expectedKind);
-      expect(asset?.indexes.mediaKind).toBe(expectedKind);
-    }
+    expect(manifest.assets[0]!.indexes).toEqual({});
   });
 
   it("derives fileName from source URL when not explicitly set", () => {
@@ -509,7 +473,6 @@ describe("store._serialize", () => {
     });
     const manifest = store._serialize();
     expect(manifest.assets[0]!.fileName).toBe("photo-1.jpg");
-    expect(manifest.assets[0]!.fileStem).toBe("photo-1");
   });
 
   it("uses explicit fileName when provided", () => {
@@ -522,7 +485,6 @@ describe("store._serialize", () => {
     });
     const manifest = store._serialize();
     expect(manifest.assets[0]!.fileName).toBe("custom.jpg");
-    expect(manifest.assets[0]!.fileStem).toBe("custom");
   });
 
   it("preserves user-defined index values on serialized assets", () => {

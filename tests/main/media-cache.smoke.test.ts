@@ -12,7 +12,7 @@ import {
   resetMediaCacheStorageRootLocksForTests,
 } from "../../src/main/media-cache.js";
 import type { MediaCacheMain } from "../../src/main/index.js";
-import { validateFlatManifest } from "../../src/shared/normalize.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   DataValidationError,
   StoreExpiredError,
@@ -53,7 +53,7 @@ const emptyStore = buildTestStore({
 
 describe("store validation", () => {
   it("preserves a valid store expiresAt timestamp", () => {
-    const manifest = validateFlatManifest(
+    const manifest = normalizeManifest(
       buildTestStore({
         expiresAt: "2026-04-06T12:30:00.000Z",
         assets: [],
@@ -65,7 +65,7 @@ describe("store validation", () => {
 
   it("rejects an invalid store expiresAt timestamp", () => {
     expect(() =>
-      validateFlatManifest(
+      normalizeManifest(
         buildTestStore({
           expiresAt: "2026-04-06 12:30:00",
           assets: [],

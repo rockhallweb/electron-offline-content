@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { hashKey } from "../../src/internal/asset-key.js";
 import { MediaCacheDatabase } from "../../src/main/database.js";
 import { createMediaStore } from "../../src/main/store.js";
-import { validateFlatManifest } from "../../src/shared/normalize.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
 
 describe("MediaCacheDatabase", () => {
   it("creates all tables with correct schema on first init", () => {
@@ -75,7 +75,7 @@ describe("MediaCacheDatabase", () => {
         url: "https://example.com/v.mp4",
         indexes: [tags(["forest", "ambient"])],
       });
-      const manifest = validateFlatManifest(store._serialize());
+      const manifest = normalizeManifest(store._serialize());
       const genId = db.createStagedGeneration(manifest, 1);
       db.activateGeneration(genId, 2);
 

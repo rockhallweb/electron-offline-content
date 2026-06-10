@@ -86,22 +86,46 @@ export interface IndexDefinition {
   builtin: boolean;
 }
 
-/** One asset in the serialized flat manifest (output of `MediaStore._serialize()`). */
-export interface FlatManifestAsset {
+/**
+ * One asset as authored by `MediaStore._serialize()`, before normalization.
+ * `indexes` contains user-defined index values only.
+ */
+export interface AuthoredManifestAsset {
   key: string;
   displayKey: string;
   version: string;
   mimeType: string;
-  mediaKind: MediaKind;
   url: string;
   fileName: string;
-  fileStem: string;
   byteLength?: number;
   metadata: Record<string, JsonValue>;
   indexes: Record<string, string | string[]>;
 }
 
-/** Serialized flat manifest produced by `MediaStore._serialize()` and consumed by the sync engine. */
+/**
+ * Authored manifest produced by `MediaStore._serialize()`. Carries user-defined index
+ * definitions only; pass it through `normalizeManifest()` to obtain the final
+ * {@link FlatManifest} consumed by the sync engine.
+ */
+export interface AuthoredManifest {
+  snapshotId?: string;
+  retrievedAt?: string;
+  expiresAt?: string;
+  indexDefinitions: IndexDefinition[];
+  assets: AuthoredManifestAsset[];
+}
+
+/**
+ * One asset in the normalized flat manifest (output of `normalizeManifest()`).
+ * Adds derived `mediaKind` and normalized `fileStem`; `indexes` includes the
+ * built-in `mimeType`/`mediaKind` values.
+ */
+export interface FlatManifestAsset extends AuthoredManifestAsset {
+  mediaKind: MediaKind;
+  fileStem: string;
+}
+
+/** Normalized flat manifest produced by `normalizeManifest()` and consumed by the sync engine. */
 export interface FlatManifest {
   snapshotId?: string;
   retrievedAt?: string;

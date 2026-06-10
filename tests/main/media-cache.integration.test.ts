@@ -6,7 +6,7 @@ import {
   enableMediaCacheStorageRootLockForTests,
   resetMediaCacheStorageRootLocksForTests,
 } from "../../src/main/media-cache.js";
-import { validateFlatManifest } from "../../src/shared/normalize.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
 import {
   StoreExpiredError,
   StorageOwnershipError,
@@ -803,7 +803,7 @@ describe("media cache sync and queries (integration)", () => {
           close(): void;
           getActiveGenerationId(): number | null;
           createStagedGeneration(
-            manifest: ReturnType<typeof validateFlatManifest>,
+            manifest: ReturnType<typeof normalizeManifest>,
             now: number,
           ): number;
           setAssetDownloadState(
@@ -845,7 +845,7 @@ describe("media cache sync and queries (integration)", () => {
         },
       ],
     });
-    const orphanManifest = validateFlatManifest(orphanStore._serialize());
+    const orphanManifest = normalizeManifest(orphanStore._serialize());
     const stagedGenerationId = initialDb.createStagedGeneration(orphanManifest, 2);
     const reusedMainPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
     const orphanPosterPath = blobPathFor(hashKey("nature/forest/poster"), "v2", "poster-v2.jpg");
