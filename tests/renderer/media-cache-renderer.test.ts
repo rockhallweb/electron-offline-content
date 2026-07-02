@@ -6,6 +6,7 @@ import {
   mediaCacheReadyFromStatus,
   resolveMediaCacheBridge,
 } from "../../src/renderer/index.js";
+import { BRIDGE_OPERATION_NAMES } from "../../src/shared/bridge-operations.js";
 import type { MediaCacheBridge, MediaCacheStatus } from "../../src/shared/types.js";
 import {
   buildAssetWithVersion,
@@ -227,6 +228,16 @@ describe("resolveMediaCacheBridge", () => {
       } else {
         delete win.mediaCache;
       }
+    }
+  });
+
+  it("throws when a registry operation is missing from the bridge", () => {
+    for (const name of BRIDGE_OPERATION_NAMES) {
+      const incomplete = createBridge() as unknown as Record<string, unknown>;
+      delete incomplete[name];
+      expect(() =>
+        resolveMediaCacheBridge({ bridge: incomplete as unknown as MediaCacheBridge }),
+      ).toThrow(MISSING_BRIDGE_ERROR);
     }
   });
 
