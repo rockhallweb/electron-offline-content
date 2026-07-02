@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MediaCacheDatabase } from "../../src/main/database.js";
-import { GenerationLifecycle } from "../../src/main/generation-lifecycle.js";
+import { GenerationLifecycle, pruneEmptyParents } from "../../src/main/generation-lifecycle.js";
 import { validateFlatManifest } from "../../src/shared/normalize.js";
 import type { MediaCacheLogLevel } from "../../src/shared/types.js";
 import {
@@ -237,6 +237,54 @@ describe("generation lifecycle", () => {
   it("returns null when no generation exists at all", () => {
     expect(lifecycle.reconcileOrphanedStagedGenerations()).toBeNull();
     expect(logs).toEqual([]);
+  });
+
+  it("refuses to delete stored paths that escape the storage root during rollback", () => {
+    const escapingRelativePath = "../escape-target.bin";
+    const stagedGenerationId = stageGeneration("tampered", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: escapingRelativePath,
+      },
+    ]);
+    const outsideAbsolutePath = writeBlob(escapingRelativePath, "outside-cache");
+
+    try {
+      lifecycle.rollbackStagedGeneration(stagedGenerationId);
+
+      expect(existsSync(outsideAbsolutePath)).toBe(true);
+      expect(db.listStagedGenerationIds()).toEqual([]);
+      expect(logs).toEqual([
+        {
+          level: "warn",
+          event: "staged_blob_path_outside_storage_root",
+          fields: {
+            staged_generation_id: stagedGenerationId,
+            relative_path: escapingRelativePath,
+          },
+        },
+      ]);
+    } finally {
+      rmSync(outsideAbsolutePath, { force: true });
+    }
+  });
+
+  it("does not prune sibling directories whose name shares the storage root as a prefix", () => {
+    const siblingRoot = `${storageRoot}2`;
+    const siblingDirectory = join(siblingRoot, "empty");
+    mkdirSync(siblingDirectory, { recursive: true });
+
+    try {
+      pruneEmptyParents(join(siblingDirectory, "missing.bin"), storageRoot);
+
+      expect(existsSync(siblingDirectory)).toBe(true);
+    } finally {
+      rmSync(siblingRoot, { recursive: true, force: true });
+    }
   });
 
   it("normalizes windows-style stored paths when matching shared blobs", () => {

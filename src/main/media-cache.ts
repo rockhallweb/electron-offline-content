@@ -61,6 +61,7 @@ import {
   GenerationLifecycle,
   normalizeStoredRelativePath,
   pruneEmptyParents,
+  resolveStoredBlobPath,
 } from "./generation-lifecycle.js";
 
 export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
@@ -988,10 +989,13 @@ export class MediaCache implements MediaCacheMain {
     }
 
     for (const deletion of expired) {
-      const absolutePath = join(
-        this.storageRoot!,
-        normalizeStoredRelativePath(deletion.relativePath),
-      );
+      const absolutePath = resolveStoredBlobPath(this.storageRoot!, deletion.relativePath);
+      if (absolutePath === null) {
+        this.emitLog("warn", "pending_deletion_path_outside_storage_root", {
+          relative_path: deletion.relativePath,
+        });
+        continue;
+      }
       rmSync(absolutePath, { force: true });
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
