@@ -4,7 +4,7 @@ import { statfs } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
 import { validateFlatManifest } from "../shared/normalize.js";
@@ -57,6 +57,12 @@ import {
   type AssetDownloadTarget,
   type QueuedAssetDownloadTarget,
 } from "./asset-download.js";
+import {
+  GenerationLifecycle,
+  normalizeStoredRelativePath,
+  pruneEmptyParents,
+  resolveStoredBlobPath,
+} from "./generation-lifecycle.js";
 
 export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./asset-download.js";
 
@@ -538,7 +544,7 @@ export class MediaCache implements MediaCacheMain {
     let storedStatus: MediaCacheStatus | null = null;
     let activeGenerationId: number | null = null;
     if (!this.devPassthrough) {
-      activeGenerationId = this.reconcileOrphanedStagedGenerations();
+      activeGenerationId = this.createGenerationLifecycle().reconcileOrphanedStagedGenerations();
       try {
         storedStatus = this.db.loadStatus();
       } catch (error) {
@@ -573,28 +579,6 @@ export class MediaCache implements MediaCacheMain {
       active_generation_id: this.status.activeGenerationId,
       dev_passthrough_enabled: this.devPassthrough,
     });
-  }
-
-  private reconcileOrphanedStagedGenerations(): number | null {
-    const activeGenerationId = this.db!.getActiveGenerationId();
-    const stagedGenerationIds = this.db!.listStagedGenerationIds().filter(
-      (generationId) => generationId !== activeGenerationId,
-    );
-    if (stagedGenerationIds.length === 0) {
-      return activeGenerationId;
-    }
-
-    for (const stagedGenerationId of stagedGenerationIds) {
-      this.cleanupStagedGenerationFiles(stagedGenerationId, activeGenerationId);
-      this.db!.deleteGeneration(stagedGenerationId);
-    }
-
-    this.emitLog("warn", "orphaned_staged_generations_removed", {
-      active_generation_id: activeGenerationId,
-      removed_generation_ids: stagedGenerationIds,
-      removed_generation_count: stagedGenerationIds.length,
-    });
-    return activeGenerationId;
   }
 
   private prepareDevRuntimeState(): void {
@@ -831,8 +815,7 @@ export class MediaCache implements MediaCacheMain {
       });
     } catch (error) {
       if (stagedGenerationId !== null) {
-        this.cleanupStagedGenerationFiles(stagedGenerationId, this.db!.getActiveGenerationId());
-        this.db!.deleteGeneration(stagedGenerationId);
+        this.createGenerationLifecycle().rollbackStagedGeneration(stagedGenerationId);
       }
 
       const serialized = toSerializedError(error);
@@ -956,32 +939,10 @@ export class MediaCache implements MediaCacheMain {
     });
   }
 
-  private cleanupStagedGenerationFiles(
-    stagedGenerationId: number,
-    activeGenerationId: number | null,
-  ): void {
-    const activePaths = new Set(
-      activeGenerationId
-        ? this.db!.getGenerationAssets(activeGenerationId).flatMap((row) =>
-            row.relativePath ? [normalizeStoredRelativePath(row.relativePath)] : [],
-          )
-        : [],
-    );
-
-    for (const row of this.db!.getGenerationAssets(stagedGenerationId)) {
-      if (!row.relativePath) {
-        continue;
-      }
-
-      const normalizedRelativePath = normalizeStoredRelativePath(row.relativePath);
-      if (activePaths.has(normalizedRelativePath)) {
-        continue;
-      }
-
-      const absolutePath = join(this.storageRoot!, normalizedRelativePath);
-      rmSync(absolutePath, { force: true });
-      pruneEmptyParents(absolutePath, this.storageRoot!);
-    }
+  private createGenerationLifecycle(): GenerationLifecycle {
+    return new GenerationLifecycle(this.storageRoot!, this.db!, {
+      emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
+    });
   }
 
   private markRemovedAssetsForDeletion(
@@ -1028,10 +989,13 @@ export class MediaCache implements MediaCacheMain {
     }
 
     for (const deletion of expired) {
-      const absolutePath = join(
-        this.storageRoot!,
-        normalizeStoredRelativePath(deletion.relativePath),
-      );
+      const absolutePath = resolveStoredBlobPath(this.storageRoot!, deletion.relativePath);
+      if (absolutePath === null) {
+        this.emitLog("warn", "pending_deletion_path_outside_storage_root", {
+          relative_path: deletion.relativePath,
+        });
+        continue;
+      }
       rmSync(absolutePath, { force: true });
       pruneEmptyParents(absolutePath, this.storageRoot!);
     }
@@ -1188,25 +1152,9 @@ function normalizeAssetBaseUrl(assetBaseUrl: string | null | undefined): string 
   return parsed.origin;
 }
 
-function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
-  let current = dirname(pathToFile);
-  while (current.startsWith(storageRoot) && current !== storageRoot) {
-    if (existsSync(current) && readdirSync(current).length === 0) {
-      rmSync(current, { recursive: true, force: true });
-      current = dirname(current);
-      continue;
-    }
-    break;
-  }
-}
-
 function getResolvedVersionFromPath(relativePath: string): string | null {
   const parts = relativePath.split(/[\\/]/);
   return parts.length >= 4 ? decodeURIComponent(parts.at(-2)!) : null;
-}
-
-function normalizeStoredRelativePath(relativePath: string): string {
-  return relativePath.split(/[\\/]/).join("/");
 }
 
 async function resolveElectronAppPath(name: MediaCacheAppPath): Promise<string> {
