@@ -28,6 +28,9 @@ function buildHandlers(overrides: Partial<BridgeOperationHandlers> = {}): Bridge
   return {
     getStatus: async () => buildStatus(),
     syncNow: async () => undefined,
+    getAsset: async () => null,
+    listByIndex: async () => ({ items: [], nextCursor: null }),
+    findByFileStem: async () => ({ items: [], nextCursor: null }),
     ...overrides,
   };
 }
@@ -78,12 +81,24 @@ describe("bridge operation registry", () => {
   it("forwards invoke arguments to main handlers without the IPC event", async () => {
     const bus = createInvokeBus();
     const syncNow = vi.fn<() => Promise<undefined>>(async () => undefined);
-    registerBridgeOperationHandlers(bus.ipcMain, buildHandlers({ syncNow }));
+    const listByIndex = vi.fn<BridgeOperationHandlers["listByIndex"]>(async () => ({
+      items: [],
+      nextCursor: null,
+    }));
+    registerBridgeOperationHandlers(bus.ipcMain, buildHandlers({ syncNow, listByIndex }));
 
     await bus.channels.get(BRIDGE_OPERATIONS.syncNow.channel)!({ sender: "fake-event" });
+    await bus.channels.get(BRIDGE_OPERATIONS.listByIndex.channel)!(
+      { sender: "fake-event" },
+      "mimeType",
+      "video/mp4",
+      { limit: 5 },
+    );
 
     expect(syncNow).toHaveBeenCalledTimes(1);
     expect(syncNow).toHaveBeenCalledWith();
+    expect(listByIndex).toHaveBeenCalledTimes(1);
+    expect(listByIndex).toHaveBeenCalledWith("mimeType", "video/mp4", { limit: 5 });
   });
 
   it("invokes registry channels from the preload invokers", async () => {
@@ -94,9 +109,23 @@ describe("bridge operation registry", () => {
 
     await invokers.getStatus();
     await invokers.syncNow();
+    await invokers.getAsset("forest");
+    await invokers.listByIndex("mimeType", "video/mp4", { limit: 10, cursor: "c1" });
+    await invokers.findByFileStem("main", { limit: 2 });
 
     expect(invoke).toHaveBeenNthCalledWith(1, BRIDGE_OPERATIONS.getStatus.channel);
     expect(invoke).toHaveBeenNthCalledWith(2, BRIDGE_OPERATIONS.syncNow.channel);
+    expect(invoke).toHaveBeenNthCalledWith(3, BRIDGE_OPERATIONS.getAsset.channel, "forest");
+    expect(invoke).toHaveBeenNthCalledWith(
+      4,
+      BRIDGE_OPERATIONS.listByIndex.channel,
+      "mimeType",
+      "video/mp4",
+      { limit: 10, cursor: "c1" },
+    );
+    expect(invoke).toHaveBeenNthCalledWith(5, BRIDGE_OPERATIONS.findByFileStem.channel, "main", {
+      limit: 2,
+    });
   });
 
   it("round-trips every operation between preload invokers and main handlers", async () => {
@@ -111,6 +140,15 @@ describe("bridge operation registry", () => {
 
     await expect(invokers.getStatus()).resolves.toEqual(status);
     await expect(invokers.syncNow()).resolves.toBeUndefined();
+    await expect(invokers.getAsset("forest")).resolves.toBeNull();
+    await expect(invokers.listByIndex("mimeType", "video/mp4", { limit: 10 })).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    await expect(invokers.findByFileStem("main")).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
     expect(syncNow).toHaveBeenCalledTimes(1);
   });
 

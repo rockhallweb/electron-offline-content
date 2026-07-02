@@ -477,20 +477,11 @@ export class MediaCache implements MediaCacheMain {
     registerBridgeOperationHandlers(ipcMain, {
       getStatus: async () => this.getStatus(),
       syncNow: async () => this.syncNow(),
-    });
-    ipcMain.handle(MEDIA_CACHE_IPC.getAsset, async (_event, key: AssetKeyInput) =>
-      this.getAsset(key),
-    );
-    ipcMain.handle(
-      MEDIA_CACHE_IPC.listByIndex,
-      async (_event, indexName: string, value: string, pagination?: PaginationInput) =>
+      getAsset: async (key) => this.getAsset(key),
+      listByIndex: async (indexName, value, pagination) =>
         this.listByIndex(indexName, value, pagination),
-    );
-    ipcMain.handle(
-      MEDIA_CACHE_IPC.findByFileStem,
-      async (_event, stem: string, pagination?: PaginationInput) =>
-        this.findByFileStem(stem, pagination),
-    );
+      findByFileStem: async (stem, pagination) => this.findByFileStem(stem, pagination),
+    });
 
     if (electron) {
       this.events.on(MEDIA_CACHE_IPC.statusChanged, (status: MediaCacheStatus) => {

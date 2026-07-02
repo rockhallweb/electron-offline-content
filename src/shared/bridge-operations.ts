@@ -7,7 +7,12 @@ import type { MediaCacheBridge } from "./types.js";
  * `subscribeStatus` stays outside the registry: it rides the push-style
  * `statusChanged` event channel rather than an invoke round trip.
  */
-export type BridgeOperationName = "getStatus" | "syncNow";
+export type BridgeOperationName =
+  | "getStatus"
+  | "syncNow"
+  | "getAsset"
+  | "listByIndex"
+  | "findByFileStem";
 
 /** One invoke-style bridge operation: the bridge method name plus its IPC channel. */
 interface BridgeOperationDefinition<Name extends BridgeOperationName = BridgeOperationName> {
@@ -23,6 +28,9 @@ interface BridgeOperationDefinition<Name extends BridgeOperationName = BridgeOpe
 export const BRIDGE_OPERATIONS = {
   getStatus: { name: "getStatus", channel: MEDIA_CACHE_IPC.getStatus },
   syncNow: { name: "syncNow", channel: MEDIA_CACHE_IPC.syncNow },
+  getAsset: { name: "getAsset", channel: MEDIA_CACHE_IPC.getAsset },
+  listByIndex: { name: "listByIndex", channel: MEDIA_CACHE_IPC.listByIndex },
+  findByFileStem: { name: "findByFileStem", channel: MEDIA_CACHE_IPC.findByFileStem },
 } as const satisfies { readonly [Name in BridgeOperationName]: BridgeOperationDefinition<Name> };
 
 export const BRIDGE_OPERATION_NAMES = Object.keys(
