@@ -72,9 +72,6 @@
     "ci:examples": "pnpm install --frozen-lockfile --dir examples/local && pnpm install --frozen-lockfile --dir examples/nasa && pnpm examples:verify",
     "ci:validate": "pnpm validate"
   },
-  "dependencies": {
-    "zod": "^4.4.3"
-  },
   "devDependencies": {
     "@tanstack/intent": "^0.0.41",
     "@types/node": "^24.5.2",
