@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A failed sync no longer deletes the completed downloads it staged. Rolling back a failed or orphaned staged generation now removes only its database rows; fully downloaded blobs stay on disk, and the sync diff adopts an existing complete blob at `blobs/<assetKey>/<version>/<fileName>` regardless of which generation downloaded it. Large initial syncs on unreliable connections now make forward progress across failures and restarts instead of restarting from zero.
+- Each sync now sweeps blobs that nothing references (no active generation row, no pending deletion, not expected by the incoming manifest), so never-committed leftovers from failed syncs cannot accumulate or wedge `maxCacheBytes` enforcement.
+
 ## 0.5.0
 
 ### Security

@@ -36,6 +36,24 @@ export interface AssetDownloadResult {
   fallbackMimeType: string | null;
 }
 
+/**
+ * Committed blob location for a download target: `blobs/<assetKey>/<version>/<fileName>` with
+ * URI-encoded segments. Files only ever appear at this path via an atomic rename after the
+ * download stream fully completes (partials stay under `temp/` as `.part` files), so an existing
+ * file here is a complete copy of exactly this asset version.
+ * @internal
+ */
+export function blobRelativePath(
+  target: Pick<QueuedAssetDownloadTarget, "assetKey" | "version" | "fileName">,
+): string {
+  return join(
+    "blobs",
+    sanitizeSegment(target.assetKey),
+    sanitizeSegment(target.version),
+    sanitizeSegment(target.fileName),
+  );
+}
+
 export interface AssetDownloaderDependencies {
   fetchImpl: typeof globalThis.fetch;
   sleep: (delayMs: number) => Promise<void>;
@@ -116,12 +134,7 @@ export class AssetDownloader {
     download: AssetDownloadTarget,
     onChunk: (chunkBytes: number) => void,
   ): Promise<AssetDownloadResult> {
-    const destinationRelativePath = join(
-      "blobs",
-      sanitizeSegment(download.assetKey),
-      sanitizeSegment(download.version),
-      sanitizeSegment(download.fileName),
-    );
+    const destinationRelativePath = blobRelativePath(download);
     const destinationPath = resolveStoredBlobPath(this.storageRoot, destinationRelativePath);
     if (destinationPath === null) {
       throw new SyncFailureError(`Destination for ${download.assetKey} escapes the storage root.`);
@@ -300,7 +313,8 @@ function sanitizeSegment(segment: string): string {
   return /^\.+$/.test(encoded) ? encoded.replaceAll(".", "%2E") : encoded;
 }
 
-function listFilesRecursively(directory: string): string[] {
+/** @internal */
+export function listFilesRecursively(directory: string): string[] {
   if (!existsSync(directory)) {
     return [];
   }

@@ -44,8 +44,10 @@ export interface CommitStagedGenerationResult {
 /**
  * Owns the staged Generation lifecycle: commit (activation plus pending Blob deletion marking),
  * failed-sync rollback, orphaned staged Generation reconciliation, and delayed Blob pruning.
- * Blob files referenced only by a staged Generation are removed; Blob files shared with the
- * committed Generation are preserved.
+ * Rollback and reconciliation remove only the staged Generation's database rows; completed Blob
+ * files stay on disk so the next sync can adopt them instead of re-downloading. Blobs no future
+ * sync references are swept by `MediaCache.pruneUnreferencedBlobs` before storage limits are
+ * enforced.
  */
 export class GenerationLifecycle {
   constructor(
@@ -100,12 +102,12 @@ export class GenerationLifecycle {
   }
 
   /**
-   * Rolls back a staged Generation after a failed sync: removes Blob files that only the staged
-   * Generation references, then deletes the staged Generation rows. The committed Generation and
-   * its Blobs remain untouched.
+   * Rolls back a staged Generation after a failed sync by deleting only its database rows.
+   * Completed Blob files stay on disk so the next sync can adopt them instead of re-downloading —
+   * on a slow or flaky connection this is what lets a large initial sync make forward progress
+   * across failures. Blobs no future sync references are swept by `MediaCache.pruneUnreferencedBlobs`.
    */
   rollbackStagedGeneration(stagedGenerationId: number): void {
-    this.cleanupStagedGenerationFiles(stagedGenerationId, this.db.getActiveGenerationId());
     this.db.deleteGeneration(stagedGenerationId);
   }
 
@@ -124,7 +126,7 @@ export class GenerationLifecycle {
     }
 
     for (const stagedGenerationId of stagedGenerationIds) {
-      this.cleanupStagedGenerationFiles(stagedGenerationId, activeGenerationId);
+      // Completed Blobs stay on disk (see rollbackStagedGeneration); only the rows are removed.
       this.db.deleteGeneration(stagedGenerationId);
     }
 
@@ -170,44 +172,6 @@ export class GenerationLifecycle {
       marked_count: markedCount,
       delete_after_ms: deleteAfterMs,
     });
-  }
-
-  /** Removes staged-only Blob files; Blob paths shared with the active Generation survive. */
-  private cleanupStagedGenerationFiles(
-    stagedGenerationId: number,
-    activeGenerationId: number | null,
-  ): void {
-    const activePaths = new Set(
-      activeGenerationId
-        ? this.db
-            .getGenerationAssets(activeGenerationId)
-            .flatMap((row) =>
-              row.relativePath ? [normalizeStoredRelativePath(row.relativePath)] : [],
-            )
-        : [],
-    );
-
-    for (const row of this.db.getGenerationAssets(stagedGenerationId)) {
-      if (!row.relativePath) {
-        continue;
-      }
-
-      const normalizedRelativePath = normalizeStoredRelativePath(row.relativePath);
-      if (activePaths.has(normalizedRelativePath)) {
-        continue;
-      }
-
-      const absolutePath = resolveStoredBlobPath(this.storageRoot, normalizedRelativePath);
-      if (absolutePath === null) {
-        this.options.emitLog("warn", "staged_blob_path_outside_storage_root", {
-          staged_generation_id: stagedGenerationId,
-          relative_path: row.relativePath,
-        });
-        continue;
-      }
-      rmSync(absolutePath, { force: true });
-      pruneEmptyParents(absolutePath, this.storageRoot);
-    }
   }
 }
 

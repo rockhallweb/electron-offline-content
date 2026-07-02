@@ -335,6 +335,10 @@ export const pendingDeletionSchema: Schema<PendingDeletion> = object({
   relativePath: stringSchema,
 });
 
+export const pendingDeletionRelativePathRowSchema = object({
+  relativePath: stringSchema,
+});
+
 export const protocolAssetTargetRowSchema = object({
   relative_path: nullable(stringSchema),
 });

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { registerBridgeOperationHandlers } from "../shared/bridge-operations.js";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
@@ -40,7 +40,7 @@ import {
   parseWithSchema,
   stringInputSchema,
 } from "../internal/validation.js";
-import { MediaCacheDatabase, type ActiveAssetRow } from "./database.js";
+import { MediaCacheDatabase, type ActiveAssetRow, type GenerationAssetRow } from "./database.js";
 import { projectResolvedAsset } from "./catalog-projection.js";
 import { consoleWarnResolveAssetBaseUrlFallback } from "../internal/url-warn.js";
 import { hashKey } from "../internal/asset-key.js";
@@ -53,11 +53,17 @@ import {
 } from "./storage-root-lock.js";
 import {
   AssetDownloader,
+  blobRelativePath,
+  listFilesRecursively,
   partialDownloadBytes,
   type AssetDownloadTarget,
   type QueuedAssetDownloadTarget,
 } from "./asset-download.js";
-import { GenerationLifecycle, normalizeStoredRelativePath } from "./generation-lifecycle.js";
+import {
+  GenerationLifecycle,
+  normalizeStoredRelativePath,
+  pruneEmptyParents,
+} from "./generation-lifecycle.js";
 import { registerMediaProtocolHandler } from "./media-protocol.js";
 import { StorageBudget } from "./storage-budget.js";
 
@@ -660,6 +666,35 @@ export class MediaCache implements MediaCacheMain {
           }
         }
 
+        // Adopt a complete blob left behind by a previously failed sync, whatever
+        // generation staged it. Blobs only ever appear at this exact path via an
+        // atomic rename after the download stream fully completes (partials stay
+        // in temp/ as .part files), so an existing file is a complete copy of
+        // exactly this version. The manifest mime type wins over the null
+        // fallback via COALESCE in setAssetDownloadState.
+        //
+        // We intentionally do not verify the file against manifestAsset.byteLength:
+        // that field is a caller-declared estimate (fractional values are allowed;
+        // see MediaAssetInput.byteLength), so an equality check would reject valid
+        // blobs and re-download them on every sync.
+        const stagedRelativePath = normalizeStoredRelativePath(
+          blobRelativePath({
+            assetKey: row.assetKey,
+            version: nextVersion,
+            fileName: manifestAsset.fileName,
+          }),
+        );
+        if (existsSync(join(this.storageRoot!, stagedRelativePath))) {
+          this.db!.setAssetDownloadState(
+            stagedGenerationId,
+            row.assetKey,
+            stagedRelativePath,
+            null,
+          );
+          stats.skippedAssets += 1;
+          continue;
+        }
+
         downloads.push({
           assetKey: row.assetKey,
           version: manifestAsset.version,
@@ -679,6 +714,9 @@ export class MediaCache implements MediaCacheMain {
       this.createGenerationLifecycle().pruneExpiredDeletions(this.deps.now());
       this.cleanupObsoletePartialDownloads(downloads);
       if (!this.devPassthrough) {
+        this.pruneUnreferencedBlobs(
+          this.collectReferencedBlobPaths(currentAssets, stagedAssets, manifestAssetMap),
+        );
         await this.enforceStorageLimits(downloads);
 
         this.updateProgress((progress) => ({
@@ -889,6 +927,69 @@ export class MediaCache implements MediaCacheMain {
       staleDeleteAfterMs: this.options.staleDeleteAfterMs,
       emitLog: (level, event, fields = {}) => this.emitLog(level, event, fields),
     });
+  }
+
+  /**
+   * Every blob path the current sync may serve or still needs: the active generation's
+   * blobs, blobs awaiting their `staleDeleteAfterMs` grace period, and the paths the
+   * staged manifest's assets resolve to (which covers blobs adopted from failed syncs).
+   */
+  private collectReferencedBlobPaths(
+    currentAssets: GenerationAssetRow[],
+    stagedAssets: GenerationAssetRow[],
+    manifestAssetMap: Map<string, FlatManifest["assets"][number]>,
+  ): Set<string> {
+    const referenced = new Set<string>();
+    for (const row of currentAssets) {
+      if (row.relativePath) {
+        referenced.add(normalizeStoredRelativePath(row.relativePath));
+      }
+    }
+    for (const relativePath of this.db!.getPendingDeletionRelativePaths()) {
+      referenced.add(normalizeStoredRelativePath(relativePath));
+    }
+    for (const row of stagedAssets) {
+      const manifestAsset = manifestAssetMap.get(row.assetKey);
+      if (manifestAsset) {
+        referenced.add(
+          normalizeStoredRelativePath(
+            blobRelativePath({
+              assetKey: row.assetKey,
+              version: manifestAsset.version,
+              fileName: manifestAsset.fileName,
+            }),
+          ),
+        );
+      }
+    }
+    return referenced;
+  }
+
+  /**
+   * Deletes blobs nothing references anymore — leftovers from failed syncs whose
+   * assets the current manifest no longer contains. Failed-sync rollback keeps
+   * blobs on disk (see {@link runSync}), so without this sweep they would
+   * accumulate unbounded; `staleDeleteAfterMs` only covers blobs that were once
+   * committed. Runs before storage limits are enforced so stale leftovers cannot
+   * wedge a sync against `maxCacheBytes`.
+   */
+  private pruneUnreferencedBlobs(referencedRelativePaths: Set<string>): void {
+    const blobsRoot = join(this.storageRoot!, "blobs");
+    let prunedCount = 0;
+    for (const absolutePath of listFilesRecursively(blobsRoot)) {
+      const relativePath = normalizeStoredRelativePath(relative(this.storageRoot!, absolutePath));
+      if (referencedRelativePaths.has(relativePath)) {
+        continue;
+      }
+
+      rmSync(absolutePath, { force: true });
+      pruneEmptyParents(absolutePath, this.storageRoot!);
+      prunedCount += 1;
+    }
+
+    if (prunedCount > 0) {
+      this.emitLog("debug", "unreferenced_blobs_pruned", { pruned_count: prunedCount });
+    }
   }
 
   private updateProgress(transform: (progress: SyncProgress) => SyncProgress): void {
