@@ -12,6 +12,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { dirname, join } from "node:path";
+import { pruneEmptyParents, resolveStoredBlobPath } from "./generation-lifecycle.js";
 import { isNoSpaceError, StorageLimitError, SyncFailureError } from "../shared/errors.js";
 import type { JsonValue, MediaCacheLogLevel } from "../shared/types.js";
 
@@ -114,7 +115,10 @@ export class AssetDownloader {
       sanitizeSegment(download.version),
       sanitizeSegment(download.fileName),
     );
-    const destinationPath = join(this.storageRoot, destinationRelativePath);
+    const destinationPath = resolveStoredBlobPath(this.storageRoot, destinationRelativePath);
+    if (destinationPath === null) {
+      throw new SyncFailureError(`Destination for ${download.assetKey} escapes the storage root.`);
+    }
 
     mkdirSync(dirname(destinationPath), { recursive: true });
     const tempPath = this.partialDownloadPath(download);
@@ -293,20 +297,14 @@ export class AssetDownloader {
   }
 }
 
+/**
+ * Percent-encodes a manifest-provided path segment. `encodeURIComponent` leaves dots as-is, so
+ * dot-only segments ("." / "..") are encoded explicitly — otherwise `join()` would collapse them
+ * and let a tampered manifest escape the storage root.
+ */
 function sanitizeSegment(segment: string): string {
-  return encodeURIComponent(segment);
-}
-
-function pruneEmptyParents(pathToFile: string, storageRoot: string): void {
-  let current = dirname(pathToFile);
-  while (current.startsWith(storageRoot) && current !== storageRoot) {
-    if (existsSync(current) && readdirSync(current).length === 0) {
-      rmSync(current, { recursive: true, force: true });
-      current = dirname(current);
-      continue;
-    }
-    break;
-  }
+  const encoded = encodeURIComponent(segment);
+  return /^\.+$/.test(encoded) ? encoded.replaceAll(".", "%2E") : encoded;
 }
 
 function listFilesRecursively(directory: string): string[] {
