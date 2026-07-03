@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { hashKey } from "../../src/internal/asset-key.js";
+import { DataValidationError } from "../../src/shared/errors.js";
 import { MediaCacheDatabase } from "../../src/main/database.js";
 import { createMediaStore } from "../../src/main/store.js";
 import { validateFlatManifest } from "../../src/shared/normalize.js";
@@ -11,10 +12,7 @@ describe("MediaCacheDatabase", () => {
   it("creates all tables with correct schema on first init", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-init-test-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
 
       const id = db.createSyncRun(1000);
       db.completeSyncRun(id, "success", 1001, {
@@ -62,10 +60,7 @@ describe("MediaCacheDatabase", () => {
   it("listByIndex matches each value of a multi-cardinality index via flattened rows", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-multi-idx-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
 
       const store = createMediaStore();
       const tags = store.defineIndex("tags", { cardinality: "multi" });
@@ -79,14 +74,53 @@ describe("MediaCacheDatabase", () => {
       const genId = db.createStagedGeneration(manifest, 1);
       db.activateGeneration(genId, 2);
 
-      const forest = db.listByIndex("tags", "forest");
+      const forest = db.listRowsByIndex("tags", "forest");
       expect(forest.items).toHaveLength(1);
       expect(forest.items[0]?.displayKey).toBe("a/v/1");
 
-      const ambient = db.listByIndex("tags", "ambient");
+      const ambient = db.listRowsByIndex("tags", "ambient");
       expect(ambient.items).toHaveLength(1);
-      expect(ambient.items[0]?.key).toBe(hashKey(["a", "v", "1"]));
-      expect(ambient.items[0]?.key).toBe(forest.items[0]?.key);
+      expect(ambient.items[0]?.assetKey).toBe(hashKey(["a", "v", "1"]));
+      expect(ambient.items[0]?.assetKey).toBe(forest.items[0]?.assetKey);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getAssetRow returns a validated row and rejects corrupted rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "media-cache-row-validation-"));
+    try {
+      const db = new MediaCacheDatabase(root);
+
+      const store = createMediaStore();
+      store.add(["a", "v", "1"], {
+        version: "v1",
+        mimeType: "video/mp4",
+        url: "https://example.com/v.mp4",
+      });
+      const manifest = validateFlatManifest(store._serialize());
+      const genId = db.createStagedGeneration(manifest, 1);
+      db.activateGeneration(genId, 2);
+
+      const assetKey = hashKey(["a", "v", "1"]);
+      const row = db.getAssetRow(assetKey);
+      expect(row).not.toBeNull();
+      expect(row?.assetKey).toBe(assetKey);
+      expect(row?.displayKey).toBe("a/v/1");
+      expect(row?.url).toBe("https://example.com/v.mp4");
+
+      const dbInternal = (
+        db as unknown as {
+          db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } };
+        }
+      ).db;
+      dbInternal
+        .prepare("UPDATE assets SET media_kind = 'not-a-media-kind' WHERE asset_key = ?")
+        .run(assetKey);
+
+      expect(() => db.getAssetRow(assetKey)).toThrow(DataValidationError);
+
+      db.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -104,10 +138,7 @@ describe("pruneSyncHistory", () => {
   it("keeps the most recent N sync runs and deletes the rest", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-prune-test-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
 
       const runIds: number[] = [];
       for (let i = 1; i <= 5; i++) {
@@ -133,10 +164,7 @@ describe("pruneSyncHistory", () => {
   it("is a no-op when limit is less than 1", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-prune-test-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
 
       const id = db.createSyncRun(1000);
       db.completeSyncRun(id, "success", 1001, emptyStats());
@@ -158,10 +186,7 @@ describe("MediaCacheDatabase.close", () => {
   it("is idempotent and safe to call multiple times", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-close-test-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
 
       expect(() => {
         db.close();
@@ -176,10 +201,7 @@ describe("MediaCacheDatabase.close", () => {
   it("throws when methods are called after close", () => {
     const root = mkdtempSync(join(tmpdir(), "media-cache-close-test-"));
     try {
-      const db = new MediaCacheDatabase(root, {
-        devPassthrough: false,
-        assetBaseUrlOrigin: null,
-      });
+      const db = new MediaCacheDatabase(root);
       db.close();
 
       expect(() => db.loadStatus()).toThrow("MediaCacheDatabase is closed");
