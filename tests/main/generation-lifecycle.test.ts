@@ -7,7 +7,7 @@ import {
   GenerationLifecycle,
   pruneEmptyParents,
 } from "../../src/main/generation-lifecycle.js";
-import { validateFlatManifest } from "../../src/shared/normalize.js";
+import { normalizeManifest } from "../../src/shared/normalize.js";
 import type { MediaCacheLogLevel } from "../../src/shared/types.js";
 import {
   blobPathFor,
@@ -32,10 +32,7 @@ describe("generation lifecycle", () => {
   beforeEach(() => {
     storageRoot = createStorageRoot();
     mkdirSync(join(storageRoot, "blobs"), { recursive: true });
-    db = new MediaCacheDatabase(storageRoot, {
-      devPassthrough: false,
-      assetBaseUrlOrigin: null,
-    });
+    db = new MediaCacheDatabase(storageRoot);
     logs = [];
     lifecycle = new GenerationLifecycle(storageRoot, db, {
       emitLog: (level, event, fields = {}) => {
@@ -53,7 +50,7 @@ describe("generation lifecycle", () => {
       snapshotId,
       assets,
     });
-    const manifest = validateFlatManifest(store._serialize());
+    const manifest = normalizeManifest(store._serialize());
     const generationId = db.createStagedGeneration(manifest, now);
     for (const asset of assets) {
       if (asset.relativePath) {

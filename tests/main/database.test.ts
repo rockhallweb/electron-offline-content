@@ -98,7 +98,7 @@ describe("MediaCacheDatabase", () => {
         mimeType: "video/mp4",
         url: "https://example.com/v.mp4",
       });
-      const manifest = validateFlatManifest(store._serialize());
+      const manifest = normalizeManifest(store._serialize());
       const genId = db.createStagedGeneration(manifest, 1);
       db.activateGeneration(genId, 2);
 
