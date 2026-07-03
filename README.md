@@ -592,11 +592,11 @@ Creates a `MediaStore` instance for populating in a `resolveStore` callback.
 
 Returned by `createMediaStore`. Build the store imperatively by defining indexes and adding assets.
 
-| Method                        | Returns        | Description                                                                                                                  |
-| ----------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `defineIndex(name, options?)` | `MediaIndex`   | Register a secondary index. Returns a callable handle. Options: `{ cardinality?: "single" \| "multi", required?: boolean }`. |
-| `add(key, input)`             | `void`         | Add an asset. `key` is `AssetKeyInput` (`string` or `readonly string[]`); `input` is a `MediaAssetInput`.                    |
-| `_serialize()`                | `FlatManifest` | Internal: serializes for the sync engine. Not part of the public consumer API.                                               |
+| Method                        | Returns            | Description                                                                                                                  |
+| ----------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `defineIndex(name, options?)` | `MediaIndex`       | Register a secondary index. Returns a callable handle. Options: `{ cardinality?: "single" \| "multi", required?: boolean }`. |
+| `add(key, input)`             | `void`             | Add an asset. `key` is `AssetKeyInput` (`string` or `readonly string[]`); `input` is a `MediaAssetInput`.                    |
+| `_serialize()`                | `AuthoredManifest` | Internal: serializes the authored store for manifest normalization. Not part of the public consumer API.                     |
 
 **`MediaAssetInput`**
 

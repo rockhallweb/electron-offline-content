@@ -1,24 +1,17 @@
 import { StoreValidationError } from "../shared/errors.js";
 import { deriveAssetFileName } from "../internal/asset-file-name.js";
-import { mediaKindFromMime } from "../internal/media-kind.js";
 import { hashKey, displayKey, isValidKeyInput, type AssetKeyInput } from "../internal/asset-key.js";
+import { BUILTIN_INDEX_NAMES } from "../shared/normalize.js";
 import {
   IndexTag,
-  type FlatManifest,
-  type FlatManifestAsset,
+  type AuthoredManifest,
+  type AuthoredManifestAsset,
   type IndexDefinition,
   type JsonValue,
   type MediaAssetInput,
 } from "../shared/types.js";
 
 const MIME_PATTERN = /^\S+\/\S+$/;
-
-const BUILTIN_INDEX_NAMES = new Set(["mimeType", "mediaKind"]);
-
-function fileStem(fileName: string): string {
-  const dotIndex = fileName.lastIndexOf(".");
-  return dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
-}
 
 /**
  * Callable handle returned by {@link MediaStore.defineIndex}. Call it with a value
@@ -266,11 +259,12 @@ export class MediaStore {
   }
 
   /**
-   * Serialize the store for the sync engine. Validates required indexes and produces
-   * the flat manifest consumed internally. Not part of the public consumer API.
+   * Serialize the authored store. Validates required indexes and produces the authored
+   * manifest; pass it through `normalizeManifest()` before staging a generation.
+   * Not part of the public consumer API.
    * @internal
    */
-  _serialize(): FlatManifest {
+  _serialize(): AuthoredManifest {
     for (const [, def] of this.indexes) {
       if (!def.required) continue;
       for (const [, asset] of this.assets) {
@@ -282,35 +276,20 @@ export class MediaStore {
       }
     }
 
-    const indexDefinitions: IndexDefinition[] = [
-      ...Array.from(this.indexes.values()),
-      { name: "mimeType", cardinality: "single", required: false, builtin: true },
-      { name: "mediaKind", cardinality: "single", required: false, builtin: true },
-    ];
+    const indexDefinitions: IndexDefinition[] = Array.from(this.indexes.values());
 
-    const assets: FlatManifestAsset[] = [];
+    const assets: AuthoredManifestAsset[] = [];
     for (const [, stored] of this.assets) {
-      const mediaKind = mediaKindFromMime(stored.mimeType);
-      const stem = fileStem(stored.fileName);
-
-      const allIndexes: Record<string, string | string[]> = {
-        ...stored.indexes,
-        mimeType: stored.mimeType,
-        mediaKind,
-      };
-
       assets.push({
         key: stored.key,
         displayKey: stored.displayKey,
         version: stored.version,
         mimeType: stored.mimeType,
-        mediaKind,
         url: stored.url,
         fileName: stored.fileName,
-        fileStem: stem,
         byteLength: stored.byteLength,
         metadata: stored.metadata,
-        indexes: allIndexes,
+        indexes: { ...stored.indexes },
       });
     }
 

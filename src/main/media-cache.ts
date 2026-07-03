@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { IpcMain, Session } from "electron";
 import { registerBridgeOperationHandlers } from "../shared/bridge-operations.js";
 import { MEDIA_CACHE_IPC } from "../shared/ipc.js";
-import { validateFlatManifest } from "../shared/normalize.js";
+import { normalizeManifest } from "../shared/normalize.js";
 import { normalizeStem } from "../shared/stem.js";
 import {
   DataValidationError,
@@ -638,7 +638,7 @@ export class MediaCache implements MediaCacheMain {
 
     try {
       const store = await this.options.resolveStore();
-      const manifest = validateFlatManifest(store._serialize());
+      const manifest = normalizeManifest(store._serialize());
       this.assertStoreNotExpired(manifest, runId);
       stagedGenerationId = this.db!.createStagedGeneration(manifest, now);
       this.emitLog("info", "store_resolved", {

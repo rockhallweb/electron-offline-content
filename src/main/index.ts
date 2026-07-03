@@ -5,6 +5,8 @@ export { mediaKindFromMime } from "../internal/media-kind.js";
 export {
   IndexTag,
   type AssetKeyInput,
+  type AuthoredManifest,
+  type AuthoredManifestAsset,
   type FileStemMatch,
   type FlatManifest,
   type FlatManifestAsset,
