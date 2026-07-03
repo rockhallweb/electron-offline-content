@@ -32,13 +32,13 @@
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
     "electron": "^40.8.2",
-    "esbuild": "^0.25.9",
+    "esbuild": "^0.28.1",
     "knip": "^6.0.3",
     "oxfmt": "^0.41.0",
     "oxlint": "^1.56.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.2",
-    "vite": "^7.1.11"
+    "vite": "^7.3.5"
   },
   "packageManager": "pnpm@11.1.0",
   "productName": "Offline Content Example (NASA)"
