@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0
+
+### Security
+
+- Manifest-provided path segments can no longer escape the storage root: dot-only segments (`.`/`..`) are percent-encoded before building blob paths, and blob destinations are validated for storage-root containment before any filesystem write or delete. Fixes #89. (#90)
+
+### Changed
+
+- Write-side file stems are now normalized with the shared read-side rule (lowercased basename), so `findByFileStem` matching is consistent regardless of manifest casing. (#84)
+- `MediaStore._serialize()` (internal) now returns an authoring-only `AuthoredManifest`; derived fields (media kind, built-in indexes, stem) are produced by `normalizeManifest()` during generation staging. (#84)
+
+### Added
+
+- New exported types: `AuthoredManifest`, `AuthoredManifestAsset`. (#84)
+
+### Internal
+
+- Resolved catalog projection separated from SQLite storage: `MediaCacheDatabase` returns validated rows; `ResolvedMediaAsset` projection and URL policy now live in a dedicated projection module. (#82)
+- `media:` protocol serving extracted behind a main-process adapter (`registerMediaProtocolHandler`) with comprehensive range-request tests. (#80)
+- Storage budget checks (max cache size, reserved free bytes) extracted from Asset Download and MediaCache orchestration into a `StorageBudget` module. (#83)
+- Example apps: dev-dependency updates (esbuild, vite). (#87)
+
 ## 0.4.0
 
 ### Breaking changes

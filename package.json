@@ -1,6 +1,6 @@
 {
   "name": "@rockhall/electron-offline-content",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "A package for Electron apps to download, stage, and serve offline content from a remote source. Supports video, images, audio, text content, and more.",
   "keywords": [
     "cache",
