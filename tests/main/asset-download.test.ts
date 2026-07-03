@@ -4,10 +4,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   statfsSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { AssetDownloader, type AssetDownloadTarget } from "../../src/main/asset-download.js";
 import { StorageLimitError } from "../../src/shared/errors.js";
@@ -98,6 +99,62 @@ describe("AssetDownloader paths and cleanup", () => {
 
     expect(existsSync(currentPartial)).toBe(true);
     expect(existsSync(stalePartial)).toBe(false);
+  });
+});
+
+describe("AssetDownloader storage root containment", () => {
+  it("keeps dot-only manifest segments inside the storage root", () => {
+    const root = createRoot();
+    const downloader = createDownloader(root, vi.fn());
+    const target = createTarget({ assetKey: "..", version: "..", fileName: ".." });
+    const partialPath = downloader.partialDownloadPath(target);
+
+    expect(relative(root, partialPath).startsWith("..")).toBe(false);
+    expect(partialPath).toContain("%2E%2E");
+  });
+
+  it("refuses to delete stored paths that escape the storage root", async () => {
+    const root = createRoot();
+    const target = createTarget({
+      assetKey: "..",
+      version: "..",
+      fileName: "escape-target.bin",
+      byteLength: 4,
+    });
+    const downloader = createDownloader(root, async () => textResponse("data"));
+    const outsidePath = join(root, "..", "escape-target.bin");
+    writeFileSync(outsidePath, "outside-cache");
+
+    try {
+      const result = await downloader.downloadAsset(target, () => undefined);
+
+      expect(readFileSync(outsidePath, "utf8")).toBe("outside-cache");
+      expect(relative(root, join(root, result.relativePath)).startsWith("..")).toBe(false);
+      expect(readFileSync(join(root, result.relativePath), "utf8")).toBe("data");
+    } finally {
+      rmSync(outsidePath, { force: true });
+    }
+  });
+
+  it("does not prune sibling directories whose name shares the storage root as a prefix", () => {
+    const root = createRoot();
+    const siblingRoot = `${root}2`;
+    const siblingDirectory = join(siblingRoot, "empty");
+    mkdirSync(siblingDirectory, { recursive: true });
+    const downloader = createDownloader(root, vi.fn());
+    const stalePartial = downloader.partialDownloadPath(createTarget({ version: "old-version" }));
+    mkdirSync(dirname(stalePartial), { recursive: true });
+    writeFileSync(stalePartial, "stale");
+
+    try {
+      downloader.cleanupObsoletePartialDownloads([]);
+
+      expect(existsSync(stalePartial)).toBe(false);
+      expect(existsSync(siblingDirectory)).toBe(true);
+      expect(existsSync(root)).toBe(true);
+    } finally {
+      rmSync(siblingRoot, { recursive: true, force: true });
+    }
   });
 });
 
