@@ -819,6 +819,66 @@ describe("media cache sync and queries (integration)", () => {
     expect(readFileSync(stagedBlobPath, "utf8")).toBe("retry-success");
   });
 
+  it("reuses a blob whose fileName changed without a version bump and keeps it through the sweep", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveStore: () => store,
+    });
+
+    // Initial sync commits the default store: nature/forest/main @ v1/main.mp4.
+    await cache.start();
+
+    const originalBlobPath = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
+    );
+    expect(existsSync(originalBlobPath)).toBe(true);
+    const mainRequests = requestCounts["/main.mp4"];
+
+    // Same asset key and version, but the manifest renames the file (same
+    // source URL). The diff reuses the active blob at its existing path, so the
+    // staged row points at v1/main.mp4 rather than the manifest-computed
+    // v1/renamed.mp4. The reused path must be protected from the sweep.
+    store = buildTestStore({
+      snapshotId: "filename-changed-same-version",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "renamed.mp4",
+          byteLength: 9,
+          url: `${baseUrl}/main.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          url: `${baseUrl}/poster.jpg`,
+        },
+      ],
+    });
+
+    await cache.syncNow();
+
+    // Reused, not re-downloaded.
+    expect(requestCounts["/main.mp4"]).toBe(mainRequests);
+    // The reused blob survives the unreferenced-blob sweep at its actual path,
+    // and no phantom renamed-file blob was ever created.
+    expect(existsSync(originalBlobPath)).toBe(true);
+    expect(
+      existsSync(
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "renamed.mp4")),
+      ),
+    ).toBe(false);
+    expect((await cache.getStatus()).lastRun?.status).toBe("success");
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
+    expect(readFileSync(originalBlobPath, "utf8")).toBe("video-one");
+  });
+
   it("resumes a failed first-ever sync across a restart without re-downloading completed assets", async () => {
     const storageRoot = createStorageRoot();
     store = buildTestStore({

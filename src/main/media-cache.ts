@@ -715,7 +715,15 @@ export class MediaCache implements MediaCacheMain {
       this.cleanupObsoletePartialDownloads(downloads);
       if (!this.devPassthrough) {
         this.pruneUnreferencedBlobs(
-          this.collectReferencedBlobPaths(currentAssets, stagedAssets, manifestAssetMap),
+          this.collectReferencedBlobPaths(
+            currentAssets,
+            // Re-read staged rows so reused/adopted assets carry the resolved
+            // relativePath set during the diff loop, which can differ from the
+            // manifest-computed path (e.g. an asset reused from the active
+            // generation keeps its old fileName when only fileName changed).
+            this.db!.getGenerationAssets(stagedGenerationId),
+            manifestAssetMap,
+          ),
         );
         await this.enforceStorageLimits(downloads);
 
@@ -949,6 +957,15 @@ export class MediaCache implements MediaCacheMain {
       referenced.add(normalizeStoredRelativePath(relativePath));
     }
     for (const row of stagedAssets) {
+      // Prefer the path already resolved for this staged asset (a reused or
+      // adopted blob): it is what the database row and the eventual active
+      // generation point at, which is not always the manifest-computed path.
+      // Assets still queued for download have no relativePath yet, so fall
+      // back to their download destination derived from the manifest.
+      if (row.relativePath) {
+        referenced.add(normalizeStoredRelativePath(row.relativePath));
+        continue;
+      }
       const manifestAsset = manifestAssetMap.get(row.assetKey);
       if (manifestAsset) {
         referenced.add(
