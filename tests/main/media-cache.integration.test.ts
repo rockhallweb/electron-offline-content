@@ -268,6 +268,9 @@ describe("media cache sync and queries (integration)", () => {
       {
         storageRoot,
         onSyncFailure: "throw",
+        // Serial downloads so the second asset is dequeued only after the first response
+        // advances the clock past expiry.
+        downloadConcurrency: 1,
         resolveStore: () =>
           buildTestStore({
             snapshotId: "expires-mid-sync",
@@ -305,6 +308,118 @@ describe("media cache sync and queries (integration)", () => {
     const status = await cache.getStatus();
     expect(status.phase).toBe("error");
     expect(status.error?.code).toBe("STORE_EXPIRED");
+  });
+
+  it("downloads two assets in parallel by default", async () => {
+    const storageRoot = createStorageRoot();
+    const startedPaths: string[] = [];
+    const releases = new Map<string, () => void>();
+    const fetchImpl: typeof globalThis.fetch = async (input) => {
+      const requestUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(requestUrl).pathname;
+      startedPaths.push(path);
+      await new Promise<void>((resolve) => releases.set(path, resolve));
+      return new Response(`payload-${path}`, {
+        headers: { "content-type": "video/mp4" },
+      });
+    };
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveStore: () =>
+          buildTestStore({
+            snapshotId: "parallel-downloads",
+            assets: ["a", "b", "c"].map((name) => ({
+              key: `pool/${name}/main`,
+              version: "v1",
+              mimeType: "video/mp4",
+              fileName: `${name}.mp4`,
+              url: `${baseUrl}/${name}.mp4`,
+            })),
+          }),
+      },
+      {
+        fetchImpl,
+        sleep: async () => undefined,
+      },
+    );
+
+    const syncPromise = cache.start();
+
+    await vi.waitFor(() => {
+      expect(startedPaths).toHaveLength(2);
+    });
+    expect(startedPaths).toEqual(["/a.mp4", "/b.mp4"]);
+
+    releases.get("/a.mp4")!();
+    await vi.waitFor(() => {
+      expect(startedPaths).toEqual(["/a.mp4", "/b.mp4", "/c.mp4"]);
+    });
+
+    releases.get("/b.mp4")!();
+    releases.get("/c.mp4")!();
+    await syncPromise;
+
+    const asset = await cache.getAsset("pool/c/main");
+    expect(asset).not.toBeNull();
+  });
+
+  it("stops dequeuing downloads after a failure while in-flight downloads finish", async () => {
+    const storageRoot = createStorageRoot();
+    const startedPaths: string[] = [];
+    const releases = new Map<string, () => void>();
+    const fetchImpl: typeof globalThis.fetch = async (input) => {
+      const requestUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(requestUrl).pathname;
+      startedPaths.push(path);
+      if (path === "/fail.mp4") {
+        return new Response("missing", { status: 404 });
+      }
+      await new Promise<void>((resolve) => releases.set(path, resolve));
+      return new Response(`payload-${path}`, {
+        headers: { "content-type": "video/mp4" },
+      });
+    };
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        resolveStore: () =>
+          buildTestStore({
+            snapshotId: "failure-stops-queue",
+            assets: ["fail", "slow", "never"].map((name) => ({
+              key: `pool/${name}/main`,
+              version: "v1",
+              mimeType: "video/mp4",
+              fileName: `${name}.mp4`,
+              url: `${baseUrl}/${name}.mp4`,
+            })),
+          }),
+      },
+      {
+        fetchImpl,
+        sleep: async () => undefined,
+      },
+    );
+
+    const syncPromise = cache.start();
+    const syncOutcome = syncPromise.then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await vi.waitFor(() => {
+      expect(startedPaths).toEqual(["/fail.mp4", "/slow.mp4"]);
+    });
+    releases.get("/slow.mp4")!();
+
+    const error = await syncOutcome;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("404");
+    expect(startedPaths).not.toContain("/never.mp4");
   });
 
   it("keeps serving the previous generation when a later store is already expired", async () => {

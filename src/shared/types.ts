@@ -180,6 +180,8 @@ export interface MediaCacheOptions {
   assetBaseUrl?: string | null;
   maxCacheBytes?: number;
   reserveFreeBytes?: number;
+  /** Number of assets downloaded in parallel during sync (default 2, minimum 1). */
+  downloadConcurrency?: number;
   staleDeleteAfterMs?: number;
   onSyncFailure?: SyncFailureMode;
   syncHistoryLimit?: number;
