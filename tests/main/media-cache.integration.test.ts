@@ -366,6 +366,50 @@ describe("media cache sync and queries (integration)", () => {
     expect(asset).not.toBeNull();
   });
 
+  it("falls back to the default concurrency when downloadConcurrency is non-finite", async () => {
+    const storageRoot = createStorageRoot();
+    const fetchImpl: typeof globalThis.fetch = async (input) => {
+      const requestUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(requestUrl).pathname;
+      return new Response(`payload-${path}`, {
+        headers: { "content-type": "video/mp4" },
+      });
+    };
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        onSyncFailure: "throw",
+        // A garbage override must not silently skip every download; it should behave like the
+        // default rather than spawning zero workers and committing an empty generation.
+        downloadConcurrency: Number.NaN,
+        resolveStore: () =>
+          buildTestStore({
+            snapshotId: "nan-concurrency",
+            assets: ["a", "b", "c"].map((name) => ({
+              key: `pool/${name}/main`,
+              version: "v1",
+              mimeType: "video/mp4",
+              fileName: `${name}.mp4`,
+              url: `${baseUrl}/${name}.mp4`,
+            })),
+          }),
+      },
+      {
+        fetchImpl,
+        sleep: async () => undefined,
+      },
+    );
+
+    await cache.start();
+
+    // Every asset must actually download. A non-finite override that slipped past the clamp
+    // would spawn zero workers, leaving downloadedAssets at 0 while still committing.
+    const status = await cache.getStatus();
+    expect(status.lastRun?.status).toBe("success");
+    expect(status.lastRun?.stats.downloadedAssets).toBe(3);
+  });
+
   it("stops dequeuing downloads after a failure while in-flight downloads finish", async () => {
     const storageRoot = createStorageRoot();
     const startedPaths: string[] = [];

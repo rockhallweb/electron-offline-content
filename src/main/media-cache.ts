@@ -738,8 +738,15 @@ export class MediaCache implements MediaCacheMain {
 
         const downloadGenerationId = stagedGenerationId;
         const downloader = this.createAssetDownloader();
+        // A non-finite override (NaN/Infinity) would slip past the min/max clamp and leave
+        // workerCount NaN, so Array.from below would spawn zero workers and commit a
+        // generation with no downloads performed. Fall back to the default in that case.
+        const requestedConcurrency =
+          this.options.downloadConcurrency ?? DEFAULT_DOWNLOAD_CONCURRENCY;
         const workerCount = Math.min(
-          Math.max(1, Math.floor(this.options.downloadConcurrency ?? DEFAULT_DOWNLOAD_CONCURRENCY)),
+          Number.isFinite(requestedConcurrency)
+            ? Math.max(1, Math.floor(requestedConcurrency))
+            : DEFAULT_DOWNLOAD_CONCURRENCY,
           Math.max(downloads.length, 1),
         );
         let nextDownloadIndex = 0;
