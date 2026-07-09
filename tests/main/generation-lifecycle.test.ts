@@ -5,6 +5,7 @@ import { MediaCacheDatabase } from "../../src/main/database.js";
 import {
   DEFAULT_STALE_DELETE_MS,
   GenerationLifecycle,
+  normalizeStoredRelativePath,
   pruneEmptyParents,
 } from "../../src/main/generation-lifecycle.js";
 import { normalizeManifest } from "../../src/shared/normalize.js";
@@ -67,7 +68,7 @@ describe("generation lifecycle", () => {
     return absolutePath;
   }
 
-  it("rolls back a staged generation while preserving blobs shared with the committed generation", () => {
+  it("rolls back a staged generation while preserving every completed blob on disk", () => {
     const sharedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
     const stagedOnlyPath = blobPathFor(hashKey("nature/forest/poster"), "v2", "poster-v2.jpg");
 
@@ -110,15 +111,16 @@ describe("generation lifecycle", () => {
 
     lifecycle.rollbackStagedGeneration(stagedGenerationId);
 
+    // Both the shared blob and the staged-only blob survive: a file at the blob path is a
+    // complete copy of exactly that asset version, so the next sync can adopt it.
     expect(existsSync(sharedAbsolutePath)).toBe(true);
-    expect(existsSync(stagedOnlyAbsolutePath)).toBe(false);
-    expect(existsSync(dirname(stagedOnlyAbsolutePath))).toBe(false);
+    expect(existsSync(stagedOnlyAbsolutePath)).toBe(true);
     expect(db.listStagedGenerationIds()).toEqual([]);
     expect(db.getActiveGenerationId()).toBe(committedGenerationId);
     expect(db.getGenerationAssets(committedGenerationId)).toHaveLength(1);
   });
 
-  it("rolls back all staged blobs when no generation has been committed", () => {
+  it("preserves completed blobs on rollback when no generation has ever been committed", () => {
     const stagedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
     const stagedGenerationId = stageGeneration("first-sync", [
       {
@@ -134,7 +136,9 @@ describe("generation lifecycle", () => {
 
     lifecycle.rollbackStagedGeneration(stagedGenerationId);
 
-    expect(existsSync(stagedAbsolutePath)).toBe(false);
+    // Regression guard: a failed first-ever sync must not delete its completed downloads, or a
+    // large initial sync over a flaky connection could never make forward progress on retry.
+    expect(existsSync(stagedAbsolutePath)).toBe(true);
     expect(db.listStagedGenerationIds()).toEqual([]);
     expect(db.getActiveGenerationId()).toBeNull();
   });
@@ -198,8 +202,9 @@ describe("generation lifecycle", () => {
     const activeGenerationId = lifecycle.reconcileOrphanedStagedGenerations();
 
     expect(activeGenerationId).toBe(committedGenerationId);
+    // Only the orphaned rows are removed; both blobs stay on disk for the next sync to adopt.
     expect(existsSync(sharedAbsolutePath)).toBe(true);
-    expect(existsSync(orphanOnlyAbsolutePath)).toBe(false);
+    expect(existsSync(orphanOnlyAbsolutePath)).toBe(true);
     expect(db.listStagedGenerationIds()).toEqual([]);
     expect(db.getGenerationAssets(orphanedGenerationId)).toEqual([]);
     expect(logs).toEqual([
@@ -240,38 +245,40 @@ describe("generation lifecycle", () => {
     expect(logs).toEqual([]);
   });
 
-  it("refuses to delete stored paths that escape the storage root during rollback", () => {
+  it("refuses to delete pending-deletion paths that escape the storage root", () => {
     const escapingRelativePath = "../escape-target.bin";
-    const stagedGenerationId = stageGeneration("tampered", [
-      {
-        key: "nature/forest/main",
-        version: "v1",
-        mimeType: "video/mp4",
-        fileName: "main.mp4",
-        url: "https://example.test/main.mp4",
-        relativePath: escapingRelativePath,
-      },
-    ]);
+    const assetKey = hashKey("nature/forest/main");
+    db.markPendingDeletion(
+      assetKey,
+      escapingRelativePath,
+      99,
+      JSON.stringify([assetKey, escapingRelativePath]),
+      50,
+    );
     const outsideAbsolutePath = writeBlob(escapingRelativePath, "outside-cache");
 
     try {
-      lifecycle.rollbackStagedGeneration(stagedGenerationId);
+      lifecycle.pruneExpiredDeletions(100);
 
+      // The escaping path is skipped (never deleted) but its record is still cleared.
       expect(existsSync(outsideAbsolutePath)).toBe(true);
-      expect(db.listStagedGenerationIds()).toEqual([]);
-      expect(logs).toEqual([
-        {
-          level: "warn",
-          event: "staged_blob_path_outside_storage_root",
-          fields: {
-            staged_generation_id: stagedGenerationId,
-            relative_path: escapingRelativePath,
-          },
-        },
-      ]);
+      expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
+      expect(logs).toContainEqual({
+        level: "warn",
+        event: "pending_deletion_path_outside_storage_root",
+        fields: { relative_path: escapingRelativePath },
+      });
     } finally {
       rmSync(outsideAbsolutePath, { force: true });
     }
+  });
+
+  it("normalizes windows-style stored paths so blob matching is platform-independent", () => {
+    // Adoption, collectReferencedBlobPaths, and pruneUnreferencedBlobs all compare stored paths
+    // through this helper; a backslash-separated path persisted on Windows must match the
+    // forward-slash paths derived from the manifest, or a matching blob would be wrongly pruned.
+    expect(normalizeStoredRelativePath("blobs\\abc\\v1\\main.mp4")).toBe("blobs/abc/v1/main.mp4");
+    expect(normalizeStoredRelativePath("blobs/abc/v1/main.mp4")).toBe("blobs/abc/v1/main.mp4");
   });
 
   it("does not prune sibling directories whose name shares the storage root as a prefix", () => {
@@ -286,44 +293,6 @@ describe("generation lifecycle", () => {
     } finally {
       rmSync(siblingRoot, { recursive: true, force: true });
     }
-  });
-
-  it("normalizes windows-style stored paths when matching shared blobs", () => {
-    const sharedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
-    const windowsSharedPath = sharedPath.split("/").join("\\");
-
-    const committedGenerationId = stageGeneration("committed", [
-      {
-        key: "nature/forest/main",
-        version: "v1",
-        mimeType: "video/mp4",
-        fileName: "main.mp4",
-        url: "https://example.test/main.mp4",
-        relativePath: windowsSharedPath,
-      },
-    ]);
-    db.activateGeneration(committedGenerationId, 1);
-
-    const stagedGenerationId = stageGeneration(
-      "staged",
-      [
-        {
-          key: "nature/forest/main",
-          version: "v1",
-          mimeType: "video/mp4",
-          fileName: "main.mp4",
-          url: "https://example.test/main.mp4",
-          relativePath: sharedPath,
-        },
-      ],
-      2,
-    );
-    const sharedAbsolutePath = writeBlob(sharedPath, "video-one");
-
-    lifecycle.rollbackStagedGeneration(stagedGenerationId);
-
-    expect(existsSync(sharedAbsolutePath)).toBe(true);
-    expect(db.listStagedGenerationIds()).toEqual([]);
   });
 
   it("commits a staged generation and marks replaced blob paths for delayed deletion", () => {

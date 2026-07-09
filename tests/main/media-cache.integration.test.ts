@@ -744,7 +744,7 @@ describe("media cache sync and queries (integration)", () => {
     expect(existsSync(partialPath)).toBe(false);
   });
 
-  it("cleans up newly staged blob files after a failed sync while keeping the last committed snapshot", async () => {
+  it("preserves completed staged blobs after a failed sync and reuses them on the next sync", async () => {
     const storageRoot = createStorageRoot();
     const cache = createNoSleepCache({
       storageRoot,
@@ -754,7 +754,7 @@ describe("media cache sync and queries (integration)", () => {
     await cache.start();
 
     store = buildTestStore({
-      snapshotId: "cleanup-failed-stage",
+      snapshotId: "preserve-failed-stage",
       assets: [
         {
           key: "nature/forest/main",
@@ -777,18 +777,187 @@ describe("media cache sync and queries (integration)", () => {
 
     await cache.syncNow();
 
-    expect(
-      existsSync(
-        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v2", "retry-once.mp4")),
-      ),
-    ).toBe(false);
+    const stagedBlobPath = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v2", "retry-once.mp4"),
+    );
+    expect(existsSync(stagedBlobPath)).toBe(true);
     expect(
       existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
     ).toBe(true);
     expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
+
+    const retryOnceRequests = requestCounts["/retry-once.mp4"];
+    store = buildTestStore({
+      snapshotId: "preserve-failed-stage-fixed",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v2",
+          mimeType: "video/mp4",
+          fileName: "retry-once.mp4",
+          byteLength: "retry-success".length,
+          url: `${baseUrl}/retry-once.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v2",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          url: `${baseUrl}/poster.jpg`,
+        },
+      ],
+    });
+
+    await cache.syncNow();
+
+    expect(requestCounts["/retry-once.mp4"]).toBe(retryOnceRequests);
+    const mainAsset = await cache.getAsset("nature/forest/main");
+    expect(mainAsset?.version).toBe("v2");
+    expect(mainAsset?.mimeType).toBe("video/mp4");
+    expect(readFileSync(stagedBlobPath, "utf8")).toBe("retry-success");
   });
 
-  it("cleans up orphaned staged generations on startup while preserving the active snapshot", async () => {
+  it("reuses a blob whose fileName changed without a version bump and keeps it through the sweep", async () => {
+    const storageRoot = createStorageRoot();
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveStore: () => store,
+    });
+
+    // Initial sync commits the default store: nature/forest/main @ v1/main.mp4.
+    await cache.start();
+
+    const originalBlobPath = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
+    );
+    expect(existsSync(originalBlobPath)).toBe(true);
+    const mainRequests = requestCounts["/main.mp4"];
+
+    // Same asset key and version, but the manifest renames the file (same
+    // source URL). The diff reuses the active blob at its existing path, so the
+    // staged row points at v1/main.mp4 rather than the manifest-computed
+    // v1/renamed.mp4. The reused path must be protected from the sweep.
+    store = buildTestStore({
+      snapshotId: "filename-changed-same-version",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "renamed.mp4",
+          byteLength: 9,
+          url: `${baseUrl}/main.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          url: `${baseUrl}/poster.jpg`,
+        },
+      ],
+    });
+
+    await cache.syncNow();
+
+    // Reused, not re-downloaded.
+    expect(requestCounts["/main.mp4"]).toBe(mainRequests);
+    // The reused blob survives the unreferenced-blob sweep at its actual path,
+    // and no phantom renamed-file blob was ever created.
+    expect(existsSync(originalBlobPath)).toBe(true);
+    expect(
+      existsSync(
+        join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "renamed.mp4")),
+      ),
+    ).toBe(false);
+    expect((await cache.getStatus()).lastRun?.status).toBe("success");
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
+    expect(readFileSync(originalBlobPath, "utf8")).toBe("video-one");
+  });
+
+  it("resumes a failed first-ever sync across a restart without re-downloading completed assets", async () => {
+    const storageRoot = createStorageRoot();
+    store = buildTestStore({
+      snapshotId: "first-sync-fails",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: "video-one".length,
+          url: `${baseUrl}/main.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          url: `${baseUrl}/broken.mp4`,
+        },
+      ],
+    });
+
+    const cache = createNoSleepCache({
+      storageRoot,
+      resolveStore: () => store,
+    });
+
+    await cache.syncNow();
+
+    expect((await cache.getStatus()).phase).toBe("error");
+    const mainBlobPath = join(
+      storageRoot,
+      blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"),
+    );
+    expect(existsSync(mainBlobPath)).toBe(true);
+    expect(requestCounts["/main.mp4"]).toBe(1);
+    (cache as unknown as { db: { close(): void } }).db.close();
+
+    store = buildTestStore({
+      snapshotId: "first-sync-retry",
+      assets: [
+        {
+          key: "nature/forest/main",
+          version: "v1",
+          mimeType: "video/mp4",
+          fileName: "main.mp4",
+          byteLength: "video-one".length,
+          url: `${baseUrl}/main.mp4`,
+        },
+        {
+          key: "nature/forest/poster",
+          version: "v1",
+          mimeType: "image/jpeg",
+          fileName: "poster.jpg",
+          byteLength: 6,
+          url: `${baseUrl}/poster.jpg`,
+        },
+      ],
+    });
+
+    const restartedCache = createNoSleepCache({
+      storageRoot,
+      resolveStore: () => store,
+    });
+
+    await restartedCache.syncNow();
+
+    expect(requestCounts["/main.mp4"]).toBe(1);
+    expect(requestCounts["/poster.jpg"]).toBe(1);
+    const status = await restartedCache.getStatus();
+    expect(status.phase).toBe("ready");
+    expect(status.lastRun?.status).toBe("success");
+    expect((await restartedCache.getAsset("nature/forest/main"))?.version).toBe("v1");
+    expect(readFileSync(mainBlobPath, "utf8")).toBe("video-one");
+  });
+
+  it("removes orphaned staged generation rows on startup while keeping their blobs for reuse", async () => {
     const storageRoot = createStorageRoot();
     const initialCache = createNoSleepCache({
       storageRoot,
@@ -912,7 +1081,7 @@ describe("media cache sync and queries (integration)", () => {
         .get(stagedGenerationId)?.count,
     ).toBe(0);
     expect(existsSync(join(storageRoot, reusedMainPath))).toBe(true);
-    expect(existsSync(orphanPosterAbsolutePath)).toBe(false);
+    expect(existsSync(orphanPosterAbsolutePath)).toBe(true);
     expect(
       logs.find((entry) => entry.event === "orphaned_staged_generations_removed"),
     ).toMatchObject({
@@ -921,6 +1090,15 @@ describe("media cache sync and queries (integration)", () => {
       removed_generation_ids: [stagedGenerationId],
       removed_generation_count: 1,
     });
+
+    // The next sync sweeps blobs that neither the active generation, pending
+    // deletions, nor the incoming manifest reference.
+    const strayBlobPath = join(storageRoot, "blobs", "stray.bin");
+    writeFileSync(strayBlobPath, "stray");
+    await cache.syncNow();
+    expect(existsSync(orphanPosterAbsolutePath)).toBe(false);
+    expect(existsSync(strayBlobPath)).toBe(false);
+    expect(existsSync(join(storageRoot, reusedMainPath))).toBe(true);
   });
 
   it("prunes expired deletions before enforcing storage limits", async () => {

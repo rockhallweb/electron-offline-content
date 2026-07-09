@@ -19,6 +19,7 @@ import {
   mediaCacheStatusSchema,
   parseJsonWithSchema,
   parseWithSchema,
+  pendingDeletionRelativePathRowSchema,
   pendingDeletionSchema,
   protocolAssetTargetRowSchema,
   statusSnapshotRowSchema,
@@ -487,6 +488,17 @@ export class MediaCacheDatabase {
         generationId,
         deleteAfterMs,
       );
+  }
+
+  /** Relative paths of every pending deletion, expired or not. */
+  getPendingDeletionRelativePaths(): string[] {
+    this.assertNotClosed();
+    const rows = parseWithSchema(
+      pendingDeletionRelativePathRowSchema.array(),
+      this.db.prepare(`SELECT relative_path AS relativePath FROM pending_deletions`).all(),
+      "pending deletion relative paths",
+    );
+    return rows.map((row) => row.relativePath);
   }
 
   getExpiredPendingDeletions(now: number): PendingDeletion[] {
