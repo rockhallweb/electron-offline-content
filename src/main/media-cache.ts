@@ -72,6 +72,7 @@ export { DEFAULT_RESERVE_FREE_BYTES, effectiveReserveFreeBytes } from "./storage
 const requireElectron = createRequire(process.execPath);
 
 const DEFAULT_SYNC_HISTORY_LIMIT = 50;
+const DEFAULT_DOWNLOAD_CONCURRENCY = 2;
 type StatFsResult = Awaited<ReturnType<typeof statfs>>;
 const LOG_LEVEL_WEIGHT: Record<MediaCacheLogLevel, number> = {
   debug: 10,
@@ -735,45 +736,82 @@ export class MediaCache implements MediaCacheMain {
           skippedAssets: stats.skippedAssets,
         }));
 
-        for (const queuedDownload of downloads) {
-          this.assertStoreNotExpired(manifest, runId, queuedDownload);
-          const download: AssetDownloadTarget = {
-            ...queuedDownload,
-            request: { url: manifestAssetMap.get(queuedDownload.assetKey)!.url },
-          };
-          this.emitLog("debug", "asset_download_started", {
-            run_id: runId,
-            asset_key: download.assetKey,
-            version: download.version,
-            url: download.request.url,
-          });
-          const { relativePath, fallbackMimeType } =
-            await this.createAssetDownloader().downloadAsset(download, (chunkBytes) => {
-              stats.bytesDownloaded += chunkBytes;
+        const downloadGenerationId = stagedGenerationId;
+        const downloader = this.createAssetDownloader();
+        // A non-finite override (NaN/Infinity) would slip past the min/max clamp and leave
+        // workerCount NaN, so Array.from below would spawn zero workers and commit a
+        // generation with no downloads performed. Fall back to the default in that case.
+        const requestedConcurrency =
+          this.options.downloadConcurrency ?? DEFAULT_DOWNLOAD_CONCURRENCY;
+        const workerCount = Math.min(
+          Number.isFinite(requestedConcurrency)
+            ? Math.max(1, Math.floor(requestedConcurrency))
+            : DEFAULT_DOWNLOAD_CONCURRENCY,
+          Math.max(downloads.length, 1),
+        );
+        let nextDownloadIndex = 0;
+        // First failure stops workers from dequeuing more downloads; in-flight downloads run to
+        // completion (their Partial Downloads stay resumable) before the error propagates.
+        let firstDownloadError: unknown = null;
+
+        const downloadWorker = async (): Promise<void> => {
+          while (firstDownloadError === null && nextDownloadIndex < downloads.length) {
+            const queuedDownload = downloads[nextDownloadIndex]!;
+            nextDownloadIndex += 1;
+
+            try {
+              this.assertStoreNotExpired(manifest, runId, queuedDownload);
+              const download: AssetDownloadTarget = {
+                ...queuedDownload,
+                request: { url: manifestAssetMap.get(queuedDownload.assetKey)!.url },
+              };
+              this.emitLog("debug", "asset_download_started", {
+                run_id: runId,
+                asset_key: download.assetKey,
+                version: download.version,
+                url: download.request.url,
+              });
+              const { relativePath, fallbackMimeType } = await downloader.downloadAsset(
+                download,
+                (chunkBytes) => {
+                  stats.bytesDownloaded += chunkBytes;
+                  this.updateProgress((progress) => ({
+                    ...progress,
+                    bytesDownloaded: stats.bytesDownloaded,
+                  }));
+                },
+              );
+              this.db!.setAssetDownloadState(
+                downloadGenerationId,
+                download.assetKey,
+                relativePath,
+                fallbackMimeType,
+              );
+              stats.downloadedAssets += 1;
+              this.emitLog("debug", "asset_download_completed", {
+                run_id: runId,
+                asset_key: download.assetKey,
+                relative_path: relativePath,
+              });
               this.updateProgress((progress) => ({
                 ...progress,
+                completedAssets: stats.downloadedAssets + stats.skippedAssets,
+                downloadedAssets: stats.downloadedAssets,
+                skippedAssets: stats.skippedAssets,
                 bytesDownloaded: stats.bytesDownloaded,
               }));
-            });
-          this.db!.setAssetDownloadState(
-            stagedGenerationId,
-            download.assetKey,
-            relativePath,
-            fallbackMimeType,
-          );
-          stats.downloadedAssets += 1;
-          this.emitLog("debug", "asset_download_completed", {
-            run_id: runId,
-            asset_key: download.assetKey,
-            relative_path: relativePath,
-          });
-          this.updateProgress((progress) => ({
-            ...progress,
-            completedAssets: stats.downloadedAssets + stats.skippedAssets,
-            downloadedAssets: stats.downloadedAssets,
-            skippedAssets: stats.skippedAssets,
-            bytesDownloaded: stats.bytesDownloaded,
-          }));
+            } catch (error) {
+              if (firstDownloadError === null) {
+                firstDownloadError = error;
+              }
+              return;
+            }
+          }
+        };
+
+        await Promise.all(Array.from({ length: workerCount }, () => downloadWorker()));
+        if (firstDownloadError !== null) {
+          throw firstDownloadError;
         }
       } else {
         this.updateProgress((progress) => ({

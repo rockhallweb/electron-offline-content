@@ -654,18 +654,19 @@ Creates a `MediaCacheMain` instance. Call before `app.whenReady()` in offline mo
 
 **`MediaCacheOptions`**
 
-| Option               | Type                       | Required | Description                                                                                     |
-| -------------------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `storagePath`        | `MediaCacheStoragePath`    | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
-| `resolveStore`       | callback                   | yes      | Returns `MediaStore` or a `Promise<MediaStore>` for each sync.                                  |
-| `devPassthrough`     | `boolean`                  | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
-| `assetBaseUrl`       | `string`                   | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
-| `onSyncFailure`      | `SyncFailureMode`          | no       | Behavior when a sync fails after a prior snapshot exists (`serve-last-snapshot` or `throw`).    |
-| `maxCacheBytes`      | `number`                   | no       | Soft cap on total cached bytes.                                                                 |
-| `reserveFreeBytes`   | `number`                   | no       | Minimum free disk bytes to preserve. Default **1 GiB**; **`0`** disables.                       |
-| `staleDeleteAfterMs` | `number`                   | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
-| `syncHistoryLimit`   | `number`                   | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
-| `logging`            | `MediaCacheLoggingOptions` | no       | Nested logging config for either a custom sink or built-in console formatting.                  |
+| Option                | Type                       | Required | Description                                                                                     |
+| --------------------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `storagePath`         | `MediaCacheStoragePath`    | yes      | `{ appPath, segments? }` -- resolved via `app.getPath(appPath)` plus optional subpath segments. |
+| `resolveStore`        | callback                   | yes      | Returns `MediaStore` or a `Promise<MediaStore>` for each sync.                                  |
+| `devPassthrough`      | `boolean`                  | no       | Skip downloads, return remote URLs. Auto-enabled when `NODE_ENV === "development"`.             |
+| `assetBaseUrl`        | `string`                   | no       | Origin override for dev passthrough (origin only, no path/query/hash).                          |
+| `onSyncFailure`       | `SyncFailureMode`          | no       | Behavior when a sync fails after a prior snapshot exists (`serve-last-snapshot` or `throw`).    |
+| `maxCacheBytes`       | `number`                   | no       | Soft cap on total cached bytes.                                                                 |
+| `reserveFreeBytes`    | `number`                   | no       | Minimum free disk bytes to preserve. Default **1 GiB**; **`0`** disables.                       |
+| `staleDeleteAfterMs`  | `number`                   | no       | Grace period (ms) before pruning removed assets. Default 7 days.                                |
+| `downloadConcurrency` | `number`                   | no       | Assets downloaded in parallel during sync. Default 2; minimum 1.                                |
+| `syncHistoryLimit`    | `number`                   | no       | Max completed sync runs retained in SQLite. Default 50.                                         |
+| `logging`             | `MediaCacheLoggingOptions` | no       | Nested logging config for either a custom sink or built-in console formatting.                  |
 
 #### `MediaCacheMain`
 
