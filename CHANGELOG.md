@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+### Added
+
+- `downloadConcurrency` option (`MediaCacheOptions`) downloads assets in parallel during sync via a small worker pool, filling the throughput valleys left by the previous one-at-a-time loop. Defaults to `2`, clamped to a minimum of `1` and capped at the number of queued downloads. Failure semantics are unchanged: on the first error, workers stop dequeuing new assets, in-flight downloads run to completion (leaving resumable `.part` files), and the first error propagates through the existing rollback path. (#94)
 
 ### Fixed
 
