@@ -380,6 +380,42 @@ describe("generation lifecycle", () => {
     ]);
   });
 
+  it("does not mark a blob as replaced when stored path separators differ", () => {
+    const assetKey = hashKey("nature/forest/main");
+    const canonicalPath = blobPathFor(assetKey, "v1", "main.mp4");
+    const windowsPath = canonicalPath.replaceAll("/", "\\");
+    const committedGenerationId = stageGeneration("legacy-windows", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: windowsPath,
+      },
+    ]);
+    db.activateGeneration(committedGenerationId, 1);
+    const stagedGenerationId = stageGeneration("canonical", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: canonicalPath,
+      },
+    ]);
+    writeBlob(canonicalPath, "video-one");
+
+    lifecycle.commitStagedGeneration(stagedGenerationId, 100);
+
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
+    expect(logs.at(-1)).toMatchObject({
+      event: "assets_marked_for_deletion",
+      fields: { marked_count: 0 },
+    });
+  });
+
   it("returns null and marks nothing on the first commit", () => {
     const stagedPath = blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4");
     const stagedGenerationId = stageGeneration("first-commit", [
@@ -526,5 +562,29 @@ describe("generation lifecycle", () => {
       event: "assets_pruned",
       fields: { pruned_count: 1 },
     });
+  });
+
+  it("cancels an expired deletion when the active generation still references the blob", () => {
+    const assetKey = hashKey("nature/forest/main");
+    const canonicalPath = blobPathFor(assetKey, "v1", "main.mp4");
+    const windowsPath = canonicalPath.replaceAll("/", "\\");
+    const activeGenerationId = stageGeneration("active", [
+      {
+        key: "nature/forest/main",
+        version: "v1",
+        mimeType: "video/mp4",
+        fileName: "main.mp4",
+        url: "https://example.test/main.mp4",
+        relativePath: canonicalPath,
+      },
+    ]);
+    db.activateGeneration(activeGenerationId, 1);
+    const activeBlobPath = writeBlob(canonicalPath, "video-one");
+    db.markPendingDeletion(assetKey, windowsPath, 99, JSON.stringify([assetKey, windowsPath]), 50);
+
+    lifecycle.pruneExpiredDeletions(100);
+
+    expect(existsSync(activeBlobPath)).toBe(true);
+    expect(db.getExpiredPendingDeletions(Number.MAX_SAFE_INTEGER)).toEqual([]);
   });
 });

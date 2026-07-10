@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Stored Blob paths now use canonical separators across platforms. Existing Windows-style paths
+  are migrated on startup, equivalent paths no longer schedule active Blobs for delayed deletion,
+  and pruning cancels any legacy pending deletion that still targets the active Generation.
+
 ## 0.6.0
 
 ### Added
