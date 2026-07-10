@@ -28,6 +28,7 @@ import {
   syncRunRowSchema,
   syncRunStatsSchema,
 } from "../internal/validation.js";
+import { normalizeStoredRelativePath } from "./stored-path.js";
 
 const require = createRequire(process.execPath);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -381,13 +382,14 @@ export class MediaCacheDatabase {
 
   setAssetRelativePath(generationId: number, assetKey: string, relativePath: string): void {
     this.assertNotClosed();
+    const normalizedRelativePath = normalizeStoredRelativePath(relativePath);
     this.db
       .prepare(
         `UPDATE assets
          SET relative_path = ?
          WHERE generation_id = ? AND asset_key = ?`,
       )
-      .run(relativePath, generationId, assetKey);
+      .run(normalizedRelativePath, generationId, assetKey);
   }
 
   setAssetDownloadState(
@@ -397,6 +399,7 @@ export class MediaCacheDatabase {
     fallbackMimeType: string | null,
   ): void {
     this.assertNotClosed();
+    const normalizedRelativePath = normalizeStoredRelativePath(relativePath);
     this.db
       .prepare(
         `UPDATE assets
@@ -405,7 +408,7 @@ export class MediaCacheDatabase {
            mime_type = COALESCE(mime_type, ?)
          WHERE generation_id = ? AND asset_key = ?`,
       )
-      .run(relativePath, fallbackMimeType, generationId, assetKey);
+      .run(normalizedRelativePath, fallbackMimeType, generationId, assetKey);
   }
 
   getGenerationAssets(generationId: number): GenerationAssetRow[] {
@@ -467,6 +470,7 @@ export class MediaCacheDatabase {
     deleteAfterMs: number,
   ): void {
     this.assertNotClosed();
+    const normalizedRelativePath = normalizeStoredRelativePath(relativePath);
     this.db
       .prepare(
         `INSERT INTO pending_deletions (
@@ -484,7 +488,7 @@ export class MediaCacheDatabase {
         deletionKey,
         this.logicalKey(assetKey),
         assetKey,
-        relativePath,
+        normalizedRelativePath,
         generationId,
         deleteAfterMs,
       );
@@ -534,10 +538,11 @@ export class MediaCacheDatabase {
       return;
     }
 
-    const placeholders = relativePaths.map(() => "?").join(", ");
+    const normalizedRelativePaths = relativePaths.map(normalizeStoredRelativePath);
+    const placeholders = normalizedRelativePaths.map(() => "?").join(", ");
     this.db
       .prepare(`DELETE FROM pending_deletions WHERE relative_path IN (${placeholders})`)
-      .run(...relativePaths);
+      .run(...normalizedRelativePaths);
   }
 
   getProtocolAssetTarget(assetKey: string): ProtocolAssetTarget | null {
@@ -766,6 +771,14 @@ export class MediaCacheDatabase {
         updated_at_ms INTEGER NOT NULL,
         PRIMARY KEY (scope_type, scope_key)
       );
+
+      UPDATE assets
+      SET relative_path = replace(relative_path, char(92), '/')
+      WHERE instr(relative_path, char(92)) > 0;
+
+      UPDATE pending_deletions
+      SET relative_path = replace(relative_path, char(92), '/')
+      WHERE instr(relative_path, char(92)) > 0;
     `);
   }
 }

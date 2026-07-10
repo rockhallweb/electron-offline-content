@@ -2,6 +2,9 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { JsonValue, MediaCacheLogLevel } from "../shared/types.js";
 import type { GenerationAssetRow, PendingDeletion } from "./database.js";
+import { normalizeStoredRelativePath } from "./stored-path.js";
+
+export { normalizeStoredRelativePath } from "./stored-path.js";
 
 /** When `staleDeleteAfterMs` is omitted, replaced Blobs stay on disk this long (7 days). */
 export const DEFAULT_STALE_DELETE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -85,7 +88,26 @@ export class GenerationLifecycle {
       return;
     }
 
+    const activeGenerationId = this.db.getActiveGenerationId();
+    const activeRelativePaths = new Set(
+      activeGenerationId === null
+        ? []
+        : this.db
+            .getGenerationAssets(activeGenerationId)
+            .flatMap((row) =>
+              row.relativePath ? [normalizeStoredRelativePath(row.relativePath)] : [],
+            ),
+    );
+    let prunedCount = 0;
     for (const deletion of expired) {
+      const normalizedRelativePath = normalizeStoredRelativePath(deletion.relativePath);
+      if (activeRelativePaths.has(normalizedRelativePath)) {
+        this.options.emitLog("warn", "active_blob_deletion_cancelled", {
+          active_generation_id: activeGenerationId,
+          relative_path: normalizedRelativePath,
+        });
+        continue;
+      }
       const absolutePath = resolveStoredBlobPath(this.storageRoot, deletion.relativePath);
       if (absolutePath === null) {
         this.options.emitLog("warn", "pending_deletion_path_outside_storage_root", {
@@ -95,10 +117,11 @@ export class GenerationLifecycle {
       }
       rmSync(absolutePath, { force: true });
       pruneEmptyParents(absolutePath, this.storageRoot);
+      prunedCount += 1;
     }
 
     this.db.deletePendingDeletions(expired.map((item) => item.deletionKey));
-    this.options.emitLog("debug", "assets_pruned", { pruned_count: expired.length });
+    this.options.emitLog("debug", "assets_pruned", { pruned_count: prunedCount });
   }
 
   /**
@@ -148,19 +171,24 @@ export class GenerationLifecycle {
     const nextAssets = new Map(
       this.db
         .getGenerationAssets(stagedGenerationId)
-        .map((row) => [row.assetKey, row.relativePath]),
+        .map((row) => [
+          row.assetKey,
+          row.relativePath === null ? null : normalizeStoredRelativePath(row.relativePath),
+        ]),
     );
     const deleteAfterMs = now + (this.options.staleDeleteAfterMs ?? DEFAULT_STALE_DELETE_MS);
 
     let markedCount = 0;
     for (const row of previousAssets) {
       const nextRelativePath = nextAssets.get(row.assetKey);
-      if (row.relativePath && nextRelativePath !== row.relativePath) {
+      const previousRelativePath =
+        row.relativePath === null ? null : normalizeStoredRelativePath(row.relativePath);
+      if (previousRelativePath && nextRelativePath !== previousRelativePath) {
         this.db.markPendingDeletion(
           row.assetKey,
-          row.relativePath,
+          previousRelativePath,
           previousGenerationId,
-          createPendingDeletionKey(row.assetKey, row.relativePath),
+          createPendingDeletionKey(row.assetKey, previousRelativePath),
           deleteAfterMs,
         );
         markedCount += 1;
@@ -177,10 +205,6 @@ export class GenerationLifecycle {
 
 function createPendingDeletionKey(assetKey: string, relativePath: string): string {
   return JSON.stringify([assetKey, relativePath]);
-}
-
-export function normalizeStoredRelativePath(relativePath: string): string {
-  return relativePath.split(/[\\/]/).join("/");
 }
 
 /**

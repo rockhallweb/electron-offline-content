@@ -168,12 +168,20 @@ describe("media cache sync and queries (integration)", () => {
     );
   });
 
-  it("reuses cached assets when stored relative paths use windows separators", async () => {
+  it("keeps serving reused blobs after a legacy windows path crosses the deletion delay", async () => {
+    let currentNow = 1_000;
     const storageRoot = createStorageRoot();
-    const cache = new MediaCache({
-      storageRoot,
-      resolveStore: () => store,
-    });
+    const cache = new MediaCache(
+      {
+        storageRoot,
+        staleDeleteAfterMs: 10,
+        resolveStore: () => store,
+      },
+      {
+        now: () => currentNow,
+        sleep: async () => undefined,
+      },
+    );
 
     await cache.start();
     expect(requestCounts["/main.mp4"]).toBe(1);
@@ -189,7 +197,11 @@ describe("media cache sync and queries (integration)", () => {
             mimeType: string;
             url: string;
           }>;
-          setAssetRelativePath(generationId: number, assetKey: string, relativePath: string): void;
+          db: {
+            prepare(sql: string): {
+              run(...args: unknown[]): unknown;
+            };
+          };
         };
       }
     ).db;
@@ -202,14 +214,22 @@ describe("media cache sync and queries (integration)", () => {
     expect(mainAsset?.relativePath).toBeTruthy();
 
     const windowsRelativePath = `blobs\\${hashKey("nature/forest/main")}\\v1\\main.mp4`;
-    db.setAssetRelativePath(
-      activeGenerationId!,
-      hashKey("nature/forest/main"),
-      windowsRelativePath,
-    );
+    // Simulate the native-separator path persisted by a pre-0.6 Windows install.
+    db.db
+      .prepare("UPDATE assets SET relative_path = ? WHERE generation_id = ? AND asset_key = ?")
+      .run(windowsRelativePath, activeGenerationId!, hashKey("nature/forest/main"));
 
+    currentNow = 1_100;
     await cache.syncNow();
     expect(requestCounts["/main.mp4"]).toBe(1);
+
+    currentNow = 1_120;
+    await cache.syncNow();
+    expect(requestCounts["/main.mp4"]).toBe(1);
+    expect(
+      existsSync(join(storageRoot, blobPathFor(hashKey("nature/forest/main"), "v1", "main.mp4"))),
+    ).toBe(true);
+    expect((await cache.getAsset("nature/forest/main"))?.version).toBe("v1");
   });
 
   it("preserves JSON.stringify semantics for undefined asset metadata", async () => {

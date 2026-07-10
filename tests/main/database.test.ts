@@ -125,6 +125,83 @@ describe("MediaCacheDatabase", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("canonicalizes legacy windows stored paths when reopening the database", () => {
+    const root = mkdtempSync(join(tmpdir(), "media-cache-path-migration-"));
+    try {
+      const db = new MediaCacheDatabase(root);
+      const store = createMediaStore();
+      store.add(["a", "v", "1"], {
+        version: "v1",
+        mimeType: "video/mp4",
+        url: "https://example.com/v.mp4",
+      });
+      const generationId = db.createStagedGeneration(normalizeManifest(store._serialize()), 1);
+      const assetKey = hashKey(["a", "v", "1"]);
+      const canonicalPath = `blobs/${assetKey}/v1/v.mp4`;
+      const windowsPath = canonicalPath.replaceAll("/", "\\");
+      db.setAssetRelativePath(generationId, assetKey, canonicalPath);
+      db.markPendingDeletion(
+        assetKey,
+        canonicalPath,
+        generationId,
+        JSON.stringify([assetKey, canonicalPath]),
+        100,
+      );
+
+      const dbInternal = (
+        db as unknown as {
+          db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } };
+        }
+      ).db;
+      dbInternal
+        .prepare("UPDATE assets SET relative_path = ? WHERE generation_id = ? AND asset_key = ?")
+        .run(windowsPath, generationId, assetKey);
+      dbInternal
+        .prepare("UPDATE pending_deletions SET relative_path = ? WHERE asset_key = ?")
+        .run(windowsPath, assetKey);
+      db.close();
+
+      const reopened = new MediaCacheDatabase(root);
+      expect(reopened.getGenerationAssets(generationId)[0]?.relativePath).toBe(canonicalPath);
+      expect(reopened.getPendingDeletionRelativePaths()).toEqual([canonicalPath]);
+      reopened.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("persists newly written stored paths with canonical separators", () => {
+    const root = mkdtempSync(join(tmpdir(), "media-cache-canonical-paths-"));
+    try {
+      const db = new MediaCacheDatabase(root);
+      const store = createMediaStore();
+      store.add(["a", "v", "1"], {
+        version: "v1",
+        mimeType: "video/mp4",
+        url: "https://example.com/v.mp4",
+      });
+      const generationId = db.createStagedGeneration(normalizeManifest(store._serialize()), 1);
+      const assetKey = hashKey(["a", "v", "1"]);
+      const canonicalPath = `blobs/${assetKey}/v1/v.mp4`;
+      const windowsPath = canonicalPath.replaceAll("/", "\\");
+
+      db.setAssetDownloadState(generationId, assetKey, windowsPath, null);
+      db.markPendingDeletion(
+        assetKey,
+        windowsPath,
+        generationId,
+        JSON.stringify([assetKey, canonicalPath]),
+        100,
+      );
+
+      expect(db.getGenerationAssets(generationId)[0]?.relativePath).toBe(canonicalPath);
+      expect(db.getPendingDeletionRelativePaths()).toEqual([canonicalPath]);
+      db.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("pruneSyncHistory", () => {
