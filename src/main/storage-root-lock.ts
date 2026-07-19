@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { hostname, platform } from "node:os";
 import { join } from "node:path";
 import { StorageOwnershipError } from "../shared/errors.js";
 
 const STORAGE_ROOT_LOCK_FILE_NAME = ".media-cache.lock";
 const LOCAL_HOSTNAME = hostname();
+const PROCESS_START_TIME_TOLERANCE_MS = 5_000;
+const LOCAL_PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1_000).toISOString();
 
 interface StorageRootLockMetadata {
   lockId: string;
@@ -13,6 +16,7 @@ interface StorageRootLockMetadata {
   hostname: string;
   storageRoot: string;
   acquiredAt: string;
+  processStartedAt?: string;
 }
 
 export interface StorageRootLockHandle {
@@ -78,6 +82,7 @@ function tryAcquireStorageRootLock(
     hostname: LOCAL_HOSTNAME,
     storageRoot,
     acquiredAt: new Date().toISOString(),
+    processStartedAt: LOCAL_PROCESS_STARTED_AT,
   };
 
   try {
@@ -91,9 +96,9 @@ function tryAcquireStorageRootLock(
     if (
       !hasReclaimedStaleLock &&
       existingMetadata?.hostname === LOCAL_HOSTNAME &&
-      !isProcessAlive(existingMetadata.pid)
+      !isRecordedProcessInstanceAlive(existingMetadata)
     ) {
-      rmSync(lockFilePath, { force: true });
+      removeOwnedLockFile(lockFilePath, existingMetadata.lockId);
       return tryAcquireStorageRootLock(storageRoot, owner, true);
     }
 
@@ -173,6 +178,9 @@ function parseLockMetadata(raw: string): StorageRootLockMetadata | null {
       hostname: parsed.hostname,
       storageRoot: parsed.storageRoot,
       acquiredAt: parsed.acquiredAt,
+      ...(typeof parsed.processStartedAt === "string"
+        ? { processStartedAt: parsed.processStartedAt }
+        : {}),
     };
   } catch {
     return null;
@@ -218,5 +226,65 @@ function isProcessAlive(pid: number): boolean {
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ESRCH"
     );
+  }
+}
+
+function isRecordedProcessInstanceAlive(metadata: StorageRootLockMetadata): boolean {
+  if (!isProcessAlive(metadata.pid)) {
+    return false;
+  }
+
+  const recordedProcessStartedAt = metadata.processStartedAt
+    ? Date.parse(metadata.processStartedAt)
+    : null;
+  const acquiredAt = Date.parse(metadata.acquiredAt);
+  const processStartedAt = readProcessStartedAt(metadata.pid);
+  if (processStartedAt !== null) {
+    if (
+      recordedProcessStartedAt !== null &&
+      Number.isFinite(recordedProcessStartedAt) &&
+      Math.abs(processStartedAt - recordedProcessStartedAt) > PROCESS_START_TIME_TOLERANCE_MS
+    ) {
+      return false;
+    }
+    if (
+      recordedProcessStartedAt === null &&
+      Number.isFinite(acquiredAt) &&
+      processStartedAt > acquiredAt + PROCESS_START_TIME_TOLERANCE_MS
+    ) {
+      return false;
+    }
+  }
+
+  // The process may have exited between the liveness and identity probes. If the start time
+  // was unavailable for any other reason, remain conservative and preserve a possibly live
+  // owner's lock.
+  return processStartedAt !== null || isProcessAlive(metadata.pid);
+}
+
+function readProcessStartedAt(pid: number): number | null {
+  try {
+    const output =
+      platform() === "win32"
+        ? execFileSync(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CreationDate.ToUniversalTime().ToString('o')`,
+            ],
+            { encoding: "utf8", timeout: 2_000, windowsHide: true },
+          )
+        : execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+            encoding: "utf8",
+            env: { ...process.env, LC_ALL: "C" },
+            timeout: 2_000,
+            windowsHide: true,
+          });
+    const startedAt = Date.parse(output.trim());
+    return Number.isFinite(startedAt) ? startedAt : null;
+  } catch {
+    return null;
   }
 }

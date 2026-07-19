@@ -685,6 +685,10 @@ Returned by `createMediaCache`. Requires exclusive ownership of its resolved sto
 
 In kiosk-style apps, call `app.requestSingleInstanceLock()` before constructing the cache. The package enforces storage-root exclusivity itself, but the instance lock prevents a second Electron process from launching.
 
+On the same host, the package reclaims a stale storage lock when the recorded PID no longer
+exists or the operating system reports that the PID now belongs to a newer process instance. If
+process identity cannot be inspected, ownership remains conservative and the lock is preserved.
+
 #### Key types
 
 **ResolvedMediaAsset** -- `{ key, displayKey, version, mimeType, kind: MediaKind, byteLength?, url, metadata: Record<string, JsonValue>, indexes: Record<string, string | string[]> }`. `key` is the stable storage hash; `displayKey` is the original human-readable key (string or segment path joined with `/`). `kind` is derived from `mimeType` via `mediaKindFromMime()`. `url` is a `media://asset/{encodedKey}` URL in offline mode or a remote URL in passthrough mode.

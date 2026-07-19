@@ -16,6 +16,7 @@ const metadata = {
   hostname: hostname(),
   storageRoot,
   acquiredAt: new Date().toISOString(),
+  processStartedAt: new Date(Date.now() - process.uptime() * 1_000).toISOString(),
 };
 
 writeFileSync(lockFilePath, `${JSON.stringify(metadata, null, 2)}\n`, { flag: "wx" });
