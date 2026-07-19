@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Stale storage-root locks no longer remain wedged when the operating system reuses the recorded PID for an unrelated process. Lock metadata now records process-start identity, and legacy locks use their acquisition time to distinguish PID reuse while preserving genuinely live owners.
+
 ## 0.6.0
 
 ### Added

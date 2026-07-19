@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync, statfsSync } from "node:fs";
+import { hostname } from "node:os";
 import { join, dirname } from "node:path";
 import {
   disableMediaCacheStorageRootLockForTests,
@@ -72,6 +73,36 @@ describe("media cache sync and queries (integration)", () => {
       } finally {
         await lockHolder.stop();
       }
+    } finally {
+      disableMediaCacheStorageRootLockForTests();
+    }
+  });
+
+  it("reclaims a stale lock when its PID belongs to a newer process instance", async () => {
+    try {
+      enableMediaCacheStorageRootLockForTests();
+      const storageRoot = createStorageRoot();
+      writeFileSync(
+        join(storageRoot, ".media-cache.lock"),
+        `${JSON.stringify(
+          {
+            lockId: "stale-reused-pid",
+            pid: process.pid,
+            hostname: hostname(),
+            storageRoot,
+            acquiredAt: "2000-01-01T00:00:00.000Z",
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const cache = new RawMediaCache({
+        storageRoot,
+        resolveStore: () => store,
+      });
+
+      await expect(cache.syncNow()).resolves.toBeUndefined();
     } finally {
       disableMediaCacheStorageRootLockForTests();
     }
