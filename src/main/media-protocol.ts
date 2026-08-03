@@ -107,14 +107,14 @@ function createMediaFileResponse(filePath: string, request: Request): Response {
   }
 
   if (!rangeHeader) {
-    baseHeaders.set("content-length", String(size));
-    return new Response(Readable.toWeb(createReadStream(filePath)) as BodyInit, {
-      status: 200,
-      headers: baseHeaders,
-    });
+    return createFullMediaFileResponse(filePath, size, baseHeaders);
   }
 
   const parsedRange = parseByteRange(rangeHeader, size);
+  // Malformed Range headers are treated as absent (RFC 9110 §14) — serve the full entity.
+  if (parsedRange === "ignore") {
+    return createFullMediaFileResponse(filePath, size, baseHeaders);
+  }
   if (!parsedRange) {
     baseHeaders.set("content-range", `bytes */${size}`);
     return new Response(null, {
@@ -133,7 +133,33 @@ function createMediaFileResponse(filePath: string, request: Request): Response {
   });
 }
 
-function parseByteRange(rangeHeader: string, size: number): { start: number; end: number } | null {
+function createFullMediaFileResponse(
+  filePath: string,
+  size: number,
+  baseHeaders: Headers,
+): Response {
+  baseHeaders.set("content-length", String(size));
+  return new Response(Readable.toWeb(createReadStream(filePath)) as BodyInit, {
+    status: 200,
+    headers: baseHeaders,
+  });
+}
+
+/**
+ * Parses a single `bytes=` Range value.
+ *
+ * Returns:
+ * - `{ start, end }` for a satisfiable range
+ * - `null` for a well-formed but unsatisfiable / unsupported range (caller should 416)
+ * - `"ignore"` for a malformed specifier (caller should treat the header as absent)
+ *
+ * Digit fields must be entirely numeric — no `Number.parseInt` prefix parsing
+ * (e.g. `bytes=1x-4` is ignored, not treated as `1-4`).
+ */
+function parseByteRange(
+  rangeHeader: string,
+  size: number,
+): { start: number; end: number } | "ignore" | null {
   if (!rangeHeader.startsWith("bytes=")) {
     return null;
   }
@@ -143,14 +169,14 @@ function parseByteRange(rangeHeader: string, size: number): { start: number; end
     return null;
   }
 
-  const [startText, endText] = value.split("-", 2);
-  if (startText === undefined || endText === undefined) {
-    return null;
-  }
-
-  if (startText === "") {
-    const suffixLength = Number.parseInt(endText, 10);
-    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+  // suffix-byte-range-spec: "-" 1*DIGIT
+  if (value.startsWith("-")) {
+    const suffixText = value.slice(1);
+    if (!isStrictDigitString(suffixText)) {
+      return "ignore";
+    }
+    const suffixLength = Number.parseInt(suffixText, 10);
+    if (suffixLength <= 0) {
       return null;
     }
     const start = Math.max(size - suffixLength, 0);
@@ -158,13 +184,21 @@ function parseByteRange(rangeHeader: string, size: number): { start: number; end
     return start <= end ? { start, end } : null;
   }
 
-  const start = Number.parseInt(startText, 10);
-  const end = endText === "" ? size - 1 : Number.parseInt(endText, 10);
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    return null;
+  // byte-range-spec: 1*DIGIT "-" [ 1*DIGIT ]
+  const separatorIndex = value.indexOf("-");
+  if (separatorIndex <= 0 || value.indexOf("-", separatorIndex + 1) !== -1) {
+    return "ignore";
   }
 
-  if (start < 0 || end < start || start >= size) {
+  const startText = value.slice(0, separatorIndex);
+  const endText = value.slice(separatorIndex + 1);
+  if (!isStrictDigitString(startText) || (endText !== "" && !isStrictDigitString(endText))) {
+    return "ignore";
+  }
+
+  const start = Number.parseInt(startText, 10);
+  const end = endText === "" ? size - 1 : Number.parseInt(endText, 10);
+  if (end < start || start >= size) {
     return null;
   }
 
@@ -172,6 +206,10 @@ function parseByteRange(rangeHeader: string, size: number): { start: number; end
     start,
     end: Math.min(end, size - 1),
   };
+}
+
+function isStrictDigitString(value: string): boolean {
+  return value.length > 0 && /^\d+$/.test(value);
 }
 
 function inferMimeType(filePath: string): string {
