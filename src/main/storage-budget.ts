@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { readdirSync as fsReaddirSync, statSync as fsStatSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import { StorageLimitError } from "../shared/errors.js";
 import type { JsonValue, MediaCacheLogLevel } from "../shared/types.js";
@@ -32,8 +32,20 @@ export interface PartialDownloadByteSource {
 
 type StatFsResult = Awaited<ReturnType<typeof import("node:fs/promises").statfs>>;
 
+/**
+ * Injectable disk ops for {@link bytesOnDisk}. Tests stub these to simulate entries that vanish
+ * between enumeration and stat (TOCTOU).
+ * @internal
+ */
+export interface BytesOnDiskOps {
+  statSync: (path: string, options: { throwIfNoEntry: false }) => Stats | undefined;
+  readdirSync: (path: string) => string[];
+}
+
 export interface StorageBudgetDependencies {
   statfs: (path: string) => Promise<StatFsResult>;
+  /** @internal Optional override so tests can simulate vanishing entries mid-scan. */
+  disk?: BytesOnDiskOps;
 }
 
 /**
@@ -72,7 +84,7 @@ export class StorageBudget {
     );
 
     if (this.options.maxCacheBytes !== undefined) {
-      const currentBytes = bytesOnDisk(join(this.storageRoot, "blobs"));
+      const currentBytes = bytesOnDisk(join(this.storageRoot, "blobs"), this.deps.disk);
       if (currentBytes + estimatedBlobBytes > this.options.maxCacheBytes) {
         this.options.emitLog("warn", "storage_limit_exceeded", {
           current_bytes: currentBytes,
@@ -114,19 +126,46 @@ export class StorageBudget {
   }
 }
 
-/** Recursive on-disk size of a file or directory tree; 0 when missing. */
-function bytesOnDisk(directory: string): number {
-  if (!existsSync(directory)) {
+const defaultDiskOps: BytesOnDiskOps = {
+  statSync: (path, options) => fsStatSync(path, options),
+  readdirSync: (path) => fsReaddirSync(path),
+};
+
+/**
+ * Recursive on-disk size of a file or directory tree; 0 when missing or vanished mid-scan.
+ * @internal
+ */
+export function bytesOnDisk(path: string, ops: BytesOnDiskOps = defaultDiskOps): number {
+  // Single stat with throwIfNoEntry:false avoids the existsSync→statSync TOCTOU where a
+  // concurrent delete between the check and the stat would throw and abort budget evaluation.
+  const stats = ops.statSync(path, { throwIfNoEntry: false });
+  if (!stats) {
     return 0;
   }
 
-  const stats = statSync(directory);
   if (stats.isFile()) {
     return stats.size;
   }
 
-  return readdirSync(directory).reduce(
-    (sum, entry) => sum + bytesOnDisk(join(directory, entry)),
-    0,
+  let entries: string[];
+  try {
+    entries = ops.readdirSync(path);
+  } catch (error) {
+    // Directory vanished between the directory stat and readdir.
+    if (isEnoentError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+
+  return entries.reduce((sum, entry) => sum + bytesOnDisk(join(path, entry), ops), 0);
+}
+
+function isEnoentError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
   );
 }

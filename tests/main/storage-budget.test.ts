@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, statfsSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statfsSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -10,6 +18,7 @@ import {
 import {
   DEFAULT_RESERVE_FREE_BYTES,
   StorageBudget,
+  type BytesOnDiskOps,
   type StorageBudgetLogHandler,
 } from "../../src/main/storage-budget.js";
 import { StorageLimitError } from "../../src/shared/errors.js";
@@ -44,6 +53,19 @@ function stubStatFs(root: string, availableBytes: number): (path: string) => Pro
   };
 }
 
+/** Disk ops that delete `vanishingPath` on first stat, simulating a concurrent unlink. */
+function vanishingEntryDiskOps(vanishingPath: string): BytesOnDiskOps {
+  return {
+    readdirSync: (path) => readdirSync(path),
+    statSync: (path, options) => {
+      if (path === vanishingPath) {
+        rmSync(vanishingPath, { force: true });
+      }
+      return statSync(path, options);
+    },
+  };
+}
+
 function createBudget(
   root: string,
   options?: {
@@ -51,6 +73,7 @@ function createBudget(
     reserveFreeBytes?: number;
     availableBytes?: number;
     emitLog?: StorageBudgetLogHandler;
+    disk?: BytesOnDiskOps;
   },
 ): StorageBudget {
   return new StorageBudget(
@@ -61,6 +84,7 @@ function createBudget(
         options?.availableBytes === undefined
           ? async (path) => statfsSync(path) as unknown as StatFsResult
           : stubStatFs(root, options.availableBytes),
+      disk: options?.disk,
     },
     {
       maxCacheBytes: options?.maxCacheBytes,
@@ -210,5 +234,73 @@ describe("StorageBudget commit-time reserve", () => {
     const budget = createBudget(root, { reserveFreeBytes: 0, availableBytes: 0 });
 
     await expect(budget.ensureCommitReserve()).resolves.toBeUndefined();
+  });
+});
+
+describe("StorageBudget TOCTOU resilience during on-disk scans", () => {
+  it("does not throw from ensureDownloadBudget when a blob vanishes mid-scan", async () => {
+    const root = createRoot();
+    const vanishingPath = join(root, "blobs", "vanishing", "v1", "gone.bin");
+    mkdirSync(dirname(vanishingPath), { recursive: true });
+    writeFileSync(vanishingPath, "12345");
+    // A second file stays put so the scan still walks the tree after the vanish.
+    const stablePath = join(root, "blobs", "stable", "v1", "kept.bin");
+    mkdirSync(dirname(stablePath), { recursive: true });
+    writeFileSync(stablePath, "abc");
+
+    const budget = createBudget(root, {
+      maxCacheBytes: 100,
+      reserveFreeBytes: 0,
+      disk: vanishingEntryDiskOps(vanishingPath),
+    });
+
+    await expect(
+      budget.ensureDownloadBudget([createTarget({ byteLength: 1 })]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw from ensureDownloadBudget when a directory vanishes between stat and readdir", async () => {
+    const root = createRoot();
+    const vanishingDir = join(root, "blobs", "vanishing-dir");
+    mkdirSync(vanishingDir, { recursive: true });
+    writeFileSync(join(vanishingDir, "child.bin"), "12345");
+
+    const budget = createBudget(root, {
+      maxCacheBytes: 100,
+      reserveFreeBytes: 0,
+      disk: {
+        readdirSync: (path) => {
+          if (path === vanishingDir) {
+            rmSync(vanishingDir, { recursive: true, force: true });
+          }
+          return readdirSync(path);
+        },
+        statSync: (path, options) => statSync(path, options),
+      },
+    });
+
+    await expect(
+      budget.ensureDownloadBudget([createTarget({ byteLength: 1 })]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("treats a partial download that vanishes between check and stat as zero bytes", () => {
+    const root = createRoot();
+    const target = createTarget({ byteLength: 20 });
+    const partialPath = partialDownloadPath(root, target);
+    mkdirSync(dirname(partialPath), { recursive: true });
+    writeFileSync(partialPath, "partial");
+
+    const bytes = partialDownloadBytes(root, target, (path, options) => {
+      if (path === partialPath) {
+        rmSync(partialPath, { force: true });
+      }
+      return statSync(path, options);
+    });
+
+    expect(bytes).toBe(0);
+
+    const budget = createBudget(root);
+    expect(budget.remainingDownloadBytes(target)).toBe(20);
   });
 });
