@@ -254,6 +254,19 @@ describe("media protocol file responses", () => {
     },
   );
 
+  it.each(["bytes=1x-4", "bytes=--5", "bytes=1-2-3", "bytes=1-2x", "bytes=x-4", "bytes=1--2"])(
+    "ignores malformed range header %j and serves the full 200 response",
+    async (range) => {
+      const handler = createFileHandler();
+
+      const response = await handler(new Request("media://asset/abc", { headers: { range } }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-length")).toBe(String(body.length));
+      expect(response.headers.get("content-range")).toBeNull();
+      expect(await response.text()).toBe(body);
+    },
+  );
+
   it("infers MIME types from the blob file extension", async () => {
     const cases: Array<[string, string]> = [
       ["sample.webm", "video/webm"],
