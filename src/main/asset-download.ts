@@ -94,9 +94,17 @@ export function partialDownloadPath(
 export function partialDownloadBytes(
   storageRoot: string,
   download: QueuedAssetDownloadTarget,
+  /** @internal Optional override so tests can simulate a vanishing Partial Download. */
+  statSyncImpl: (
+    path: string,
+    options: { throwIfNoEntry: false },
+  ) => { size: number } | undefined = (path, options) => statSync(path, options),
 ): number {
   const tempPath = partialDownloadPath(storageRoot, download);
-  return existsSync(tempPath) ? statSync(tempPath).size : 0;
+  // Single stat with throwIfNoEntry:false avoids the existsSync→statSync TOCTOU where a
+  // concurrent delete between the check and the stat would throw during budget evaluation.
+  const stats = statSyncImpl(tempPath, { throwIfNoEntry: false });
+  return stats?.size ?? 0;
 }
 
 export class AssetDownloader {
